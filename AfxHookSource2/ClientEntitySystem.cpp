@@ -244,6 +244,11 @@ bool CEntityInstance::GetSpottedState(bool & spotted, uint32_t & mask0, uint32_t
 	mask0 = 0;
 	mask1 = 0;
 
+	// Temporarily disabled - requires offsets not yet in Rust code
+	// TODO: Add C_CSPlayerPawnBase.m_entitySpottedState and EntitySpottedState_t offsets
+	return false;
+
+	/*
 	if (!IsPlayerPawn()) return false;
 	if (0 == g_clientDllOffsets.C_CSPlayerPawnBase.m_entitySpottedState) return false;
 
@@ -253,6 +258,7 @@ bool CEntityInstance::GetSpottedState(bool & spotted, uint32_t & mask0, uint32_t
 	mask0 = maskPtr[0];
 	mask1 = maskPtr[1];
 	return true;
+	*/
 }
 
 SOURCESDK::CS2::CBaseHandle CEntityInstance::GetHandle() {
@@ -489,15 +495,23 @@ static unsigned int * GetControllerPawnHandleFieldPtr(CEntityInstance * controll
 }
 
 static unsigned int * GetControllerPlayerPawnHandleFieldPtr(CEntityInstance * controller) {
+    // Temporarily disabled - requires m_hPlayerPawn offset
+    return nullptr;
+    /*
     if(nullptr == controller || !controller->IsPlayerController()) return nullptr;
     if(0 == g_clientDllOffsets.CCSPlayerController.m_hPlayerPawn) return nullptr;
     return (unsigned int *)((unsigned char *)controller + g_clientDllOffsets.CCSPlayerController.m_hPlayerPawn);
+    */
 }
 
 static unsigned int * GetControllerObserverPawnHandleFieldPtr(CEntityInstance * controller) {
+    // Temporarily disabled - requires m_hObserverPawn offset
+    return nullptr;
+    /*
     if(nullptr == controller || !controller->IsPlayerController()) return nullptr;
     if(0 == g_clientDllOffsets.CCSPlayerController.m_hObserverPawn) return nullptr;
     return (unsigned int *)((unsigned char *)controller + g_clientDllOffsets.CCSPlayerController.m_hObserverPawn);
+    */
 }
 
 static void * GetObserverServicesPtr(CEntityInstance * pawn) {
@@ -669,12 +683,13 @@ void MirvPov_UpdatePersistentIdentity() {
 }
 
 int CEntityInstance_GetCompTeammateColor(CEntityInstance * controller) {
-    if(nullptr == controller || !controller->IsPlayerController()) return -1;
-    if(0 == g_clientDllOffsets.CCSPlayerController.m_iCompTeammateColor) return -1;
-    return *(int *)((unsigned char *)controller + g_clientDllOffsets.CCSPlayerController.m_iCompTeammateColor);
+    return -1;
 }
 
 void MirvPov_BeginFrame() {
+    // Temporarily disabled - requires EntitySpottedState_t offsets
+    return;
+    /*
     if(g_FakePovRadarFrameContextState.active) return;
     if(g_IsLocalPlayerHLTV_SuppressFrames > 0) return;
     if(!MirvPov_IsEnabled()) return;
@@ -720,6 +735,7 @@ void MirvPov_BeginFrame() {
             pMask[1] = 0xFFFFFFFF;
         }
     }
+    */
 }
 
 void MirvPov_EndFrame() {
@@ -728,6 +744,9 @@ void MirvPov_EndFrame() {
 }
 
 void MirvPov_RestoreSpotted() {
+    // Temporarily disabled - requires EntitySpottedState_t offsets
+    return;
+    /*
     if(g_SpottedRestoreCount == 0) return;
     for(int i = 0; i < g_SpottedRestoreCount; ++i) {
         auto & entry = g_SpottedRestoreEntries[i];
@@ -742,9 +761,13 @@ void MirvPov_RestoreSpotted() {
         pMask[1] = entry.originalMask[1];
     }
     g_SpottedRestoreCount = 0;
+    */
 }
 
 void MirvPov_ReWriteSpotted() {
+    // Temporarily disabled - requires EntitySpottedState_t offsets
+    return;
+    /*
     if(g_SpottedRestoreCount == 0) return;
     for(int i = 0; i < g_SpottedRestoreCount; ++i) {
         auto & entry = g_SpottedRestoreEntries[i];
@@ -758,6 +781,7 @@ void MirvPov_ReWriteSpotted() {
         pMask[0] = 0xFFFFFFFF;
         pMask[1] = 0xFFFFFFFF;
     }
+    */
 }
 
 void MirvPov_SyncObserverPawnPosition() {
@@ -1005,84 +1029,23 @@ static unsigned int __fastcall New_GetObserverTarget_fn(void* thisPtr) {
 
 // Hook GameStateAPI::IsLocalPlayerHLTV (sub_180EFF830) — Panorama bridge callback.
 // The radar JS calls this to decide spectator vs player color mode.
-// Return false to make Panorama use competitive player colors.
+// Return original behavior on the stable baseline.
 typedef bool (__fastcall * IsLocalPlayerHLTV_t)();
 static IsLocalPlayerHLTV_t g_Org_IsLocalPlayerHLTV = nullptr;
 static bool g_bIsLocalPlayerHLTVHooked = false;
 
 static bool __fastcall New_IsLocalPlayerHLTV() {
-    if(MirvPov_IsEnabled() && g_FakePovRadarFrameContextState.active && g_IsLocalPlayerHLTV_SuppressFrames <= 0) {
-        return false;
-    }
     return g_Org_IsLocalPlayerHLTV();
 }
 
 // Hook GameStateAPI::IsDemoOrHltv (sub_180EFEEE0) — Panorama bridge callback.
-// Returns true when in demo/HLTV mode. We return false so Panorama treats
-// the session as a live match for color purposes.
+// Stable baseline keeps original demo/HLTV behavior.
 typedef bool (__fastcall * IsDemoOrHltv_t)();
 static IsDemoOrHltv_t g_Org_IsDemoOrHltv = nullptr;
 static bool g_bIsDemoOrHltvHooked = false;
 
 static bool __fastcall New_IsDemoOrHltv() {
-    if(MirvPov_IsEnabled() && g_FakePovRadarFrameContextState.active && g_IsLocalPlayerHLTV_SuppressFrames <= 0) {
-        return false;
-    }
     return g_Org_IsDemoOrHltv();
-}
-
-// Hook sub_1807016C0 (IsCompetitiveMode) — gates GetPlayerColor and GetColorIndex.
-// In GOTV demos this returns false, blocking competitive teammate colors.
-// Return true during frame context so the radar uses individual player colors.
-typedef bool (__fastcall * IsCompetitiveMode_t)();
-static IsCompetitiveMode_t g_Org_IsCompetitiveMode = nullptr;
-static bool g_bIsCompetitiveModeHooked = false;
-
-static bool __fastcall New_IsCompetitiveMode() {
-    if(MirvPov_IsEnabled() && g_IsLocalPlayerHLTV_SuppressFrames <= 0) {
-        return true;
-    }
-    return g_Org_IsCompetitiveMode();
-}
-
-// Hook sub_180824040 (GetPlayerColor) — returns bool indicating whether competitive
-// colors should be used for a given (localTeam, targetTeam) pair.
-// Bypasses qword_18232AF48 null check and all other gates during frame context.
-typedef bool (__fastcall * GetPlayerColor_t)(int localTeam, int targetTeam);
-static GetPlayerColor_t g_Org_GetPlayerColor = nullptr;
-static bool g_bGetPlayerColorHooked = false;
-
-static bool __fastcall New_GetPlayerColor(int localTeam, int targetTeam) {
-    if(MirvPov_IsEnabled() && g_IsLocalPlayerHLTV_SuppressFrames <= 0) {
-        int effectiveLocalTeam = localTeam;
-        if(localTeam == 1) {
-            CEntityInstance * fakeController = GetFakePovRadarController();
-            if(fakeController) {
-                uint8_t * fakeTeam = GetTeamFieldPtr(fakeController);
-                if(fakeTeam) effectiveLocalTeam = *fakeTeam;
-            }
-        }
-
-        bool isTeammate = (effectiveLocalTeam == targetTeam) && (effectiveLocalTeam == 2 || effectiveLocalTeam == 3);
-        return isTeammate;
-    }
-    return g_Org_GetPlayerColor(localTeam, targetTeam);
-}
-
-// Hook sub_18080B690 (GetCompTeammateColorIndex) — returns m_iCompTeammateColor
-// from controller entity, gated on IsCompetitiveMode. Bypass gate during frame context.
-typedef int (__fastcall * GetCompTeammateColorIndex_t)(CEntityInstance * controller);
-static GetCompTeammateColorIndex_t g_Org_GetCompTeammateColorIndex = nullptr;
-static bool g_bGetCompTeammateColorIndexHooked = false;
-
-static int __fastcall New_GetCompTeammateColorIndex(CEntityInstance * controller) {
-    if(MirvPov_IsEnabled() && g_IsLocalPlayerHLTV_SuppressFrames <= 0) {
-        if(nullptr != controller && g_clientDllOffsets.CCSPlayerController.m_iCompTeammateColor != 0) {
-            return *(int *)((unsigned char *)controller + g_clientDllOffsets.CCSPlayerController.m_iCompTeammateColor);
-        }
-        return 0;
-    }
-    return g_Org_GetCompTeammateColorIndex(controller);
 }
 
 // Hook sub_180BD7DE0 (GetLocalPlayerController) to return fake controller
@@ -1098,6 +1061,25 @@ static CEntityInstance * __fastcall New_GetLocalPlayerController() {
         if(fake) return fake;
     }
     return g_Org_GetLocalPlayerController();
+}
+
+// Wrap the radar tick (sub_180DF4100) so the fake-controller swap is scoped to
+// the radar update only. Outside this window (e.g. spectator xray glow and the
+// floating teammate head markers) the game still sees the real HLTV controller,
+// so those overlays keep working while mirv_pov is enabled.
+typedef void (__fastcall * RadarTick_t)(__int64 a1, char a2);
+static RadarTick_t g_Org_RadarTick = nullptr;
+static bool g_bRadarTickHooked = false;
+
+static void __fastcall New_RadarTick(__int64 a1, char a2) {
+    if(!MirvPov_IsEnabled()) {
+        g_Org_RadarTick(a1, a2);
+        return;
+    }
+    bool prev = g_FakePovRadarFrameContextState.active;
+    g_FakePovRadarFrameContextState.active = true;
+    g_Org_RadarTick(a1, a2);
+    g_FakePovRadarFrameContextState.active = prev;
 }
 
 // Hook sub_180BD7830 (GetEffectiveLocalPlayer for HUD) — this function is
@@ -1159,6 +1141,220 @@ static __int64 New_GetMaxNumPlayers() {
     return 10;
 }
 
+// Patch 8: Hook radar spot visibility check (inspired by MulNX_CS2)
+// Pattern: "38 5C 24 ?? 0F 84 ?? ?? ?? ?? 48 8B 0D"
+static uint8_t * g_pRadarSpotCheckPatchAddr = nullptr;
+static uint8_t g_RadarSpotCheckOrigBytes[16] = {0};
+static uint8_t * g_pRadarSpotCheckTrampoline = nullptr;
+static size_t g_RadarSpotCheckPatchSize = 0;
+static bool g_bRadarSpotCheckPatched = false;
+
+static bool MirvPov_ShouldForceRadarSpot(CEntityInstance * targetPawn) {
+    if(!g_MirvPovEnabled) return false;
+    if(nullptr == targetPawn) return false;
+
+    __try {
+        if(!targetPawn->IsPlayerPawn()) return false;
+        CEntityInstance * fakeController = GetFakePovRadarController();
+        if(nullptr == fakeController) return false;
+        int fakeTeam = fakeController->GetTeam();
+        if(fakeTeam != 2 && fakeTeam != 3) return false;
+        return targetPawn->GetTeam() == fakeTeam;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+static void EmitU8(uint8_t * code, size_t & pos, uint8_t value) {
+    code[pos++] = value;
+}
+
+static void EmitU32(uint8_t * code, size_t & pos, uint32_t value) {
+    memcpy(code + pos, &value, sizeof(value));
+    pos += sizeof(value);
+}
+
+static void EmitU64(uint8_t * code, size_t & pos, uint64_t value) {
+    memcpy(code + pos, &value, sizeof(value));
+    pos += sizeof(value);
+}
+
+static bool EmitRel32Jump(uint8_t * code, size_t & pos, uint8_t * target) {
+    uint8_t * next = code + pos + 5;
+    intptr_t rel = target - next;
+    if(rel < INT32_MIN || rel > INT32_MAX) return false;
+    EmitU8(code, pos, 0xE9);
+    EmitU32(code, pos, (uint32_t)(int32_t)rel);
+    return true;
+}
+
+static bool EmitRel32Jcc(uint8_t * code, size_t & pos, uint8_t conditionOpcode, uint8_t * target) {
+    uint8_t * next = code + pos + 6;
+    intptr_t rel = target - next;
+    if(rel < INT32_MIN || rel > INT32_MAX) return false;
+    EmitU8(code, pos, 0x0F);
+    EmitU8(code, pos, conditionOpcode);
+    EmitU32(code, pos, (uint32_t)(int32_t)rel);
+    return true;
+}
+
+static uint8_t * MirvPov_AllocNear(uint8_t * target, size_t size) {
+    SYSTEM_INFO systemInfo;
+    GetSystemInfo(&systemInfo);
+    size_t granularity = systemInfo.dwAllocationGranularity;
+    uintptr_t targetAddr = (uintptr_t)target;
+    uintptr_t minAddr = targetAddr > 0x7fff0000 ? targetAddr - 0x7fff0000 : 0;
+    uintptr_t maxAddr = targetAddr + 0x7fff0000;
+
+    for(uintptr_t offset = 0; offset < 0x7fff0000; offset += granularity) {
+        if(targetAddr >= offset + granularity) {
+            uintptr_t addr = (targetAddr - offset) & ~(granularity - 1);
+            if(addr >= minAddr) {
+                if(void * result = VirtualAlloc((void*)addr, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)) {
+                    return (uint8_t*)result;
+                }
+            }
+        }
+
+        uintptr_t addr = (targetAddr + offset + granularity - 1) & ~(granularity - 1);
+        if(addr <= maxAddr) {
+            if(void * result = VirtualAlloc((void*)addr, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)) {
+                return (uint8_t*)result;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+static bool MirvPov_PatchRadarSpotCheck(HMODULE clientDll) {
+    if(g_bRadarSpotCheckPatched) return true;
+
+    size_t matchAddr = getAddress(clientDll, "38 5C 24 ?? 0F 84 ?? ?? ?? ?? 48 8B 0D");
+    if(0 == matchAddr) {
+        advancedfx::Message("[mirv_pov_radar_patch] Radar spot check pattern not found\n");
+        return false;
+    }
+
+    uint8_t * patchAddr = (uint8_t *)matchAddr;
+    uint8_t * renderAddr = patchAddr + 10;
+    int32_t originalSkipRel = *(int32_t *)(patchAddr + 6);
+    uint8_t * skipAddr = patchAddr + 10 + originalSkipRel;
+    size_t patchSize = 10;
+    memcpy(g_RadarSpotCheckOrigBytes, patchAddr, patchSize);
+
+    uint8_t * trampoline = MirvPov_AllocNear(patchAddr, 256);
+    if(nullptr == trampoline) {
+        advancedfx::Message("[mirv_pov_radar_patch] Failed to allocate nearby radar spot trampoline\n");
+        return false;
+    }
+
+    size_t pos = 0;
+    uint8_t stackOffset = patchAddr[3];
+
+    uint8_t pushRegs[] = {
+        0x50, 0x51, 0x52, 0x53, 0x55, 0x56, 0x57,
+        0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41, 0x53,
+        0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57
+    };
+    memcpy(trampoline + pos, pushRegs, sizeof(pushRegs));
+    pos += sizeof(pushRegs);
+
+    EmitU8(trampoline, pos, 0x48); EmitU8(trampoline, pos, 0x83); EmitU8(trampoline, pos, 0xEC); EmitU8(trampoline, pos, 0x28);
+    EmitU8(trampoline, pos, 0x4C); EmitU8(trampoline, pos, 0x89); EmitU8(trampoline, pos, 0xF9);
+    EmitU8(trampoline, pos, 0x48); EmitU8(trampoline, pos, 0xB8); EmitU64(trampoline, pos, (uint64_t)&MirvPov_ShouldForceRadarSpot);
+    EmitU8(trampoline, pos, 0xFF); EmitU8(trampoline, pos, 0xD0);
+    EmitU8(trampoline, pos, 0x48); EmitU8(trampoline, pos, 0x83); EmitU8(trampoline, pos, 0xC4); EmitU8(trampoline, pos, 0x28);
+    EmitU8(trampoline, pos, 0x84); EmitU8(trampoline, pos, 0xC0);
+
+    uint8_t * jnzPos = trampoline + pos;
+    pos += 6;
+
+    uint8_t popRegs[] = {
+        0x41, 0x5F, 0x41, 0x5E, 0x41, 0x5D, 0x41, 0x5C,
+        0x41, 0x5B, 0x41, 0x5A, 0x41, 0x59, 0x41, 0x58,
+        0x5F, 0x5E, 0x5D, 0x5B, 0x5A, 0x59, 0x58
+    };
+    memcpy(trampoline + pos, popRegs, sizeof(popRegs));
+    pos += sizeof(popRegs);
+
+    EmitU8(trampoline, pos, 0x38); EmitU8(trampoline, pos, 0x5C); EmitU8(trampoline, pos, 0x24); EmitU8(trampoline, pos, stackOffset);
+    if(!EmitRel32Jcc(trampoline, pos, 0x84, skipAddr)) {
+        VirtualFree(trampoline, 0, MEM_RELEASE);
+        return false;
+    }
+    if(!EmitRel32Jump(trampoline, pos, renderAddr)) {
+        VirtualFree(trampoline, 0, MEM_RELEASE);
+        return false;
+    }
+
+    uint8_t * forceRenderAddr = trampoline + pos;
+    memcpy(trampoline + pos, popRegs, sizeof(popRegs));
+    pos += sizeof(popRegs);
+    if(!EmitRel32Jump(trampoline, pos, renderAddr)) {
+        VirtualFree(trampoline, 0, MEM_RELEASE);
+        return false;
+    }
+
+    intptr_t forceRel = forceRenderAddr - (jnzPos + 6);
+    if(forceRel < INT32_MIN || forceRel > INT32_MAX) {
+        VirtualFree(trampoline, 0, MEM_RELEASE);
+        return false;
+    }
+    jnzPos[0] = 0x0F;
+    jnzPos[1] = 0x85;
+    *(int32_t *)(jnzPos + 2) = (int32_t)forceRel;
+
+    DWORD oldProtect;
+    if(VirtualProtect(patchAddr, patchSize, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+        intptr_t rel = trampoline - (patchAddr + 5);
+        if(rel < INT32_MIN || rel > INT32_MAX) {
+            DWORD dummy;
+            VirtualProtect(patchAddr, patchSize, oldProtect, &dummy);
+            VirtualFree(trampoline, 0, MEM_RELEASE);
+            return false;
+        }
+
+        patchAddr[0] = 0xE9;
+        *(int32_t *)(patchAddr + 1) = (int32_t)rel;
+        memset(patchAddr + 5, 0x90, patchSize - 5);
+        FlushInstructionCache(GetCurrentProcess(), patchAddr, patchSize);
+
+        DWORD dummy;
+        VirtualProtect(patchAddr, patchSize, oldProtect, &dummy);
+        g_pRadarSpotCheckPatchAddr = patchAddr;
+        g_pRadarSpotCheckTrampoline = trampoline;
+        g_RadarSpotCheckPatchSize = patchSize;
+        g_bRadarSpotCheckPatched = true;
+        advancedfx::Message("[mirv_pov_radar_patch] Patched radar spot check selectively at %p (trampoline %p)\n", (void*)patchAddr, (void*)trampoline);
+        return true;
+    }
+
+    VirtualFree(trampoline, 0, MEM_RELEASE);
+    advancedfx::Message("[mirv_pov_radar_patch] VirtualProtect failed for radar spot check (error %lu)\n", GetLastError());
+    return false;
+}
+
+static void MirvPov_RestoreRadarSpotCheck() {
+    if(!g_bRadarSpotCheckPatched || !g_pRadarSpotCheckPatchAddr) return;
+
+    DWORD oldProtect;
+    if(VirtualProtect(g_pRadarSpotCheckPatchAddr, g_RadarSpotCheckPatchSize, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+        memcpy(g_pRadarSpotCheckPatchAddr, g_RadarSpotCheckOrigBytes, g_RadarSpotCheckPatchSize);
+        FlushInstructionCache(GetCurrentProcess(), g_pRadarSpotCheckPatchAddr, g_RadarSpotCheckPatchSize);
+        DWORD dummy;
+        VirtualProtect(g_pRadarSpotCheckPatchAddr, g_RadarSpotCheckPatchSize, oldProtect, &dummy);
+    }
+    if(g_pRadarSpotCheckTrampoline) {
+        VirtualFree(g_pRadarSpotCheckTrampoline, 0, MEM_RELEASE);
+    }
+    g_bRadarSpotCheckPatched = false;
+    g_pRadarSpotCheckPatchAddr = nullptr;
+    g_pRadarSpotCheckTrampoline = nullptr;
+    g_RadarSpotCheckPatchSize = 0;
+    advancedfx::Message("[mirv_pov_radar_patch] Restored radar spot check\n");
+}
+
 static bool MirvPov_ApplyPatches(HMODULE clientDll) {
     if(g_bRadarShowAllPatched && g_bGetLocalPlayerControllerHooked && g_bHudSpectatorCheckPatched && g_bHudSpecPanelPatched && g_bGetObserverModeHooked && g_bGetObserverTargetHooked && g_bIsLocalPlayerHLTVHooked && g_bIsDemoOrHltvHooked) return true;
     if(nullptr == clientDll) {
@@ -1207,7 +1403,8 @@ static bool MirvPov_ApplyPatches(HMODULE clientDll) {
     }
 
     // --- Hook IsLocalPlayerHLTV (Panorama GameStateAPI callback) ---
-    if(!g_bIsLocalPlayerHLTVHooked) {
+    // DISABLED: interferes with xray / head markers in demo POV. Kept code for reference.
+    if(false) {
         size_t funcAddr = getAddress(clientDll, "48 83 EC ?? 33 C9 E8 ?? ?? ?? ?? 48 85 C0 74 ?? 80 B8");
         if(0 == funcAddr) {
             advancedfx::Message("[mirv_pov_radar_patch] IsLocalPlayerHLTV pattern not found\n");
@@ -1226,8 +1423,8 @@ static bool MirvPov_ApplyPatches(HMODULE clientDll) {
         }
     }
 
-    // --- IsDemoOrHltv hook: re-enabled with frame context guard ---
-    if(!g_bIsDemoOrHltvHooked) {
+    // --- IsDemoOrHltv hook: DISABLED (interferes with xray / head markers in demo POV) ---
+    if(false) {
         size_t funcAddr = 0;
         unsigned char * base = (unsigned char *)clientDll;
         IMAGE_DOS_HEADER * dosHeader = (IMAGE_DOS_HEADER *)base;
@@ -1304,66 +1501,6 @@ static bool MirvPov_ApplyPatches(HMODULE clientDll) {
         }
     }
 
-    // --- Hook IsCompetitiveMode (sub_1807016C0) to enable competitive colors ---
-    if(!g_bIsCompetitiveModeHooked) {
-        size_t funcAddr = getAddress(clientDll, "48 83 EC 28 48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 90 98 00 00 00 85 C0 75");
-        if(0 == funcAddr) {
-            advancedfx::Message("[mirv_pov_radar_patch] IsCompetitiveMode pattern not found\n");
-        } else {
-            g_Org_IsCompetitiveMode = (IsCompetitiveMode_t)funcAddr;
-            DetourTransactionBegin();
-            DetourUpdateThread(GetCurrentThread());
-            DetourAttach(&(PVOID&)g_Org_IsCompetitiveMode, New_IsCompetitiveMode);
-            if(NO_ERROR == DetourTransactionCommit()) {
-                g_bIsCompetitiveModeHooked = true;
-                advancedfx::Message("[mirv_pov_radar_patch] Hooked IsCompetitiveMode at %p\n", (void*)funcAddr);
-            } else {
-                advancedfx::Message("[mirv_pov_radar_patch] IsCompetitiveMode detour failed\n");
-                g_Org_IsCompetitiveMode = nullptr;
-            }
-        }
-    }
-
-    // --- Hook GetPlayerColor (sub_180824040) to bypass all gates during frame context ---
-    if(!g_bGetPlayerColorHooked) {
-        size_t funcAddr = getAddress(clientDll, "48 89 5C 24 10 57 48 83 EC 20 8B FA 8B D9 BA FF FF FF FF");
-        if(0 == funcAddr) {
-            advancedfx::Message("[mirv_pov_radar_patch] GetPlayerColor pattern not found\n");
-        } else {
-            g_Org_GetPlayerColor = (GetPlayerColor_t)funcAddr;
-            DetourTransactionBegin();
-            DetourUpdateThread(GetCurrentThread());
-            DetourAttach(&(PVOID&)g_Org_GetPlayerColor, New_GetPlayerColor);
-            if(NO_ERROR == DetourTransactionCommit()) {
-                g_bGetPlayerColorHooked = true;
-                advancedfx::Message("[mirv_pov_radar_patch] Hooked GetPlayerColor at %p\n", (void*)funcAddr);
-            } else {
-                advancedfx::Message("[mirv_pov_radar_patch] GetPlayerColor detour failed\n");
-                g_Org_GetPlayerColor = nullptr;
-            }
-        }
-    }
-
-    // --- Hook GetCompTeammateColorIndex (sub_18080B690) to bypass competitive mode gate ---
-    if(!g_bGetCompTeammateColorIndexHooked) {
-        size_t funcAddr = getAddress(clientDll, "40 53 48 83 EC 20 48 8B D9 48 8B 0D ?? ?? ?? ?? 48 85 C9 74 ?? E8");
-        if(0 == funcAddr) {
-            advancedfx::Message("[mirv_pov_radar_patch] GetCompTeammateColorIndex pattern not found\n");
-        } else {
-            g_Org_GetCompTeammateColorIndex = (GetCompTeammateColorIndex_t)funcAddr;
-            DetourTransactionBegin();
-            DetourUpdateThread(GetCurrentThread());
-            DetourAttach(&(PVOID&)g_Org_GetCompTeammateColorIndex, New_GetCompTeammateColorIndex);
-            if(NO_ERROR == DetourTransactionCommit()) {
-                g_bGetCompTeammateColorIndexHooked = true;
-                advancedfx::Message("[mirv_pov_radar_patch] Hooked GetCompTeammateColorIndex at %p\n", (void*)funcAddr);
-            } else {
-                advancedfx::Message("[mirv_pov_radar_patch] GetCompTeammateColorIndex detour failed\n");
-                g_Org_GetCompTeammateColorIndex = nullptr;
-            }
-        }
-    }
-
     // --- Hook GetLocalPlayerController to return fake controller during radar update ---
     if(!g_bGetLocalPlayerControllerHooked) {
         size_t funcAddr = getAddress(clientDll, "40 53 48 83 EC 20 33 C9 E8 ?? ?? ?? ?? 48 8B D8 48 85 C0 74");
@@ -1385,7 +1522,10 @@ static bool MirvPov_ApplyPatches(HMODULE clientDll) {
     }
 
     // --- Patch 3: HUD spectator check (cmp byte ptr [rax+3EBh], 1 → 0xFF) ---
-    if(!g_bHudSpectatorCheckPatched) {
+    // DISABLED: this toggles the Panorama "HUD--localplayer--spectator" CSS class,
+    // which also drives spectator head markers / xray overlay. Forcing it off removed
+    // those. Bottom spectator bar is still hidden separately by Patch 4.
+    if(false) {
         size_t match3 = getAddress(clientDll, "80 B8 EB 03 00 00 01 48 8B 11 41 0F 94 C0");
         if(0 == match3) {
             advancedfx::Message("[mirv_pov_radar_patch] HUD spectator check pattern not found\n");
@@ -1441,7 +1581,8 @@ static bool MirvPov_ApplyPatches(HMODULE clientDll) {
     // when experiment 'b' (ForceSpotted) is active. This allows 'de' to keep all players visible.
 
     // --- Patch 5: Bypass CCSGameModeRules null check in radar color functions ---
-    if(!g_bGameModeRulesCheckPatched) {
+    // DISABLED: color-mode patch interferes with xray / head markers in demo POV.
+    if(false) {
         // Function 1 (sub_18081E6D0): pattern starts at "cmp r14d, 0Ah; jg short"
         size_t match5a = getAddress(clientDll, "41 83 FE 0A 7F ?? 48 8B 0D ?? ?? ?? ?? 48 85 C9 74 ?? E8 ?? ?? ?? ?? 84 C0 74 ?? 84 DB 74 ?? 48 8B 0D ?? ?? ?? ?? 48 85 C9 74");
         if(0 == match5a) {
@@ -1489,7 +1630,8 @@ static bool MirvPov_ApplyPatches(HMODULE clientDll) {
     // Keeping Patch 5 (NOP null checks) + Patch 7 (GetMaxNumPlayers) instead.
 
     // --- Patch 7: Hook GetMaxNumPlayers (sub_1806F3800) ---
-    if(!g_bGetMaxNumPlayersHooked) {
+    // DISABLED: color-mode patch interferes with xray / head markers in demo POV.
+    if(false) {
         size_t funcAddr = getAddress(clientDll, "48 83 EC 28 48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 90 50 01 00 00 84 C0 75 ?? 48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 90 40 01 00 00");
         if(0 == funcAddr) {
             advancedfx::Message("[mirv_pov_radar_patch] GetMaxNumPlayers pattern not found\n");
@@ -1508,7 +1650,32 @@ static bool MirvPov_ApplyPatches(HMODULE clientDll) {
         }
     }
 
-    return g_bRadarSpectatorTargetPatched || g_bRadarShowAllPatched || g_bGetLocalPlayerControllerHooked;
+    // --- Radar tick wrapper: scope fake-controller swap to the radar update only ---
+    if(!g_bRadarTickHooked) {
+        size_t funcAddr = getAddress(clientDll, "84 D2 0F 84 ?? ?? ?? ?? 48 8B C4");
+        if(0 == funcAddr) {
+            advancedfx::Message("[mirv_pov_radar_patch] RadarTick pattern not found\n");
+        } else {
+            g_Org_RadarTick = (RadarTick_t)funcAddr;
+            DetourTransactionBegin();
+            DetourUpdateThread(GetCurrentThread());
+            DetourAttach(&(PVOID&)g_Org_RadarTick, New_RadarTick);
+            if(NO_ERROR == DetourTransactionCommit()) {
+                g_bRadarTickHooked = true;
+                advancedfx::Message("[mirv_pov_radar_patch] Hooked RadarTick at %p\n", (void*)funcAddr);
+            } else {
+                advancedfx::Message("[mirv_pov_radar_patch] RadarTick detour failed\n");
+                g_Org_RadarTick = nullptr;
+            }
+        }
+    }
+
+    // --- Patch 8: Selectively force smoke-hidden teammate radar spots only. ---
+    if(!g_bRadarSpotCheckPatched) {
+        MirvPov_PatchRadarSpotCheck(clientDll);
+    }
+
+    return g_bRadarSpectatorTargetPatched || g_bRadarShowAllPatched || g_bGetLocalPlayerControllerHooked || g_bRadarSpotCheckPatched || g_bRadarTickHooked;
 }
 
 static void MirvPov_RemoveShowAllNOP(); // forward declaration
@@ -1559,33 +1726,6 @@ static void MirvPov_RemovePatches() {
         DetourTransactionCommit();
         g_bIsDemoOrHltvHooked = false;
         advancedfx::Message("[mirv_pov_radar_patch] Unhooked IsDemoOrHltv\n");
-    }
-
-    if(g_bIsCompetitiveModeHooked && g_Org_IsCompetitiveMode) {
-        DetourTransactionBegin();
-        DetourUpdateThread(GetCurrentThread());
-        DetourDetach(&(PVOID&)g_Org_IsCompetitiveMode, New_IsCompetitiveMode);
-        DetourTransactionCommit();
-        g_bIsCompetitiveModeHooked = false;
-        advancedfx::Message("[mirv_pov_radar_patch] Unhooked IsCompetitiveMode\n");
-    }
-
-    if(g_bGetPlayerColorHooked && g_Org_GetPlayerColor) {
-        DetourTransactionBegin();
-        DetourUpdateThread(GetCurrentThread());
-        DetourDetach(&(PVOID&)g_Org_GetPlayerColor, New_GetPlayerColor);
-        DetourTransactionCommit();
-        g_bGetPlayerColorHooked = false;
-        advancedfx::Message("[mirv_pov_radar_patch] Unhooked GetPlayerColor\n");
-    }
-
-    if(g_bGetCompTeammateColorIndexHooked && g_Org_GetCompTeammateColorIndex) {
-        DetourTransactionBegin();
-        DetourUpdateThread(GetCurrentThread());
-        DetourDetach(&(PVOID&)g_Org_GetCompTeammateColorIndex, New_GetCompTeammateColorIndex);
-        DetourTransactionCommit();
-        g_bGetCompTeammateColorIndexHooked = false;
-        advancedfx::Message("[mirv_pov_radar_patch] Unhooked GetCompTeammateColorIndex\n");
     }
 
     if(g_bHudSpectatorCheckPatched && g_pHudSpectatorCheckPatchAddr) {
@@ -1656,6 +1796,20 @@ static void MirvPov_RemovePatches() {
         g_bGetMaxNumPlayersHooked = false;
         advancedfx::Message("[mirv_pov_radar_patch] Unhooked GetMaxNumPlayers\n");
     }
+
+    if(g_bRadarSpotCheckPatched) {
+        MirvPov_RestoreRadarSpotCheck();
+    }
+
+    if(g_bRadarTickHooked && g_Org_RadarTick) {
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourDetach(&(PVOID&)g_Org_RadarTick, New_RadarTick);
+        DetourTransactionCommit();
+        g_bRadarTickHooked = false;
+        g_FakePovRadarFrameContextState.active = false;
+        advancedfx::Message("[mirv_pov_radar_patch] Unhooked RadarTick\n");
+    }
 }
 
 static bool MirvPov_ApplyShowAllNOP(HMODULE clientDll) {
@@ -1698,7 +1852,6 @@ void MirvPov_Enable(HMODULE clientDll) {
     if(g_MirvPovEnabled) return;
     g_MirvPovAutoSync = true;
     MirvPov_ApplyPatches(clientDll);
-    MirvPov_ApplyShowAllNOP(clientDll);
     g_MirvPovEnabled = true;
 }
 
@@ -1798,7 +1951,7 @@ ClientDll_GetSplitScreenPlayer_t g_Org_ClientDll_GetSplitScreenPlayer = nullptr;
 static CEntityInstance * __fastcall New_ClientDll_GetSplitScreenPlayer(int slot) {
     if(nullptr == g_Org_ClientDll_GetSplitScreenPlayer) return nullptr;
     if(0 == slot) {
-        if(MirvPov_IsEnabled()) {
+        if(MirvPov_IsEnabled() && g_FakePovRadarFrameContextState.active) {
             if(CEntityInstance * fakeController = GetFakePovRadarController()) {
                 return fakeController;
             }

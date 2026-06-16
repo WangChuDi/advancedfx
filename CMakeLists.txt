@@ -33,14 +33,18 @@ execute_process(
     OUTPUT_VARIABLE VS_INSTALLPATH
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
-string(REPLACE "\\" "/" VS_INSTALLPATH ${VS_INSTALLPATH})
+if(VS_INSTALLPATH)
+    string(REPLACE "\\" "/" VS_INSTALLPATH ${VS_INSTALLPATH})
+endif()
 
 execute_process(
     COMMAND "$ENV{ProgramFiles\(x86\)}\\Microsoft Visual Studio\\Installer\\vswhere.exe" "-latest" "-version" "[17.0,18.0)" "-requires" "Microsoft.Component.MSBuild" "-find" "MSBuild\\**\\**\\Bin\\MSBuild.exe"
     OUTPUT_VARIABLE VS_MSBUILD
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
-string(REPLACE "\\" "/" VS_MSBUILD ${VS_MSBUILD})
+if(VS_MSBUILD)
+    string(REPLACE "\\" "/" VS_MSBUILD ${VS_MSBUILD})
+endif()
 
 ################################################################################
 #

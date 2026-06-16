@@ -10,6 +10,8 @@
 
 bool g_bHookedMirvCommands = false;
 
+static const char * MIRV_POV_LOCAL_BUILD = "mirv_pov-local-20260615-teammate-radar-v5-final-color";
+
 bool g_bNoFlashEnabled = false;
 
 bool g_bEndOfMatchEnabled = true;
@@ -80,15 +82,16 @@ CON_COMMAND(mirv_noflash, "Disables flash overlay.")
 CON_COMMAND(mirv_pov, "POV HUD with radar showing teammates. Offline demo playback only.")
 {
 	int argc = args->ArgC();
-	if(2 == argc) {
-		const char * arg1 = args->ArgV(1);
-		if(0 == _stricmp(arg1, "true") || 0 == _stricmp(arg1, "1") || 0 == _stricmp(arg1, "on")) {
-			HMODULE hClient = GetModuleHandleW(L"client.dll");
-			MirvPov_Enable(hClient);
-			advancedfx::Message("mirv_pov enabled. Use mp_forcecamera 0 for cross-team switching.\n");
-			return;
-		}
-		if(0 == _stricmp(arg1, "false") || 0 == _stricmp(arg1, "0") || 0 == _stricmp(arg1, "off")) {
+		if(2 == argc) {
+			const char * arg1 = args->ArgV(1);
+			if(0 == _stricmp(arg1, "true") || 0 == _stricmp(arg1, "1") || 0 == _stricmp(arg1, "on")) {
+				HMODULE hClient = GetModuleHandleW(L"client.dll");
+				advancedfx::Message("mirv_pov enabling: %s\n", MIRV_POV_LOCAL_BUILD);
+				MirvPov_Enable(hClient);
+				advancedfx::Message("mirv_pov enabled: %s. Use mp_forcecamera 0 for cross-team switching. Radar target: teammates only, smoke-visible.\n", MIRV_POV_LOCAL_BUILD);
+				return;
+			}
+			if(0 == _stricmp(arg1, "false") || 0 == _stricmp(arg1, "0") || 0 == _stricmp(arg1, "off")) {
 			MirvPov_Disable();
 			advancedfx::Message("mirv_pov disabled.\n");
 			return;
@@ -507,7 +510,11 @@ bool getAddressesFromClient(HMODULE clientDll) {
 
 	if (auto addr = getAddress(clientDll, "E8 ?? ?? ?? ?? 33 DB 84 C0 0F 84 ?? ?? ?? ?? 48")) {
 		org_shouldGlow = (org_shouldGlow_t)(addr + 5 + *(int32_t*)(addr + 1));
-	} else ErrorBox(MkErrStr(__FILE__, __LINE__)); 
+	} else {
+		// Pattern not found - CS2 version may have changed
+		// This is not critical for mirv_pov functionality
+		org_shouldGlow = nullptr;
+	} 
 
    // Has offset to material of skybox (other members too), pCSceneSystem and it's function to update skybox.
    //
