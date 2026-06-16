@@ -10,7 +10,7 @@
 
 bool g_bHookedMirvCommands = false;
 
-static const char * MIRV_POV_LOCAL_BUILD = "mirv_pov-local-20260615-teammate-radar-v5-final-color";
+static const char * MIRV_POV_LOCAL_BUILD = "mirv_pov-local-20260616-radar-color-v8-enemy-red";
 
 bool g_bNoFlashEnabled = false;
 

@@ -1063,6 +1063,74 @@ static CEntityInstance * __fastcall New_GetLocalPlayerController() {
     return g_Org_GetLocalPlayerController();
 }
 
+// The radar color path has a second "local player" source besides the controller
+// getter: the pawn getter sub_1808E3950(0) (via sub_180BDB550) feeds sub_180E085E0's
+// check that picks the per-blip color enum (9=T,13=CT,17=neutral/yellow,21=local).
+// In a GOTV demo the real local pawn is HLTV, so teammates/enemies fall to 17 and the
+// downstream competitive coloring never runs. Scope this getter to the radar tick so
+// the enum is computed from the observed player's pawn; outside the tick (xray glow /
+// head markers) it still returns the real pawn.
+typedef CEntityInstance * (__fastcall * GetLocalSplitScreenPawn_t)(int slot);
+static GetLocalSplitScreenPawn_t g_Org_GetLocalSplitScreenPawn = nullptr;
+static bool g_bGetLocalSplitScreenPawnHooked = false;
+
+static CEntityInstance * __fastcall New_GetLocalSplitScreenPawn(int slot) {
+    if((0 == slot || -1 == slot) && MirvPov_IsEnabled() && g_FakePovRadarFrameContextState.active) {
+        CEntityInstance * fakeController = GetFakePovRadarController();
+        if(fakeController) {
+            auto pawnHandle = fakeController->GetPlayerPawnHandle();
+            if(pawnHandle.IsValid()) {
+                CEntityInstance * fakePawn = GetEntityFromIndex(pawnHandle.GetEntryIndex());
+                if(fakePawn) return fakePawn;
+            }
+        }
+    }
+    return g_Org_GetLocalSplitScreenPawn(slot);
+}
+
+// sub_180702790: the competitive-scoring/mode predicate. It gates BOTH the teammate
+// color gate (sub_180826B30) and the per-player competitive color index getter
+// (sub_18080E180, which returns controller+2120 only when this is true). In a GOTV
+// demo it returns false, so teammates fall back to plain team colors. Force it true
+// during the radar tick so the observed player's teammates show their individual
+// competitive colors; scoped so nothing outside the radar update is affected.
+typedef bool (__fastcall * IsCompetitiveScoring_t)();
+static IsCompetitiveScoring_t g_Org_IsCompetitiveScoring = nullptr;
+static bool g_bIsCompetitiveScoringHooked = false;
+
+static bool __fastcall New_IsCompetitiveScoring() {
+    if(MirvPov_IsEnabled() && g_FakePovRadarFrameContextState.active) {
+        return true;
+    }
+    return g_Org_IsCompetitiveScoring();
+}
+
+// sub_18080E180(controller): the per-player competitive color INDEX getter. It is:
+//   if (qword_18233E258 && sub_180702790()) return *(int*)(controller + 2120);
+//   else return -1;   // -1 => caller falls back to plain team color
+// In a GOTV demo the gate is false so it returns -1 and teammates show plain team
+// colors. The per-player index at +2120 (m_iCompTeammateColor) is still valid demo
+// data. Instead of forcing the shared gate sub_180702790 (which regressed base
+// colors), scope-hook ONLY this getter to return the real index during the radar
+// tick. Diagnostic: log the first calls so we can tell whether the upstream actually
+// reaches this getter in a demo (if no log appears, the block is upstream at v7).
+typedef int (__fastcall * GetCompColorIndex_t)(CEntityInstance * controller);
+static GetCompColorIndex_t g_Org_GetCompColorIndex = nullptr;
+static bool g_bGetCompColorIndexHooked = false;
+static int g_CompColorIndexLogCount = 0;
+
+static int __fastcall New_GetCompColorIndex(CEntityInstance * controller) {
+    if(MirvPov_IsEnabled() && g_FakePovRadarFrameContextState.active && controller) {
+        int idx = *(int *)((unsigned char *)controller + 2120);
+        if(g_CompColorIndexLogCount < 30) {
+            g_CompColorIndexLogCount++;
+            advancedfx::Message("[mirv_pov_radar_patch] GetCompColorIndex called, +2120=%d\n", idx);
+        }
+        return idx;
+    }
+    return g_Org_GetCompColorIndex(controller);
+}
+
 // Wrap the radar tick (sub_180DF4100) so the fake-controller swap is scoped to
 // the radar update only. Outside this window (e.g. spectator xray glow and the
 // floating teammate head markers) the game still sees the real HLTV controller,
@@ -1148,6 +1216,19 @@ static uint8_t g_RadarSpotCheckOrigBytes[16] = {0};
 static uint8_t * g_pRadarSpotCheckTrampoline = nullptr;
 static size_t g_RadarSpotCheckPatchSize = 0;
 static bool g_bRadarSpotCheckPatched = false;
+
+// Patch 10 (enemy-red, ported from MulNX_CS2 Pos_WriteMaybeEnumToChangeRadarPlayerDraw):
+// mid-function hook at the instruction that writes the radar blip color enum (in rbx)
+// to radar-entry +0x16C. Enum values: 9=draw-as-CT, 13=draw-as-T, 17=draw-as-enemy,
+// 21=local. In a demo the observer has no team so opponents render as their own team
+// color instead of red. We rewrite the enum to 17 when the blip's team color differs
+// from the observed player's team. Does NOT depend on the v7/competitive path.
+// Pattern: "48 8B 6C 24 ?? 41 39 9E 6C 01 00 00" at 0x180e087d3.
+static uint8_t * g_pRadarColorPatchAddr = nullptr;
+static uint8_t g_RadarColorOrigBytes[16] = {0};
+static uint8_t * g_pRadarColorTrampoline = nullptr;
+static size_t g_RadarColorPatchSize = 0;
+static bool g_bRadarColorPatched = false;
 
 static bool MirvPov_ShouldForceRadarSpot(CEntityInstance * targetPawn) {
     if(!g_MirvPovEnabled) return false;
@@ -1353,6 +1434,122 @@ static void MirvPov_RestoreRadarSpotCheck() {
     g_pRadarSpotCheckTrampoline = nullptr;
     g_RadarSpotCheckPatchSize = 0;
     advancedfx::Message("[mirv_pov_radar_patch] Restored radar spot check\n");
+}
+
+// Helper for Patch 10: given the radar blip color enum (9=CT,13=T,17=enemy,21=local),
+// return 17 (enemy red) when the blip's team color is opposite to the observed
+// player's team. Mirrors MulNX's enemy-red logic.
+static int __fastcall MirvPov_AdjustRadarColor(int enumVal) {
+    if(!g_MirvPovEnabled) return enumVal;
+    __try {
+        CEntityInstance * fakeController = GetFakePovRadarController();
+        if(nullptr == fakeController) return enumVal;
+        int obsTeam = fakeController->GetTeam(); // 2=T, 3=CT
+        if(obsTeam == 3 && enumVal == 13) return 17; // observing CT: a T-colored blip is enemy
+        if(obsTeam == 2 && enumVal == 9)  return 17; // observing T:  a CT-colored blip is enemy
+        return enumVal;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return enumVal;
+    }
+}
+
+static bool MirvPov_PatchRadarColor(HMODULE clientDll) {
+    if(g_bRadarColorPatched) return true;
+
+    size_t matchAddr = getAddress(clientDll, "48 8B 6C 24 ?? 41 39 9E 6C 01 00 00");
+    if(0 == matchAddr) {
+        advancedfx::Message("[mirv_pov_radar_patch] Radar color enum pattern not found\n");
+        return false;
+    }
+
+    uint8_t * patchAddr = (uint8_t *)matchAddr;
+    size_t patchSize = 12; // two instrs: mov rbp,[rsp+48] (5) + cmp [r14+16C],ebx (7)
+    uint8_t * returnAddr = patchAddr + patchSize;
+    memcpy(g_RadarColorOrigBytes, patchAddr, patchSize);
+
+    uint8_t * trampoline = MirvPov_AllocNear(patchAddr, 256);
+    if(nullptr == trampoline) {
+        advancedfx::Message("[mirv_pov_radar_patch] Failed to allocate nearby radar color trampoline\n");
+        return false;
+    }
+
+    size_t pos = 0;
+    uint8_t pushRegs[] = {
+        0x50, 0x51, 0x52, 0x53, 0x55, 0x56, 0x57,
+        0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41, 0x53,
+        0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57
+    };
+    memcpy(trampoline + pos, pushRegs, sizeof(pushRegs));
+    pos += sizeof(pushRegs);
+
+    EmitU8(trampoline, pos, 0x8B); EmitU8(trampoline, pos, 0xCB);                       // mov ecx, ebx
+    EmitU8(trampoline, pos, 0x48); EmitU8(trampoline, pos, 0x83); EmitU8(trampoline, pos, 0xEC); EmitU8(trampoline, pos, 0x28); // sub rsp,0x28
+    EmitU8(trampoline, pos, 0x48); EmitU8(trampoline, pos, 0xB8); EmitU64(trampoline, pos, (uint64_t)&MirvPov_AdjustRadarColor); // mov rax,&helper
+    EmitU8(trampoline, pos, 0xFF); EmitU8(trampoline, pos, 0xD0);                       // call rax
+    EmitU8(trampoline, pos, 0x48); EmitU8(trampoline, pos, 0x83); EmitU8(trampoline, pos, 0xC4); EmitU8(trampoline, pos, 0x28); // add rsp,0x28
+    EmitU8(trampoline, pos, 0x89); EmitU8(trampoline, pos, 0x84); EmitU8(trampoline, pos, 0x24); EmitU32(trampoline, pos, 0x58); // mov [rsp+0x58],eax (rbx slot)
+
+    uint8_t popRegs[] = {
+        0x41, 0x5F, 0x41, 0x5E, 0x41, 0x5D, 0x41, 0x5C,
+        0x41, 0x5B, 0x41, 0x5A, 0x41, 0x59, 0x41, 0x58,
+        0x5F, 0x5E, 0x5D, 0x5B, 0x5A, 0x59, 0x58
+    };
+    memcpy(trampoline + pos, popRegs, sizeof(popRegs));
+    pos += sizeof(popRegs);
+
+    // relocated original instructions
+    EmitU8(trampoline, pos, 0x48); EmitU8(trampoline, pos, 0x8B); EmitU8(trampoline, pos, 0x6C); EmitU8(trampoline, pos, 0x24); EmitU8(trampoline, pos, 0x48); // mov rbp,[rsp+48]
+    EmitU8(trampoline, pos, 0x41); EmitU8(trampoline, pos, 0x39); EmitU8(trampoline, pos, 0x9E); EmitU32(trampoline, pos, 0x16C); // cmp [r14+16C],ebx
+    if(!EmitRel32Jump(trampoline, pos, returnAddr)) {
+        VirtualFree(trampoline, 0, MEM_RELEASE);
+        return false;
+    }
+
+    DWORD oldProtect;
+    if(VirtualProtect(patchAddr, patchSize, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+        intptr_t rel = trampoline - (patchAddr + 5);
+        if(rel < INT32_MIN || rel > INT32_MAX) {
+            DWORD dummy;
+            VirtualProtect(patchAddr, patchSize, oldProtect, &dummy);
+            VirtualFree(trampoline, 0, MEM_RELEASE);
+            return false;
+        }
+        patchAddr[0] = 0xE9;
+        *(int32_t *)(patchAddr + 1) = (int32_t)rel;
+        memset(patchAddr + 5, 0x90, patchSize - 5);
+        FlushInstructionCache(GetCurrentProcess(), patchAddr, patchSize);
+        DWORD dummy;
+        VirtualProtect(patchAddr, patchSize, oldProtect, &dummy);
+        g_pRadarColorPatchAddr = patchAddr;
+        g_pRadarColorTrampoline = trampoline;
+        g_RadarColorPatchSize = patchSize;
+        g_bRadarColorPatched = true;
+        advancedfx::Message("[mirv_pov_radar_patch] Patched radar color enum (enemy red) at %p (trampoline %p)\n", (void*)patchAddr, (void*)trampoline);
+        return true;
+    }
+
+    VirtualFree(trampoline, 0, MEM_RELEASE);
+    advancedfx::Message("[mirv_pov_radar_patch] VirtualProtect failed for radar color enum (error %lu)\n", GetLastError());
+    return false;
+}
+
+static void MirvPov_RestoreRadarColor() {
+    if(!g_bRadarColorPatched || !g_pRadarColorPatchAddr) return;
+    DWORD oldProtect;
+    if(VirtualProtect(g_pRadarColorPatchAddr, g_RadarColorPatchSize, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+        memcpy(g_pRadarColorPatchAddr, g_RadarColorOrigBytes, g_RadarColorPatchSize);
+        FlushInstructionCache(GetCurrentProcess(), g_pRadarColorPatchAddr, g_RadarColorPatchSize);
+        DWORD dummy;
+        VirtualProtect(g_pRadarColorPatchAddr, g_RadarColorPatchSize, oldProtect, &dummy);
+    }
+    if(g_pRadarColorTrampoline) {
+        VirtualFree(g_pRadarColorTrampoline, 0, MEM_RELEASE);
+    }
+    g_bRadarColorPatched = false;
+    g_pRadarColorPatchAddr = nullptr;
+    g_pRadarColorTrampoline = nullptr;
+    g_RadarColorPatchSize = 0;
+    advancedfx::Message("[mirv_pov_radar_patch] Restored radar color enum\n");
 }
 
 static bool MirvPov_ApplyPatches(HMODULE clientDll) {
@@ -1650,6 +1847,70 @@ static bool MirvPov_ApplyPatches(HMODULE clientDll) {
         }
     }
 
+    // --- Scope the color-path pawn getter (sub_1808E3950) to the radar tick ---
+    if(!g_bGetLocalSplitScreenPawnHooked) {
+        size_t funcAddr = getAddress(clientDll, "48 83 EC ?? 83 F9 ?? 75 ?? 48 8B 0D ?? ?? ?? ?? 48 8D 54 24 ?? 48 8B 01 FF 90 ?? ?? ?? ?? 8B 08 48 63 C1 4C 8D 05");
+        if(0 == funcAddr) {
+            advancedfx::Message("[mirv_pov_radar_patch] LocalSplitScreenPawn pattern not found\n");
+        } else {
+            g_Org_GetLocalSplitScreenPawn = (GetLocalSplitScreenPawn_t)funcAddr;
+            DetourTransactionBegin();
+            DetourUpdateThread(GetCurrentThread());
+            DetourAttach(&(PVOID&)g_Org_GetLocalSplitScreenPawn, New_GetLocalSplitScreenPawn);
+            if(NO_ERROR == DetourTransactionCommit()) {
+                g_bGetLocalSplitScreenPawnHooked = true;
+                advancedfx::Message("[mirv_pov_radar_patch] Hooked LocalSplitScreenPawn at %p\n", (void*)funcAddr);
+            } else {
+                advancedfx::Message("[mirv_pov_radar_patch] LocalSplitScreenPawn detour failed\n");
+                g_Org_GetLocalSplitScreenPawn = nullptr;
+            }
+        }
+    }
+
+    // --- Scope competitive-scoring predicate (sub_180702790) to the radar tick ---
+    // DISABLED: forcing this true regressed the base color enum (enemy red + team
+    // colors both vanished). It is depended on by multiple sites inside the radar
+    // tick, not just the per-player color index. Revisit via the v7/HLTV branch in
+    // sub_180E15350 instead.
+    if(false) {
+        size_t funcAddr = getAddress(clientDll, "48 83 EC ?? 48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 90 ?? ?? ?? ?? 85 C0 75 ?? 48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 90 ?? ?? ?? ?? 83 F8 ?? 74 ?? 48 8B 0D");
+        if(0 == funcAddr) {
+            advancedfx::Message("[mirv_pov_radar_patch] CompetitiveScoring pattern not found\n");
+        } else {
+            g_Org_IsCompetitiveScoring = (IsCompetitiveScoring_t)funcAddr;
+            DetourTransactionBegin();
+            DetourUpdateThread(GetCurrentThread());
+            DetourAttach(&(PVOID&)g_Org_IsCompetitiveScoring, New_IsCompetitiveScoring);
+            if(NO_ERROR == DetourTransactionCommit()) {
+                g_bIsCompetitiveScoringHooked = true;
+                advancedfx::Message("[mirv_pov_radar_patch] Hooked CompetitiveScoring at %p\n", (void*)funcAddr);
+            } else {
+                advancedfx::Message("[mirv_pov_radar_patch] CompetitiveScoring detour failed\n");
+                g_Org_IsCompetitiveScoring = nullptr;
+            }
+        }
+    }
+
+    // --- Scope the per-player competitive color index getter (sub_18080E180) ---
+    if(!g_bGetCompColorIndexHooked) {
+        size_t funcAddr = getAddress(clientDll, "40 53 48 83 EC ?? 48 8B D9 48 8B 0D ?? ?? ?? ?? 48 85 C9 74 ?? E8 ?? ?? ?? ?? 84 C0 74 ?? 8B 83");
+        if(0 == funcAddr) {
+            advancedfx::Message("[mirv_pov_radar_patch] GetCompColorIndex pattern not found\n");
+        } else {
+            g_Org_GetCompColorIndex = (GetCompColorIndex_t)funcAddr;
+            DetourTransactionBegin();
+            DetourUpdateThread(GetCurrentThread());
+            DetourAttach(&(PVOID&)g_Org_GetCompColorIndex, New_GetCompColorIndex);
+            if(NO_ERROR == DetourTransactionCommit()) {
+                g_bGetCompColorIndexHooked = true;
+                advancedfx::Message("[mirv_pov_radar_patch] Hooked GetCompColorIndex at %p\n", (void*)funcAddr);
+            } else {
+                advancedfx::Message("[mirv_pov_radar_patch] GetCompColorIndex detour failed\n");
+                g_Org_GetCompColorIndex = nullptr;
+            }
+        }
+    }
+
     // --- Radar tick wrapper: scope fake-controller swap to the radar update only ---
     if(!g_bRadarTickHooked) {
         size_t funcAddr = getAddress(clientDll, "84 D2 0F 84 ?? ?? ?? ?? 48 8B C4");
@@ -1673,6 +1934,11 @@ static bool MirvPov_ApplyPatches(HMODULE clientDll) {
     // --- Patch 8: Selectively force smoke-hidden teammate radar spots only. ---
     if(!g_bRadarSpotCheckPatched) {
         MirvPov_PatchRadarSpotCheck(clientDll);
+    }
+
+    // --- Patch 10: Enemy-red radar blip color (MulNX-style enum rewrite) ---
+    if(!g_bRadarColorPatched) {
+        MirvPov_PatchRadarColor(clientDll);
     }
 
     return g_bRadarSpectatorTargetPatched || g_bRadarShowAllPatched || g_bGetLocalPlayerControllerHooked || g_bRadarSpotCheckPatched || g_bRadarTickHooked;
@@ -1801,6 +2067,10 @@ static void MirvPov_RemovePatches() {
         MirvPov_RestoreRadarSpotCheck();
     }
 
+    if(g_bRadarColorPatched) {
+        MirvPov_RestoreRadarColor();
+    }
+
     if(g_bRadarTickHooked && g_Org_RadarTick) {
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
@@ -1809,6 +2079,34 @@ static void MirvPov_RemovePatches() {
         g_bRadarTickHooked = false;
         g_FakePovRadarFrameContextState.active = false;
         advancedfx::Message("[mirv_pov_radar_patch] Unhooked RadarTick\n");
+    }
+
+    if(g_bGetLocalSplitScreenPawnHooked && g_Org_GetLocalSplitScreenPawn) {
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourDetach(&(PVOID&)g_Org_GetLocalSplitScreenPawn, New_GetLocalSplitScreenPawn);
+        DetourTransactionCommit();
+        g_bGetLocalSplitScreenPawnHooked = false;
+        advancedfx::Message("[mirv_pov_radar_patch] Unhooked LocalSplitScreenPawn\n");
+    }
+
+    if(g_bGetCompColorIndexHooked && g_Org_GetCompColorIndex) {
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourDetach(&(PVOID&)g_Org_GetCompColorIndex, New_GetCompColorIndex);
+        DetourTransactionCommit();
+        g_bGetCompColorIndexHooked = false;
+        g_CompColorIndexLogCount = 0;
+        advancedfx::Message("[mirv_pov_radar_patch] Unhooked GetCompColorIndex\n");
+    }
+
+    if(g_bIsCompetitiveScoringHooked && g_Org_IsCompetitiveScoring) {
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourDetach(&(PVOID&)g_Org_IsCompetitiveScoring, New_IsCompetitiveScoring);
+        DetourTransactionCommit();
+        g_bIsCompetitiveScoringHooked = false;
+        advancedfx::Message("[mirv_pov_radar_patch] Unhooked CompetitiveScoring\n");
     }
 }
 
