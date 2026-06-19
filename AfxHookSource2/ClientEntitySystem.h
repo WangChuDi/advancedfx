@@ -68,6 +68,8 @@ public:
     uint8_t GetObserverMode();
     SOURCESDK::CS2::CBaseHandle GetObserverTarget();
 
+    bool GetSpottedState(bool & spotted, uint32_t & mask0, uint32_t & mask1);
+
     SOURCESDK::CS2::CBaseHandle GetHandle();
 
     uint8_t LookupAttachment(const char * attachmentName);

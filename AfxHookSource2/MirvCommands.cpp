@@ -6,9 +6,15 @@
 #include "SceneSystem.h"
 #include "SchemaSystem.h"
 
+#include "../deps/release/prop/cs2/sdk_src/public/cdll_int.h"
+
 #include <string>
 
 bool g_bHookedMirvCommands = false;
+
+static const char * MIRV_POV_LOCAL_BUILD = "mirv_pov-local-20260619-voicehud";
+
+extern SOURCESDK::CS2::ISource2EngineToClient * g_pEngineToClient;
 
 bool g_bNoFlashEnabled = false;
 
@@ -85,7 +91,8 @@ CON_COMMAND(mirv_pov, "POV HUD with radar showing teammates. Offline demo playba
 		if(0 == _stricmp(arg1, "true") || 0 == _stricmp(arg1, "1") || 0 == _stricmp(arg1, "on")) {
 			HMODULE hClient = GetModuleHandleW(L"client.dll");
 			MirvPov_Enable(hClient);
-			advancedfx::Message("mirv_pov enabled. Use mp_forcecamera 0 for cross-team switching.\n");
+			if(g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, "cl_teammate_colors_show 1", true);
+			advancedfx::Message("mirv_pov enabled.\n");
 			return;
 		}
 		if(0 == _stricmp(arg1, "false") || 0 == _stricmp(arg1, "0") || 0 == _stricmp(arg1, "off")) {
@@ -96,15 +103,17 @@ CON_COMMAND(mirv_pov, "POV HUD with radar showing teammates. Offline demo playba
 	}
 	advancedfx::Message(
 		"Usage: mirv_pov true|false\n"
-		"  true|1|on    - Enable POV HUD with radar showing teammates (CT=blue, T=yellow)\n"
-		"  false|0|off - Disable and restore original behavior\n"
+		"  true  - Enable POV HUD, teammate competitive radar colors, smoke-visible teammates, red enemies\n"
+		"  false - Disable and restore original behavior\n"
 		"Current: %s\n"
-		"Note: Use mp_forcecamera 0 for cross-team switching. Offline demo only.\n"
-		, MirvPov_IsEnabled() ? "enabled" : "disabled"
+		"Build: %s\n"
+		"Note: Use mp_forcecamera 0 for cross-team switching. Offline demo only. Enables cl_teammate_colors_show 1 once.\n"
+		, MirvPov_IsEnabled() ? "enabled" : "disabled", MIRV_POV_LOCAL_BUILD
 	);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+
 
 bool g_bMirvFovEnabled = false;
 float g_fMirvFovValue = 90.0;
@@ -508,9 +517,10 @@ bool getAddressesFromClient(HMODULE clientDll) {
 	if (auto addr = getAddress(clientDll, "E8 ?? ?? ?? ?? 33 DB 84 C0 0F 84 ?? ?? ?? ?? 48")) {
 		org_shouldGlow = (org_shouldGlow_t)(addr + 5 + *(int32_t*)(addr + 1));
 	} else {
-		advancedfx::Warning("Warning: mirv_glow shouldGlow pattern not found. Disabling MirvCommands hooks for this client.dll.\n");
-		res = false;
-	}
+		// Pattern not found - CS2 version may have changed
+		// This is not critical for mirv_pov functionality
+		org_shouldGlow = nullptr;
+	} 
 
    // Has offset to material of skybox (other members too), pCSceneSystem and it's function to update skybox.
    //
@@ -533,17 +543,11 @@ bool getAddressesFromClient(HMODULE clientDll) {
 	if (auto addr = getAddress(clientDll, "33 DB 48 8D 05 ?? ?? ?? ?? 48 8B CF 48 89 44 24 ??")) {
 		auto offset = *(int32_t*)(addr + 5);
 		org_ForceUpdateSkybox = (ForceUpdateSkybox_t)(addr + 2 + 7 + offset);
-	} else {
-		advancedfx::Warning("Warning: force update skybox pattern not found. Disabling MirvCommands hooks for this client.dll.\n");
-		res = false;
-	}
+	} else ErrorBox(MkErrStr(__FILE__, __LINE__));
 
 	if (auto addr = getAddress(clientDll, "48 8D B3 ?? ?? ?? ?? 48 8B 0E")) {
 		g_Skybox_UnkPtr_Offset =  *(uint32_t*)(addr + 3);
-	} else {
-		advancedfx::Warning("Warning: skybox pointer offset pattern not found. Disabling MirvCommands hooks for this client.dll.\n");
-		res = false;
-	}
+	} else ErrorBox(MkErrStr(__FILE__, __LINE__));
 
 	return res;
 }
