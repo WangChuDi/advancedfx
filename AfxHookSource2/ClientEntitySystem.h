@@ -19,6 +19,7 @@ void MirvPov_Disable();
 
 // Frame context (called from main.cpp render hooks)
 void MirvPov_BeginFrame();
+void MirvPov_UpdateSeekDetection();
 void MirvPov_ReWriteSpotted();
 void MirvPov_RepairTeamSpotted();
 
@@ -67,6 +68,8 @@ public:
 
     uint8_t GetObserverMode();
     SOURCESDK::CS2::CBaseHandle GetObserverTarget();
+
+    bool GetSpottedState(bool & spotted, uint32_t & mask0, uint32_t & mask1);
 
     SOURCESDK::CS2::CBaseHandle GetHandle();
 
