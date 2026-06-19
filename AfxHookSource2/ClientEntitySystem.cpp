@@ -4,6 +4,7 @@
 #include "DeathMsg.h"
 #include "WrpConsole.h"
 #include "Globals.h"
+#include "MirvTime.h"
 
 #include "../deps/release/prop/cs2/sdk_src/public/cdll_int.h"
 extern SOURCESDK::CS2::ISource2EngineToClient * g_pEngineToClient;
@@ -24,6 +25,10 @@ extern SOURCESDK::CS2::ISource2EngineToClient * g_pEngineToClient;
 
 #include <map>
 #include <algorithm>
+#include <intrin.h>
+#include <limits.h>
+
+#pragma intrinsic(_ReturnAddress)
 
 void ** g_pEntityList = nullptr;
 GetHighestEntityIndex_t  g_GetHighestEntityIndex = nullptr;
@@ -59,6 +64,28 @@ static bool g_FakePovRadarFrameContextWasActive = false;
 
 static int g_IsLocalPlayerHLTV_SuppressFrames = 0;
 static int g_IsLocalPlayerHLTV_LastDemoTick = -1;
+
+static constexpr int kMirvPovIsPlayingDemoVtableIndex = 42;
+static constexpr int kMirvPovVoiceSeekThresholdTicks = 16;
+static constexpr float kMirvPovSyntheticSpeakingSeconds = 0.65f;
+
+static int g_MirvPovVoiceLastDemoTick = INT_MIN;
+static float g_MirvPovSyntheticSpeakingUntil[64] = {};
+static size_t g_MirvPovShowSpeakerRetAddr = 0;
+static size_t g_MirvPovServerVoiceDataAddr = 0;
+static size_t g_MirvPovVoiceStatusGetAddr = 0;
+static size_t g_MirvPovVoiceStatusUpdateSpeakerStatusAddr = 0;
+
+typedef bool (*MirvPov_IsPlayingDemo_t)(void * This);
+static MirvPov_IsPlayingDemo_t g_Org_MirvPov_IsPlayingDemo = nullptr;
+static bool g_bMirvPovIsPlayingDemoHooked = false;
+
+typedef __int64 (__fastcall * MirvPov_ServerVoiceData_t)(__int64 This, __int64 msg);
+static MirvPov_ServerVoiceData_t g_Org_MirvPov_ServerVoiceData = nullptr;
+static bool g_bMirvPovServerVoiceDataHooked = false;
+
+typedef __int64 (__fastcall * MirvPov_VoiceStatus_Get_t)();
+typedef __int64 (__fastcall * MirvPov_VoiceStatus_UpdateSpeakerStatus_t)(__int64 voiceStatus, unsigned int playerSlot, int localSlot, unsigned __int8 talking);
 
 /*
 cl_track_render_eye_angles 1
@@ -657,11 +684,130 @@ bool MirvPov_IsEnabled() {
     return g_MirvPovEnabled;
 }
 
+static bool MirvPov_IsVoiceHudReady() {
+    return g_MirvPovVoiceStatusGetAddr && g_MirvPovVoiceStatusUpdateSpeakerStatusAddr;
+}
+
+static void MirvPov_SetSyntheticSpeaking(unsigned int playerSlot, bool speaking) {
+    if(64 <= playerSlot || !MirvPov_IsVoiceHudReady()) return;
+
+    __int64 voiceStatus = ((MirvPov_VoiceStatus_Get_t)g_MirvPovVoiceStatusGetAddr)();
+    if(!voiceStatus) return;
+
+    ((MirvPov_VoiceStatus_UpdateSpeakerStatus_t)g_MirvPovVoiceStatusUpdateSpeakerStatusAddr)(voiceStatus, playerSlot, -1, speaking ? 1 : 0);
+    g_MirvPovSyntheticSpeakingUntil[playerSlot] = speaking ? g_MirvTime.curtime_get() + kMirvPovSyntheticSpeakingSeconds : 0.0f;
+}
+
+static void MirvPov_ClearSyntheticSpeaking() {
+    for(int i = 0; i < 64; ++i) {
+        if(0.0f < g_MirvPovSyntheticSpeakingUntil[i]) {
+            MirvPov_SetSyntheticSpeaking(i, false);
+        }
+        g_MirvPovSyntheticSpeakingUntil[i] = 0.0f;
+    }
+}
+
+static void MirvPov_UpdateSyntheticSpeakingExpiry() {
+    float curTime = g_MirvTime.curtime_get();
+    for(int i = 0; i < 64; ++i) {
+        if(0.0f < g_MirvPovSyntheticSpeakingUntil[i] && g_MirvPovSyntheticSpeakingUntil[i] <= curTime) {
+            MirvPov_SetSyntheticSpeaking(i, false);
+        }
+    }
+}
+
+static bool New_MirvPov_IsPlayingDemo(void * This) {
+    void * ret = _ReturnAddress();
+    bool result = g_Org_MirvPov_IsPlayingDemo(This);
+    if(g_MirvPovEnabled && g_MirvPovShowSpeakerRetAddr && (size_t)ret == g_MirvPovShowSpeakerRetAddr) {
+        return false;
+    }
+    return result;
+}
+
+static __int64 __fastcall New_MirvPov_ServerVoiceData(__int64 This, __int64 msg) {
+    unsigned int playerSlot = msg ? *(unsigned int *)(msg + 104) : 0xFFFFFFFF;
+    __int64 result = g_Org_MirvPov_ServerVoiceData(This, msg);
+    if(g_MirvPovEnabled && playerSlot < 64) {
+        MirvPov_SetSyntheticSpeaking(playerSlot, true);
+    }
+    return result;
+}
+
+static bool MirvPov_ResolveVoiceHud(HMODULE clientDll) {
+    if(!clientDll) return false;
+
+    if(!g_MirvPovShowSpeakerRetAddr) {
+        size_t matchAddr = getAddress(clientDll, "48 63 C3 48 8D 0D ?? ?? ?? ?? C6 84 08 ?? ?? ?? ?? 01 48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 90 ?? ?? ?? ?? 84 C0 0F 85");
+        if(matchAddr) g_MirvPovShowSpeakerRetAddr = matchAddr + 0x22;
+    }
+    if(!g_MirvPovServerVoiceDataAddr) {
+        g_MirvPovServerVoiceDataAddr = getAddress(clientDll, "48 89 4C 24 ?? 53 55 56 57 41 54 41 55 41 57 48 81 EC");
+    }
+    if(!g_MirvPovVoiceStatusGetAddr) {
+        g_MirvPovVoiceStatusGetAddr = getAddress(clientDll, "48 8B 05 ?? ?? ?? ?? C3 CC CC CC CC CC CC CC CC 48 8D 05");
+    }
+    if(!g_MirvPovVoiceStatusUpdateSpeakerStatusAddr) {
+        g_MirvPovVoiceStatusUpdateSpeakerStatusAddr = getAddress(clientDll, "44 88 4C 24 ?? 44 89 44 24 ?? 89 54 24");
+    }
+
+    return g_MirvPovShowSpeakerRetAddr && g_MirvPovServerVoiceDataAddr && MirvPov_IsVoiceHudReady();
+}
+
+static bool MirvPov_HookVoiceHud(HMODULE clientDll) {
+    if(!MirvPov_ResolveVoiceHud(clientDll)) {
+        advancedfx::Message("[mirv_pov_voice_hud] voice HUD patterns not found\n");
+        return false;
+    }
+
+    if(!g_bMirvPovIsPlayingDemoHooked) {
+        if(!g_pEngineToClient) return false;
+        void ** vtable = *(void ***)g_pEngineToClient;
+        if(!vtable) return false;
+        if(!AfxDetourPtr((PVOID*)&(vtable[kMirvPovIsPlayingDemoVtableIndex]), New_MirvPov_IsPlayingDemo, (PVOID*)&g_Org_MirvPov_IsPlayingDemo)) return false;
+        g_bMirvPovIsPlayingDemoHooked = true;
+    }
+
+    if(!g_bMirvPovServerVoiceDataHooked) {
+        g_Org_MirvPov_ServerVoiceData = (MirvPov_ServerVoiceData_t)g_MirvPovServerVoiceDataAddr;
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourAttach(&(PVOID&)g_Org_MirvPov_ServerVoiceData, New_MirvPov_ServerVoiceData);
+        if(NO_ERROR != DetourTransactionCommit()) return false;
+        g_bMirvPovServerVoiceDataHooked = true;
+    }
+
+    return true;
+}
+
+static void MirvPov_UpdateVoiceHud() {
+    if(!MirvPov_IsEnabled() || !g_pEngineToClient) return;
+
+    SOURCESDK::CS2::IDemoFile * pDemoFile = g_pEngineToClient->GetDemoFile();
+    if(!pDemoFile) {
+        g_MirvPovVoiceLastDemoTick = INT_MIN;
+        MirvPov_ClearSyntheticSpeaking();
+        return;
+    }
+
+    int curTick = pDemoFile->GetDemoTick();
+    if(g_MirvPovVoiceLastDemoTick != INT_MIN) {
+        int delta = curTick - g_MirvPovVoiceLastDemoTick;
+        if(delta < 0 || delta > kMirvPovVoiceSeekThresholdTicks) {
+            g_pEngineToClient->ExecuteClientCmd(0, "servervoice_clear", true);
+            MirvPov_ClearSyntheticSpeaking();
+        }
+    }
+    g_MirvPovVoiceLastDemoTick = curTick;
+    MirvPov_UpdateSyntheticSpeakingExpiry();
+}
+
 void MirvPov_RestorePersistentIdentity() {
 }
 
 void MirvPov_UpdateSeekDetection() {
     if(!MirvPov_IsEnabled()) return;
+    MirvPov_UpdateVoiceHud();
     if(!g_pEngineToClient) return;
     SOURCESDK::CS2::IDemoFile * pDemoFile = g_pEngineToClient->GetDemoFile();
     if(!pDemoFile) return;
@@ -1567,6 +1713,316 @@ static void MirvPov_RestoreRadarColor() {
     g_RadarColorPatchSize = 0;
 }
 
+typedef __int64 (__fastcall * SoundCircleGate_t)(void * sourcePawn, int volume, float dist, char isStep);
+typedef void (__fastcall * SoundCircleRecord_t)(void * store, void * pawn, int volume, float dist, char isStep);
+typedef __int64 (__fastcall * SoundCirclePlacement_t)(void * radar, void * object);
+typedef __int64 (__fastcall * SoundCircleApplyVisuals_t)(void * object);
+typedef __int64 (__fastcall * SoundCircleRefresh_t)(void * radar);
+typedef void (__fastcall * SoundCircleCreateSnippet_t)(void * object, void * parent);
+
+static SoundCircleGate_t          g_Org_SoundCircleGate          = nullptr;
+static SoundCircleRecord_t        g_SoundCircleRecord            = nullptr;
+static SoundCirclePlacement_t     g_Org_SoundCirclePlacement     = nullptr;
+static SoundCircleApplyVisuals_t  g_SoundCircleApplyVisuals      = nullptr;
+static SoundCircleRefresh_t       g_Org_SoundCircleRefresh       = nullptr;
+static SoundCircleCreateSnippet_t g_Org_SoundCircleCreateSnippet = nullptr;
+static void *                     g_pSoundCircleStore            = nullptr;
+static bool                       g_bSoundCircleHooked           = false;
+static bool                       g_bSoundCirclePlacementHooked  = false;
+static unsigned int               g_SoundCirclePlacementLogCount = 0;
+static unsigned int               g_SoundCircleCreateLogCount    = 0;
+
+static CEntityInstance * MirvPov_GetObservedPawn() {
+    CEntityInstance * controller = GetFakePovRadarController();
+    if(nullptr == controller) return nullptr;
+    auto pawnHandle = controller->GetPlayerPawnHandle();
+    if(!pawnHandle.IsValid()) return nullptr;
+    return GetEntityFromIndex(pawnHandle.GetEntryIndex());
+}
+
+static void MirvPov_SetPanoramaWrapperVisible(void * wrapper, bool visible) {
+    if(nullptr == wrapper) return;
+    void * panel = *(void **)((char *)wrapper + 8);
+    if(nullptr == panel) return;
+    auto vtable = *(uintptr_t *)panel;
+    (*(void (__fastcall **)(void *, unsigned char))(vtable + 264))(panel, visible ? 1 : 0);
+}
+
+static void * MirvPov_GetPanoramaPanel(void * wrapper) {
+    if(nullptr == wrapper) return nullptr;
+    void * panelWrapper = *(void **)((char *)wrapper + 8);
+    if(nullptr == panelWrapper) return nullptr;
+    auto panelWrapperVtable = *(uintptr_t *)panelWrapper;
+    return (*(void * (__fastcall **)(void *))(panelWrapperVtable + 568))(panelWrapper);
+}
+
+static void __fastcall New_SoundCircleCreateSnippet(void * object, void * parent) {
+    g_Org_SoundCircleCreateSnippet(object, parent);
+    if(g_MirvPovEnabled && object) {
+        __try {
+            char * objectBytes = (char *)object;
+            int type = *(int *)(objectBytes + 0x178);
+            if(5 == type && g_SoundCircleCreateLogCount < 64) {
+                void * masterPanel = *(void **)objectBytes;
+                void * soundPanel = *(void **)(objectBytes + 0x08);
+                void * masterNative = MirvPov_GetPanoramaPanel(masterPanel);
+                void * soundNative = MirvPov_GetPanoramaPanel(soundPanel);
+                void * parentNative = MirvPov_GetPanoramaPanel(parent);
+                advancedfx::Message(
+                    "[soundcircle] create#%u obj=%p parent=%p/%p master=%p/%p sound=%p/%p index=%i mask=0x%08x flags=%02x/%02x\n",
+                    g_SoundCircleCreateLogCount,
+                    object,
+                    parent,
+                    parentNative,
+                    masterPanel,
+                    masterNative,
+                    soundPanel,
+                    soundNative,
+                    *(int *)(objectBytes + 0x154),
+                    *(unsigned int *)(objectBytes + 0x150),
+                    *(unsigned char *)(objectBytes + 0x17C),
+                    *(unsigned char *)(objectBytes + 0x17D));
+                ++g_SoundCircleCreateLogCount;
+            }
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            advancedfx::Message("[soundcircle] create diagnostic exception\n");
+        }
+    }
+}
+
+static void MirvPov_InvalidatePanoramaWrapper(void * wrapper) {
+    void * panel = MirvPov_GetPanoramaPanel(wrapper);
+    if(nullptr == panel) return;
+    auto panelVtable = *(uintptr_t *)panel;
+    (*(__int64 (__fastcall **)(void *))(panelVtable + 168))(panel);
+}
+
+static __int64 __fastcall New_SoundCircleGate(void * sourcePawn, int volume, float dist, char isStep) {
+    if(g_MirvPovEnabled && sourcePawn && g_SoundCircleRecord && g_pSoundCircleStore) {
+        __try {
+            CEntityInstance * observedPawn = MirvPov_GetObservedPawn();
+            if(observedPawn && (void *)observedPawn == sourcePawn) {
+                g_SoundCircleRecord(g_pSoundCircleStore, sourcePawn, volume, dist, isStep);
+                return 0;
+            }
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    return g_Org_SoundCircleGate(sourcePawn, volume, dist, isStep);
+}
+
+static __int64 __fastcall New_SoundCirclePlacement(void * radar, void * object) {
+    __int64 result = g_Org_SoundCirclePlacement(radar, object);
+    if(g_MirvPovEnabled && object) {
+        __try {
+            char * objectBytes = (char *)object;
+            int type = *(int *)(objectBytes + 0x178);
+            if(5 == type) {
+                void * soundPanel = *(void **)(objectBytes + 0x08);
+                if(nullptr == *(void **)(objectBytes + 0x10) && soundPanel) {
+                    *(void **)(objectBytes + 0x10) = soundPanel;
+                }
+                if(soundPanel) {
+                    if(nullptr == *(void **)(objectBytes + 0x80)) *(void **)(objectBytes + 0x80) = soundPanel;
+                    if(nullptr == *(void **)(objectBytes + 0x88)) *(void **)(objectBytes + 0x88) = soundPanel;
+                    if(nullptr == *(void **)(objectBytes + 0xE0)) *(void **)(objectBytes + 0xE0) = soundPanel;
+                    if(nullptr == *(void **)(objectBytes + 0x100)) *(void **)(objectBytes + 0x100) = soundPanel;
+                    if(nullptr == *(void **)(objectBytes + 0x108)) *(void **)(objectBytes + 0x108) = soundPanel;
+                }
+                *(unsigned char *)(objectBytes + 0x17C) &= ~2;
+                *(unsigned char *)(objectBytes + 0x17D) |= 1;
+                *(unsigned int *)(objectBytes + 0x150) = 0;
+                *(float *)(objectBytes + 0x148) = -1.0f;
+                if(g_SoundCircleApplyVisuals) {
+                    result = g_SoundCircleApplyVisuals(object);
+                }
+                if(g_SoundCirclePlacementLogCount < 64) {
+                    void * masterPanel = *(void **)objectBytes;
+                    void * auxPanel = *(void **)(objectBytes + 0x10);
+                    void * masterNative = MirvPov_GetPanoramaPanel(masterPanel);
+                    void * soundNative = MirvPov_GetPanoramaPanel(soundPanel);
+                    void * auxNative = MirvPov_GetPanoramaPanel(auxPanel);
+                    int radiusSource = *(int *)(objectBytes + 0x164);
+                    int colorEnum = *(int *)(objectBytes + 0x16C);
+                    unsigned int visibleMask = *(unsigned int *)(objectBytes + 0x150);
+                    unsigned char flags0 = *(unsigned char *)(objectBytes + 0x17C);
+                    unsigned char flags1 = *(unsigned char *)(objectBytes + 0x17D);
+                    float screenX = *(float *)(objectBytes + 0x128);
+                    float screenY = *(float *)(objectBytes + 0x12C);
+                    float screenZ = *(float *)(objectBytes + 0x130);
+                    float rotation = *(float *)(objectBytes + 0x134);
+                    float alpha = *(float *)(objectBytes + 0x138);
+                    float scale = *(float *)(objectBytes + 0x148);
+                    float fadeUntil = *(float *)(objectBytes + 0x174);
+                    advancedfx::Message(
+                        "[soundcircle] place#%u obj=%p master=%p/%p sound=%p/%p aux=%p/%p radiusSrc=%i color=%i mask=0x%08x flags=%02x/%02x screen=[%.2f %.2f %.2f] rot=%.2f alpha=%.2f scale=%.2f fadeUntil=%.2f\n",
+                        g_SoundCirclePlacementLogCount,
+                        object,
+                        masterPanel,
+                        masterNative,
+                        soundPanel,
+                        soundNative,
+                        auxPanel,
+                        auxNative,
+                        radiusSource,
+                        colorEnum,
+                        visibleMask,
+                        flags0,
+                        flags1,
+                        screenX,
+                        screenY,
+                        screenZ,
+                        rotation,
+                        alpha,
+                        scale,
+                        fadeUntil);
+                    ++g_SoundCirclePlacementLogCount;
+                }
+            }
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            advancedfx::Message("[soundcircle] placement fix exception\n");
+        }
+    }
+    return result;
+}
+
+static __int64 __fastcall New_SoundCircleRefresh(void * radar) {
+    if(g_MirvPovEnabled) {
+        CEntityInstance * fakeController = GetFakePovRadarController();
+        CEntityInstance * realController = GetRealSplitScreenPlayer(0);
+        if(fakeController && realController && fakeController != realController) {
+            g_FakePovRadarFrameContextState.active = true;
+            g_FakePovRadarFrameContextWasActive = true;
+            g_FakePovRadarFrameContextState.realController = realController;
+            __try {
+                __int64 result = g_Org_SoundCircleRefresh(radar);
+                g_FakePovRadarFrameContextState = FakePovRadarFrameContextState{};
+                return result;
+            } __except(EXCEPTION_EXECUTE_HANDLER) {
+                g_FakePovRadarFrameContextState = FakePovRadarFrameContextState{};
+                advancedfx::Message("[soundcircle] refresh exception\n");
+                return 0;
+            }
+        }
+    }
+    return g_Org_SoundCircleRefresh(radar);
+}
+
+static void MirvPov_HookSoundCircle(HMODULE clientDll) {
+    if(g_bSoundCircleHooked) return;
+
+    size_t gateAddr = getAddress(clientDll, "48 89 5C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 0F 29 74 24 ?? 41 0F B6 F9");
+    if(0 == gateAddr) {
+        advancedfx::Message("[mirv_pov_radar_patch] sound-circle gate pattern not found\n");
+        return;
+    }
+
+    // Resolve store (lea rcx, [rip+disp32]) and record fn (call rel32) from the gate body.
+    uint8_t * p = (uint8_t *)gateAddr;
+    for(int i = 0x10; i < 0x50 && nullptr == g_pSoundCircleStore; i++) {
+        if(p[i] == 0x48 && p[i + 1] == 0x8D && p[i + 2] == 0x0D) {
+            int32_t disp = *(int32_t *)(p + i + 3);
+            g_pSoundCircleStore = (void *)(p + i + 7 + disp);
+            for(int j = i + 7; j < i + 0x20; j++) {
+                if(p[j] == 0xE8) {
+                    int32_t rel = *(int32_t *)(p + j + 1);
+                    g_SoundCircleRecord = (SoundCircleRecord_t)(p + j + 5 + rel);
+                    break;
+                }
+            }
+        }
+    }
+    if(nullptr == g_pSoundCircleStore || nullptr == g_SoundCircleRecord) {
+        advancedfx::Message("[mirv_pov_radar_patch] sound-circle store/record not resolved\n");
+        return;
+    }
+
+    g_Org_SoundCircleGate = (SoundCircleGate_t)gateAddr;
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    DetourAttach(&(PVOID&)g_Org_SoundCircleGate, New_SoundCircleGate);
+    if(NO_ERROR != DetourTransactionCommit()) {
+        advancedfx::Message("[mirv_pov_radar_patch] sound-circle gate detour failed\n");
+        g_Org_SoundCircleGate = nullptr;
+        return;
+    }
+    g_bSoundCircleHooked = true;
+    advancedfx::Message("[soundcircle] hooked gate=%p store=%p record=%p\n", (void *)gateAddr, g_pSoundCircleStore, (void *)g_SoundCircleRecord);
+
+    if(!g_bSoundCirclePlacementHooked) {
+        size_t placementAddr = getAddress(clientDll, "48 8B C4 55 56 48 8D 68 ?? 48 81 EC ?? ?? ?? ?? F3 0F 10 89");
+        size_t applyVisualsAddr = getAddress(clientDll, "48 8B C4 48 89 58 ?? 55 56 57 48 8D 68 ?? 48 81 EC ?? ?? ?? ?? F2 0F 10 81");
+        size_t refreshAddr = getAddress(clientDll, "40 53 48 83 EC ?? 48 8B D9 E8 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? 48 89 6C 24");
+        size_t createSnippetAddr = getAddress(clientDll, "48 85 D2 0F 84 ?? ?? ?? ?? 4C 8B DC 53 56");
+        if(0 == placementAddr) {
+            advancedfx::Message("[mirv_pov_radar_patch] sound-circle placement pattern not found\n");
+        } else {
+            if(0 == applyVisualsAddr) {
+                advancedfx::Message("[mirv_pov_radar_patch] sound-circle apply-visuals pattern not found\n");
+            } else {
+                g_SoundCircleApplyVisuals = (SoundCircleApplyVisuals_t)applyVisualsAddr;
+            }
+            if(0 == refreshAddr) {
+                advancedfx::Message("[mirv_pov_radar_patch] sound-circle refresh pattern not found\n");
+            }
+            if(0 == createSnippetAddr) {
+                advancedfx::Message("[mirv_pov_radar_patch] sound-circle create-snippet pattern not found\n");
+            }
+            g_Org_SoundCirclePlacement = (SoundCirclePlacement_t)placementAddr;
+            if(0 != refreshAddr) {
+                g_Org_SoundCircleRefresh = (SoundCircleRefresh_t)refreshAddr;
+            }
+            if(0 != createSnippetAddr) {
+                g_Org_SoundCircleCreateSnippet = (SoundCircleCreateSnippet_t)createSnippetAddr;
+            }
+            DetourTransactionBegin();
+            DetourUpdateThread(GetCurrentThread());
+            DetourAttach(&(PVOID&)g_Org_SoundCirclePlacement, New_SoundCirclePlacement);
+            if(g_Org_SoundCircleRefresh) {
+                DetourAttach(&(PVOID&)g_Org_SoundCircleRefresh, New_SoundCircleRefresh);
+            }
+            if(g_Org_SoundCircleCreateSnippet) {
+                DetourAttach(&(PVOID&)g_Org_SoundCircleCreateSnippet, New_SoundCircleCreateSnippet);
+            }
+            if(NO_ERROR == DetourTransactionCommit()) {
+                g_bSoundCirclePlacementHooked = true;
+            } else {
+                g_Org_SoundCirclePlacement = nullptr;
+                g_Org_SoundCircleRefresh = nullptr;
+                g_Org_SoundCircleCreateSnippet = nullptr;
+                advancedfx::Message("[mirv_pov_radar_patch] sound-circle placement detour failed\n");
+            }
+        }
+    }
+}
+
+static void MirvPov_UnhookSoundCircle() {
+    if(g_bSoundCircleHooked && g_Org_SoundCircleGate) {
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourDetach(&(PVOID&)g_Org_SoundCircleGate, New_SoundCircleGate);
+        DetourTransactionCommit();
+        g_bSoundCircleHooked = false;
+        g_Org_SoundCircleGate = nullptr;
+    }
+    if(g_bSoundCirclePlacementHooked && g_Org_SoundCirclePlacement) {
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourDetach(&(PVOID&)g_Org_SoundCirclePlacement, New_SoundCirclePlacement);
+        if(g_Org_SoundCircleRefresh) {
+            DetourDetach(&(PVOID&)g_Org_SoundCircleRefresh, New_SoundCircleRefresh);
+        }
+        if(g_Org_SoundCircleCreateSnippet) {
+            DetourDetach(&(PVOID&)g_Org_SoundCircleCreateSnippet, New_SoundCircleCreateSnippet);
+        }
+        DetourTransactionCommit();
+        g_bSoundCirclePlacementHooked = false;
+        g_Org_SoundCirclePlacement = nullptr;
+        g_Org_SoundCircleRefresh = nullptr;
+        g_Org_SoundCircleCreateSnippet = nullptr;
+        g_SoundCircleApplyVisuals = nullptr;
+    }
+}
+
 static bool MirvPov_ApplyPatches(HMODULE clientDll) {
     if(g_bRadarShowAllPatched && g_bHudSpectatorCheckPatched && g_bHudSpecPanelPatched && g_bGetObserverModeHooked && g_bGetObserverTargetHooked && g_bIsLocalPlayerHLTVHooked && g_bIsDemoOrHltvHooked) return true;
     if(nullptr == clientDll) {
@@ -1784,6 +2240,10 @@ static bool MirvPov_ApplyPatches(HMODULE clientDll) {
         MirvPov_PatchRadarColor(clientDll);
     }
 
+    if(!g_bSoundCircleHooked) {
+        MirvPov_HookSoundCircle(clientDll);
+    }
+
     return g_bRadarSpectatorTargetPatched || g_bRadarShowAllPatched || g_bRadarSpotCheckPatched;
 }
 
@@ -1877,6 +2337,7 @@ static void MirvPov_RemovePatches() {
     if(g_bRadarMulCTPatched)    MirvPov_RestoreRadarMulCT();
     if(g_bRadarMulTPatched)     MirvPov_RestoreRadarMulT();
 
+    MirvPov_UnhookSoundCircle();
 }
 
 static bool MirvPov_ApplyShowAllNOP(HMODULE clientDll) {
@@ -1917,6 +2378,8 @@ void MirvPov_Enable(HMODULE clientDll) {
     if(g_MirvPovEnabled) return;
     g_MirvPovAutoSync = true;
     MirvPov_ApplyPatches(clientDll);
+    MirvPov_HookVoiceHud(clientDll);
+    g_MirvPovVoiceLastDemoTick = INT_MIN;
     g_MirvPovEnabled = true;
 }
 
@@ -1925,6 +2388,8 @@ void MirvPov_Disable() {
     g_MirvPovAutoSync = false;
     MirvPov_RemovePatches();
     MirvPov_RemoveShowAllNOP();
+    MirvPov_ClearSyntheticSpeaking();
+    g_MirvPovVoiceLastDemoTick = INT_MIN;
     g_MirvPovEnabled = false;
 }
 

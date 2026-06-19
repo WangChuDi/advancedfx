@@ -12,7 +12,7 @@
 
 bool g_bHookedMirvCommands = false;
 
-static const char * MIRV_POV_LOCAL_BUILD = "mirv_pov-local-20260617-radar-color-final";
+static const char * MIRV_POV_LOCAL_BUILD = "mirv_pov-local-20260619-voicehud";
 
 extern SOURCESDK::CS2::ISource2EngineToClient * g_pEngineToClient;
 
