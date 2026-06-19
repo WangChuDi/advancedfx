@@ -6,9 +6,19 @@
 #include "SceneSystem.h"
 #include "SchemaSystem.h"
 
+#include "../deps/release/prop/cs2/sdk_src/public/cdll_int.h"
+
+#include <string>
+
+#include <algorithm>
+
 bool g_bHookedMirvCommands = false;
 
-bool g_bNoFlashEnabled = false;
+static const char * MIRV_POV_LOCAL_BUILD = "mirv_pov-local-20260619-voicehud";
+
+extern SOURCESDK::CS2::ISource2EngineToClient * g_pEngineToClient;
+
+float g_fNoFlashAmount = 0.0f;
 
 bool g_bEndOfMatchEnabled = true;
 
@@ -44,12 +54,16 @@ CON_COMMAND(mirv_endofmatch, "Disables end of match scene.")
 	mirvEndOfMatch_Console(args);
 }
 
-typedef void (__fastcall *g_Original_flashFunc_t)(u_char* param_1, u_char* param_2, float* param_3);
-g_Original_flashFunc_t g_Original_flashFunc = nullptr;
+typedef void (__fastcall *g_Original_OnFlashMaxAlphaChanged_t)(u_char* param_1, u_char* param_2, float* param_3);
+g_Original_OnFlashMaxAlphaChanged_t g_Original_OnFlashMaxAlphaChanged = nullptr;
 
-void __fastcall new_flashFunc(u_char* param_1, u_char* param_2, float* param_3) {	
-	if (g_bNoFlashEnabled) return;
-	else return g_Original_flashFunc(param_1, param_2, param_3);
+void __fastcall new_OnFlashMaxAlphaChanged(u_char* param_1, u_char* param_2, float* param_3) {	
+	if (g_fNoFlashAmount == 0.0f) return g_Original_OnFlashMaxAlphaChanged(param_1, param_2, param_3);
+
+	auto newMaxAlpha = *param_3 * (1.0f - g_fNoFlashAmount);
+	*param_3 = newMaxAlpha;
+
+	return g_Original_OnFlashMaxAlphaChanged(param_1, param_2, param_3);
 }
 
 void mirvNoFlash_Console(advancedfx::ICommandArgs* args) {
@@ -58,14 +72,17 @@ void mirvNoFlash_Console(advancedfx::ICommandArgs* args) {
 
 	if (2 == argc)
 	{
-		g_bNoFlashEnabled = 0 != atoi(args->ArgV(1));
+		g_fNoFlashAmount = std::clamp((float)atof(args->ArgV(1)), 0.0f, 1.0f);
 		return;
 	}
 
 	advancedfx::Message(
-		"%s <0|1> - Enable (1) / disable (0) no flash.\n"
-		"Current value: %d\n"
-		, arg0, g_bNoFlashEnabled 
+		"%s <f> - Set the amount of noflash effect in 0.0 - 1.0 range.\n"
+		"Where 0 means no reduction = default game behaviour.\n"
+		"0.25 = reduce flash by 25%% percent.\n"
+		"1 = remove flash completely.\n"
+		"Current value: %f\n"
+		, arg0, g_fNoFlashAmount 
 	);
 
 }
@@ -73,6 +90,36 @@ void mirvNoFlash_Console(advancedfx::ICommandArgs* args) {
 CON_COMMAND(mirv_noflash, "Disables flash overlay.")
 {
 	mirvNoFlash_Console(args);
+}
+
+CON_COMMAND(mirv_pov, "POV HUD with radar showing teammates. Offline demo playback only.")
+{
+	int argc = args->ArgC();
+	if(2 == argc) {
+		const char * arg1 = args->ArgV(1);
+		if(0 == _stricmp(arg1, "true") || 0 == _stricmp(arg1, "1") || 0 == _stricmp(arg1, "on")) {
+			HMODULE hClient = GetModuleHandleW(L"client.dll");
+			if(g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, "mirv_script_load mirv_script_voice.js", true);
+			MirvPov_Enable(hClient);
+			if(g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, "cl_teammate_colors_show 1", true);
+			advancedfx::Message("mirv_pov enabled. Use mp_forcecamera 0 for cross-team switching.\n");
+			return;
+		}
+		if(0 == _stricmp(arg1, "false") || 0 == _stricmp(arg1, "0") || 0 == _stricmp(arg1, "off")) {
+			MirvPov_Disable();
+			advancedfx::Message("mirv_pov disabled.\n");
+			return;
+		}
+	}
+	advancedfx::Message(
+		"Usage: mirv_pov true|false\n"
+		"  true  - Enable POV HUD, teammate competitive radar colors, smoke-visible teammates, red enemies\n"
+		"  false - Disable and restore original behavior\n"
+		"Current: %s\n"
+		"Build: %s\n"
+		"Note: Use mp_forcecamera 0 for cross-team switching. Offline demo only. Enables cl_teammate_colors_show 1 once.\n"
+		, MirvPov_IsEnabled() ? "enabled" : "disabled", MIRV_POV_LOCAL_BUILD
+	);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -445,10 +492,11 @@ extern uint32_t g_Skybox_UnkPtr_Offset;
 
 bool getAddressesFromClient(HMODULE clientDll) {
 	bool res = true;
-	// can be found with offsets to m_flFlashScreenshotAlpha, m_flFlashDuration, m_flFlashMaxAlpha, etc. 
-	// In this function values being assigned to all these offsets at once
-	size_t g_Original_flashFunc_addr = getAddress(clientDll, "48 89 5C 24 ?? 48 89 6C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 0F 29 74 24 ?? 33 C9");
-	if(g_Original_flashFunc_addr == 0) {
+
+	// near "OnFlashMaxAlphaChanged"
+	// checks for m_flFlashMaxAlpha in param_2 and sets it to param_3 if it's not the same
+	g_Original_OnFlashMaxAlphaChanged = (g_Original_OnFlashMaxAlphaChanged_t)getAddress(clientDll, "F3 41 0F 10 08 F3 0F 10 82 ?? ?? ?? ?? 0F 2E C1 7A ?? 74 ??");
+	if(g_Original_OnFlashMaxAlphaChanged == 0) {
 		ErrorBox(MkErrStr(__FILE__, __LINE__));
 		res = false;
 	}
@@ -462,23 +510,23 @@ bool getAddressesFromClient(HMODULE clientDll) {
 	}
 
 	// See where spec_show_xray is checked, has offsets to glowProperty
-	// Also called first in 234th vtable function for C_LightEntity and other 100+ entities
+	// Also called first in 242 vtable function for C_BaseModelEntity and other 100+ entities with m_Glow (CGlowProperty)
 	size_t g_Original_setGlowProps_addr = getAddress(clientDll, "48 89 5C 24 ?? 57 48 83 EC ?? 48 8B 05 ?? ?? ?? ?? 48 8B D9 F3 0F 10 41");
 	if (g_Original_setGlowProps_addr == 0) {
 		ErrorBox(MkErrStr(__FILE__, __LINE__));
 		res = false;
 	}
 
-	g_Original_flashFunc = (g_Original_flashFunc_t)(g_Original_flashFunc_addr);
 	g_Original_EOM = (g_Original_EOM_t)(g_Original_EOM_addr);
 	g_Original_setGlowProps = (g_Original_setGlowProps_t)(g_Original_setGlowProps_addr);
 
-	// C_BaseModelEntity vtable 234th, then go to second function call, there go to first function call
-	// this function should return m_bGlowing of CGlowProperty
+	// C_BaseModelEntity vtable 242 it should have 2 function calls with m_Glow (CGlowProperty)
+	// go to second function call, there go to first function call
+	// that function should return m_bGlowing of CGlowProperty
 
-	if (auto addr = getAddress(clientDll, "E8 ?? ?? ?? ?? 33 DB 84 C0 0F 84 ?? ?? ?? ?? 48")) {
+	if (auto addr = getAddress(clientDll, "E8 ?? ?? ?? ?? 45 33 F6 84 C0 0F 84")) {
 		org_shouldGlow = (org_shouldGlow_t)(addr + 5 + *(int32_t*)(addr + 1));
-	} else ErrorBox(MkErrStr(__FILE__, __LINE__)); 
+	} else ErrorBox(MkErrStr(__FILE__, __LINE__));
 
    // Has offset to material of skybox (other members too), pCSceneSystem and it's function to update skybox.
    //
@@ -501,11 +549,17 @@ bool getAddressesFromClient(HMODULE clientDll) {
 	if (auto addr = getAddress(clientDll, "33 DB 48 8D 05 ?? ?? ?? ?? 48 8B CF 48 89 44 24 ??")) {
 		auto offset = *(int32_t*)(addr + 5);
 		org_ForceUpdateSkybox = (ForceUpdateSkybox_t)(addr + 2 + 7 + offset);
-	} else ErrorBox(MkErrStr(__FILE__, __LINE__));
+	} else {
+		advancedfx::Warning("Warning: force update skybox pattern not found. Disabling MirvCommands hooks for this client.dll.\n");
+		res = false;
+	}
 
 	if (auto addr = getAddress(clientDll, "48 8D B3 ?? ?? ?? ?? 48 8B 0E")) {
 		g_Skybox_UnkPtr_Offset =  *(uint32_t*)(addr + 3);
-	} else ErrorBox(MkErrStr(__FILE__, __LINE__));
+	} else {
+		advancedfx::Warning("Warning: skybox pointer offset pattern not found. Disabling MirvCommands hooks for this client.dll.\n");
+		res = false;
+	}
 
 	return res;
 }
@@ -518,7 +572,7 @@ void HookMirvCommands(HMODULE clientDll) {
 	DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
 
-	DetourAttach(&(PVOID&)g_Original_flashFunc, new_flashFunc);
+	DetourAttach(&(PVOID&)g_Original_OnFlashMaxAlphaChanged, new_OnFlashMaxAlphaChanged);
 	DetourAttach(&(PVOID&)g_Original_EOM, new_EOM);
 	DetourAttach(&(PVOID&)g_Original_setGlowProps, new_setGlowProps);
 	DetourAttach(&(PVOID&)org_shouldGlow, new_shouldGlow);
