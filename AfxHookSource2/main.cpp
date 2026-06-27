@@ -1520,6 +1520,7 @@ void  new_CS2_Client_FrameStageNotify(void* This, SOURCESDK::CS2::ClientFrameSta
 	if(curStage == SOURCESDK::CS2::FRAME_RENDER_PASS) {
 		MirvPov_BeginFrame();
 		MirvPov_UpdateSeekDetection();
+		MirvPov_UpdateScoreboardSync();
 	}
 
 	old_CS2_Client_FrameStageNotify(This, curStage);

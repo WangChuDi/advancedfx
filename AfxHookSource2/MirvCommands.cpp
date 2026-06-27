@@ -57,7 +57,7 @@ CON_COMMAND(mirv_endofmatch, "Disables end of match scene.")
 typedef void (__fastcall *g_Original_OnFlashMaxAlphaChanged_t)(u_char* param_1, u_char* param_2, float* param_3);
 g_Original_OnFlashMaxAlphaChanged_t g_Original_OnFlashMaxAlphaChanged = nullptr;
 
-void __fastcall new_OnFlashMaxAlphaChanged(u_char* param_1, u_char* param_2, float* param_3) {	
+void __fastcall new_OnFlashMaxAlphaChanged(u_char* param_1, u_char* param_2, float* param_3) {
 	if (g_fNoFlashAmount == 0.0f) return g_Original_OnFlashMaxAlphaChanged(param_1, param_2, param_3);
 
 	auto newMaxAlpha = *param_3 * (1.0f - g_fNoFlashAmount);
@@ -82,7 +82,7 @@ void mirvNoFlash_Console(advancedfx::ICommandArgs* args) {
 		"0.25 = reduce flash by 25%% percent.\n"
 		"1 = remove flash completely.\n"
 		"Current value: %f\n"
-		, arg0, g_fNoFlashAmount 
+		, arg0, g_fNoFlashAmount
 	);
 
 }
@@ -117,8 +117,33 @@ CON_COMMAND(mirv_pov, "POV HUD with radar showing teammates. Offline demo playba
 		"  false - Disable and restore original behavior\n"
 		"Current: %s\n"
 		"Build: %s\n"
-		"Note: Use mp_forcecamera 0 for cross-team switching. Offline demo only. Enables cl_teammate_colors_show 1 once.\n"
+		"Note: Use mirv_pov_scoreboard 1 to enable demo scoreboard sync. Use mp_forcecamera 0 for cross-team switching. Offline demo only. Enables cl_teammate_colors_show 1 once.\n"
 		, MirvPov_IsEnabled() ? "enabled" : "disabled", MIRV_POV_LOCAL_BUILD
+	);
+}
+
+CON_COMMAND(mirv_pov_scoreboard, "Sync demo POV scoreboard key to +showscores. Disabled by default.")
+{
+	int argc = args->ArgC();
+	if(2 == argc) {
+		const char * arg1 = args->ArgV(1);
+		if(0 == _stricmp(arg1, "true") || 0 == _stricmp(arg1, "1") || 0 == _stricmp(arg1, "on")) {
+			MirvPov_SetScoreboardSyncEnabled(true);
+			advancedfx::Message("mirv_pov_scoreboard enabled.\n");
+			return;
+		}
+		if(0 == _stricmp(arg1, "false") || 0 == _stricmp(arg1, "0") || 0 == _stricmp(arg1, "off")) {
+			MirvPov_SetScoreboardSyncEnabled(false);
+			advancedfx::Message("mirv_pov_scoreboard disabled.\n");
+			return;
+		}
+	}
+	advancedfx::Message(
+		"Usage: mirv_pov_scoreboard true|false\n"
+		"  true  - Enable scoreboard sync from current POV target's demo ButtonScore\n"
+		"  false - Disable scoreboard sync and close +showscores\n"
+		"Current: %s\n"
+		, MirvPov_IsScoreboardSyncEnabled() ? "enabled" : "disabled"
 	);
 }
 
@@ -415,7 +440,7 @@ CON_COMMAND(mirv_glow, "Manage glow drawing.")
                 }
                 else if (!_stricmp("remove", arg2) && 4 <= argC) {
                     const char * arg3 = args->ArgV(3);
-                    if(StringIBeginsWith(arg3,"x")) arg3++;                    
+                    if(StringIBeginsWith(arg3,"x")) arg3++;
                     g_MirvGlow.players.erase(strtoull(arg3,nullptr,10));
                     return;
                 }
@@ -424,7 +449,7 @@ CON_COMMAND(mirv_glow, "Manage glow drawing.")
                         advancedfx::Message("x%llu: %i\n",it->first,it->second ? 1 : 0);
                     }
                     return;
-                }                
+                }
                 else if (!_stricmp("help", arg2)) {
                     deathMsgPlayers_PrintHelp_Console();
 					return;
@@ -459,7 +484,7 @@ CON_COMMAND(mirv_glow, "Manage glow drawing.")
                         advancedfx::Message("%i: %i\n",it->first,it->second ? 1 : 0);
                     }
                     return;
-                }                
+                }
             }
 			advancedfx::Message(
 				"%s %s set <iHandle> 0|1 - Enable (1) / disable (0) glow for given entity.\n"

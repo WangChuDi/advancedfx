@@ -20,6 +20,9 @@ void MirvPov_Enable(HMODULE clientDll);
 void MirvPov_Disable();
 void MirvPov_BeginFrame();
 void MirvPov_UpdateSeekDetection();
+void MirvPov_UpdateScoreboardSync();
+bool MirvPov_IsScoreboardSyncEnabled();
+void MirvPov_SetScoreboardSyncEnabled(bool enabled);
 void MirvPov_ReWriteSpotted();
 void MirvPov_RepairTeamSpotted();
 
@@ -46,7 +49,7 @@ public:
     unsigned int GetHealth();
 
     int GetTeam();
-	
+
     /**
      * @remarks FLOAT_MAX if invalid
      */

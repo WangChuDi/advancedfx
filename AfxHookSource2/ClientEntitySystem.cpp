@@ -28,6 +28,7 @@ extern SOURCESDK::CS2::ISource2EngineToClient * g_pEngineToClient;
 #include <map>
 #include <algorithm>
 #include <limits.h>
+#include <stdint.h>
 
 
 void ** g_pEntityList = nullptr;
@@ -50,6 +51,17 @@ struct FakePovRadarFrameContextState {
 static FakePovRadarFrameContextState g_FakePovRadarFrameContextState;
 static bool g_FakePovRadarFrameContextWasActive = false;
 
+static bool g_MirvPovScoreboardSyncEnabled = false;
+static bool g_MirvPovScoreboardWasOpen = false;
+static bool g_MirvPovHltvScoreboardOpen = false;
+static bool g_MirvPovUserCmdScoreboardOpen[256] = {};
+
+static unsigned char * (__fastcall * g_Org_HltvFixupOperatorTick_Parse)(__int64 This, unsigned char * data, __int64 parseContext) = nullptr;
+static bool g_MirvPovHltvFixupOperatorTickHooked = false;
+
+static void (__fastcall * g_Org_CSVCMsg_UserCommands_Handler)(void * This, void * msg) = nullptr;
+static bool g_MirvPovUserCommandsHooked = false;
+
 /*
 cl_track_render_eye_angles 1
 cl_ent_absbox 192
@@ -68,8 +80,8 @@ const char * CEntityInstance::GetName() {
             *puVar4 = "GetName";
             ...
             puVar4[8] = FUN_18094f290; // <-  VSCRIPT entity.GetName function.
-            ...            
-        }        
+            ...
+        }
     */
 	const char * pszName = (const char*)*(unsigned char**)(*(unsigned char**)((unsigned char*)this + 0x10) + 0x18);
 	if(pszName) return pszName;
@@ -88,9 +100,9 @@ const char * CEntityInstance::GetDebugName() {
             *puVar4 = "GetDebugName";
             ...
            puVar4[8] = &LAB_1814c1b90; // <-  VSCRIPT entity.GetDebugName function.
-            ...            
-        }        
-    */    
+            ...
+        }
+    */
 	const char * pszName = (const char*)*(unsigned char**)(*(unsigned char**)((unsigned char*)this + 0x10) + 0x18);
 	if(pszName) return pszName;
 	return **(const char***)(*(unsigned char**)(*(unsigned char**)((unsigned char*)this + 0x10) + 0x8)+0x50);
@@ -105,9 +117,9 @@ const char * CEntityInstance::GetClassName() {
             *puVar4 = "GetClassname";
             ...
             puVar4[8] = &LAB_1814c1b60; // <-  VSCRIPT entity.GetClassName function.
-            ...            
-        }        
-    */     
+            ...
+        }
+    */
 	const char * pszName = (const char*)*(unsigned char**)(*(unsigned char**)((unsigned char*)this + 0x10) + 0x20);
 	if(pszName) return pszName;
 	return "";
@@ -144,7 +156,7 @@ SOURCESDK::CS2::CBaseHandle CEntityInstance::GetPlayerPawnHandle() {
 
 bool CEntityInstance::IsPlayerController() {
 	// See cl_ent_text drawing function. Near "Pawn: (%d) Name: %s".
-	return ((bool (__fastcall *)(void *)) (*(void***)this)[154]) (this);    
+	return ((bool (__fastcall *)(void *)) (*(void***)this)[154]) (this);
 }
 
 SOURCESDK::CS2::CBaseHandle CEntityInstance::GetPlayerControllerHandle() {
@@ -219,14 +231,14 @@ uint8_t CEntityInstance::GetObserverMode() {
 	if (!IsPlayerPawn()) return 0;
     void * pObserverServices = *(void**)((unsigned char*)this + g_clientDllOffsets.C_BasePlayerPawn.m_pObserverServices);
     if(nullptr == pObserverServices) return 0;
-	return *(uint8_t*)((unsigned char*)pObserverServices + g_clientDllOffsets.CPlayer_ObserverServices.m_iObserverMode);    
+	return *(uint8_t*)((unsigned char*)pObserverServices + g_clientDllOffsets.CPlayer_ObserverServices.m_iObserverMode);
 }
 
 SOURCESDK::CS2::CBaseHandle CEntityInstance::GetObserverTarget() {
 	if (!IsPlayerPawn())  return SOURCESDK::CS2::CEntityHandle::CEntityHandle();
     void * pObserverServices = *(void**)((unsigned char*)this + g_clientDllOffsets.C_BasePlayerPawn.m_pObserverServices);
     if(nullptr == pObserverServices) return SOURCESDK::CS2::CEntityHandle::CEntityHandle();
-	return SOURCESDK::CS2::CEntityHandle::CEntityHandle(*(unsigned int*)((unsigned char*)pObserverServices + g_clientDllOffsets.CPlayer_ObserverServices.m_hObserverTarget));    
+	return SOURCESDK::CS2::CEntityHandle::CEntityHandle(*(unsigned int*)((unsigned char*)pObserverServices + g_clientDllOffsets.CPlayer_ObserverServices.m_hObserverTarget));
 }
 
 bool CEntityInstance::GetSpottedState(bool & spotted, uint32_t & mask0, uint32_t & mask1) {
@@ -295,7 +307,7 @@ public:
     static CAfxEntityInstanceRef * Aquire(CEntityInstance * pInstance) {
         CAfxEntityInstanceRef * pRef;
         auto it = m_Map.find(pInstance);
-        if(it != m_Map.end()) {    
+        if(it != m_Map.end()) {
             pRef = it->second;
         } else {
             pRef = new CAfxEntityInstanceRef(pInstance);
@@ -312,7 +324,7 @@ public:
             auto & pInstance = it->second;
             pInstance->m_pInstance = nullptr;
             m_Map.erase(it);
-        }        
+        }
     }
 
     CEntityInstance * GetInstance() {
@@ -423,14 +435,14 @@ bool Hook_ClientEntitySystem2() {
         firstResult = NO_ERROR == DetourTransactionCommit();
     }
 
-    return firstResult;    
+    return firstResult;
 }
 
 void Hook_ClientEntitySystem3(HMODULE clientDll) {
 	// these two called one after each other
 	// there is only one placed where they are called together
 	//
-	//                             LAB_1802066cd                                   XREF[1]:     18020660b (j)   
+	//                             LAB_1802066cd                                   XREF[1]:     18020660b (j)
     // 1802066cd 8b  4f  6c       MOV        ECX ,dword ptr [RDI  + 0x6c ]
     // 1802066d0 83  e9  01       SUB        ECX ,0x1
     // 1802066d3 0f  84  3d       JZ         LAB_180206816
@@ -552,6 +564,227 @@ static unsigned int * GetViewEntityFieldPtr(CEntityInstance * pawn) {
         return (unsigned int *)((unsigned char *)pCameraServices + g_clientDllOffsets.CPlayer_CameraServices.m_hViewEntity);
     }
     return nullptr;
+}
+
+static bool MirvPov_ReadVarInt(const unsigned char * data, const unsigned char * end, const unsigned char *& cursor, uint64_t & value) {
+    uint64_t result = 0;
+    unsigned int shift = 0;
+    while(cursor < end && shift < 64) {
+        unsigned char byte = *cursor++;
+        result |= (uint64_t)(byte & 0x7f) << shift;
+        if(0 == (byte & 0x80)) {
+            value = result;
+            return true;
+        }
+        shift += 7;
+    }
+    return false;
+}
+
+static bool MirvPov_ParseInButtonStatePB(const unsigned char * data, size_t size, uint64_t outStates[3]) {
+    const unsigned char * cursor = data;
+    const unsigned char * end = data + size;
+    bool seen = false;
+    while(cursor < end) {
+        uint64_t key = 0;
+        if(!MirvPov_ReadVarInt(data, end, cursor, key)) return seen;
+        uint64_t field = key >> 3;
+        uint64_t wireType = key & 7;
+        if(0 == wireType) {
+            uint64_t value = 0;
+            if(!MirvPov_ReadVarInt(data, end, cursor, value)) return seen;
+            if(1 <= field && field <= 3) {
+                outStates[field - 1] = value;
+                seen = true;
+            }
+        } else if(1 == wireType) {
+            if(end - cursor < 8) return seen;
+            cursor += 8;
+        } else if(2 == wireType) {
+            uint64_t length = 0;
+            if(!MirvPov_ReadVarInt(data, end, cursor, length) || (uint64_t)(end - cursor) < length) return seen;
+            cursor += length;
+        } else if(5 == wireType) {
+            if(end - cursor < 4) return seen;
+            cursor += 4;
+        } else {
+            return seen;
+        }
+    }
+    return seen;
+}
+
+static bool MirvPov_SkipProtoField(const unsigned char * end, const unsigned char *& cursor, uint64_t wireType) {
+    if(0 == wireType) {
+        uint64_t ignored = 0;
+        return MirvPov_ReadVarInt(nullptr, end, cursor, ignored);
+    } else if(1 == wireType) {
+        if(end - cursor < 8) return false;
+        cursor += 8;
+        return true;
+    } else if(2 == wireType) {
+        uint64_t length = 0;
+        if(!MirvPov_ReadVarInt(nullptr, end, cursor, length) || (uint64_t)(end - cursor) < length) return false;
+        cursor += length;
+        return true;
+    } else if(5 == wireType) {
+        if(end - cursor < 4) return false;
+        cursor += 4;
+        return true;
+    }
+    return false;
+}
+
+static bool MirvPov_ParseBaseUserCmdButtons(const unsigned char * data, size_t size, uint64_t outStates[3], unsigned int depth = 0) {
+    if(4 < depth) return false;
+    const unsigned char * cursor = data;
+    const unsigned char * end = data + size;
+    while(cursor < end) {
+        uint64_t key = 0;
+        if(!MirvPov_ReadVarInt(data, end, cursor, key)) return false;
+        uint64_t field = key >> 3;
+        uint64_t wireType = key & 7;
+        if(2 == wireType) {
+            uint64_t length = 0;
+            if(!MirvPov_ReadVarInt(data, end, cursor, length) || (uint64_t)(end - cursor) < length) return false;
+            const unsigned char * nested = cursor;
+            cursor += length;
+            if((3 == field || 2 == field) && MirvPov_ParseInButtonStatePB(nested, (size_t)length, outStates)) return true;
+            if(MirvPov_ParseBaseUserCmdButtons(nested, (size_t)length, outStates, depth + 1)) return true;
+        } else if(!MirvPov_SkipProtoField(end, cursor, wireType)) {
+            return false;
+        }
+    }
+    return false;
+}
+
+static bool MirvPov_ReadProtoBytes(void * value, const unsigned char *& data, size_t & size) {
+    unsigned char * bytes = (unsigned char *)value;
+    uint64_t byteCount = *(uint64_t *)(bytes + 0x10);
+    uint64_t capacity = *(uint64_t *)(bytes + 0x18);
+    data = capacity >= 0x10 ? *(const unsigned char **)bytes : bytes;
+    size = (size_t)byteCount;
+    return nullptr != data && 0 < size && size <= 0x10000;
+}
+
+static void MirvPov_UpdateUserCmdScoreboard(int playerId, const uint64_t states[3]) {
+    g_MirvPovUserCmdScoreboardOpen[(unsigned int)playerId & 0xff] = 0 != (states[0] & 0x200000000ull);
+}
+
+static void MirvPov_ParseUserCommandsMessage(void * msg) {
+    if(!msg) return;
+    void * entriesBase = *(void **)((unsigned char *)msg + 0x50);
+    int count = *(int *)((unsigned char *)msg + 0x48);
+    if(!entriesBase || count <= 0 || count > 256) return;
+
+    void ** entries = (void **)((unsigned char *)entriesBase + 0x8);
+    for(int i = 0; i < count; ++i) {
+        void * entry = entries[i];
+        if(!entry) continue;
+        const unsigned char * data = nullptr;
+        size_t size = 0;
+        void * protoBytes = (void *)((uintptr_t)*(uint64_t *)((unsigned char *)entry + 0x18) & ~(uintptr_t)3);
+        if(!MirvPov_ReadProtoBytes(protoBytes, data, size)) continue;
+        uint64_t states[3] = {0, 0, 0};
+        if(MirvPov_ParseBaseUserCmdButtons(data, size, states)) {
+            int playerId = *(int *)((unsigned char *)entry + 0x2c);
+            MirvPov_UpdateUserCmdScoreboard(playerId, states);
+        }
+    }
+}
+
+static int MirvPov_GetCurrentTargetControllerIndex() {
+    CEntityInstance * realController = GetRealSplitScreenPlayer(0);
+    if(!realController || !realController->IsPlayerController()) return -1;
+
+    auto pawnHandle = realController->GetPlayerPawnHandle();
+    if(!pawnHandle.IsValid()) return -1;
+    CEntityInstance * observerPawn = GetEntityFromIndex(pawnHandle.GetEntryIndex());
+    if(!observerPawn) return -1;
+
+    uint8_t * pObsMode = GetObserverModeFieldPtrUnchecked(observerPawn);
+    if(!pObsMode || 0 == *pObsMode) return -1;
+
+    unsigned int * pObsTarget = GetObserverTargetFieldPtrUnchecked(observerPawn);
+    if(!pObsTarget) return -1;
+    SOURCESDK::CS2::CBaseHandle targetHandle(*pObsTarget);
+    if(!targetHandle.IsValid()) return -1;
+
+    CEntityInstance * targetPawn = GetEntityFromIndex(targetHandle.GetEntryIndex());
+    if(!targetPawn || !targetPawn->IsPlayerPawn()) return -1;
+
+    auto controllerHandle = targetPawn->GetPlayerControllerHandle();
+    if(!controllerHandle.IsValid()) return -1;
+    return controllerHandle.GetEntryIndex();
+}
+
+static bool MirvPov_IsTargetUserCmdScoreboardOpen() {
+    int targetControllerIndex = MirvPov_GetCurrentTargetControllerIndex();
+    if(targetControllerIndex < 0) return false;
+    return g_MirvPovUserCmdScoreboardOpen[(unsigned int)targetControllerIndex & 0xff];
+}
+
+static void MirvPov_SetScoreboardOpen(bool open) {
+    if(g_MirvPovScoreboardWasOpen == open) return;
+    if(g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, open ? "+showscores" : "-showscores", true);
+    g_MirvPovScoreboardWasOpen = open;
+}
+
+void MirvPov_UpdateScoreboardSync() {
+    if(!MirvPov_IsEnabled() || !g_MirvPovScoreboardSyncEnabled || MirvPovHud_ShouldSuppressFrame()) {
+        MirvPov_SetScoreboardOpen(false);
+        return;
+    }
+
+    MirvPov_SetScoreboardOpen(g_MirvPovHltvScoreboardOpen || MirvPov_IsTargetUserCmdScoreboardOpen());
+}
+
+static unsigned char * __fastcall New_HltvFixupOperatorTick_Parse(__int64 This, unsigned char * data, __int64 parseContext) {
+    unsigned char * result = g_Org_HltvFixupOperatorTick_Parse(This, data, parseContext);
+    g_MirvPovHltvScoreboardOpen = 0 != *(unsigned char *)(This + 0x40);
+    return result;
+}
+
+static void MirvPov_HookHltvFixupOperatorTick(HMODULE clientDll) {
+    if(g_MirvPovHltvFixupOperatorTickHooked) return;
+    if(nullptr == clientDll) return;
+
+    size_t matchAddr = getAddress(clientDll, "89 56 38 48 85 DB 0F 85 ?? ?? ?? ?? E9 ?? ?? ?? ?? 40 80 FF 12");
+    if(0 == matchAddr) return;
+    size_t funcAddr = matchAddr - 0x120;
+
+    g_Org_HltvFixupOperatorTick_Parse = (decltype(g_Org_HltvFixupOperatorTick_Parse))funcAddr;
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    DetourAttach(&(PVOID&)g_Org_HltvFixupOperatorTick_Parse, New_HltvFixupOperatorTick_Parse);
+    if(NO_ERROR == DetourTransactionCommit()) {
+        g_MirvPovHltvFixupOperatorTickHooked = true;
+    } else {
+        g_Org_HltvFixupOperatorTick_Parse = nullptr;
+    }
+}
+
+static void __fastcall New_CSVCMsg_UserCommands_Handler(void * This, void * msg) {
+    MirvPov_ParseUserCommandsMessage(msg);
+    g_Org_CSVCMsg_UserCommands_Handler(This, msg);
+}
+
+static void MirvPov_HookUserCommands(HMODULE clientDll) {
+    if(g_MirvPovUserCommandsHooked) return;
+    if(nullptr == clientDll) return;
+
+    size_t funcAddr = getAddress(clientDll, "4C 8B DC 53 41 54 41 57 48 83 EC 50 4C 8B 42 50 33 C0 4D 85 C0 4C 8B E1 49 8D 58 08");
+    if(0 == funcAddr) return;
+
+    g_Org_CSVCMsg_UserCommands_Handler = (decltype(g_Org_CSVCMsg_UserCommands_Handler))funcAddr;
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    DetourAttach(&(PVOID&)g_Org_CSVCMsg_UserCommands_Handler, New_CSVCMsg_UserCommands_Handler);
+    if(NO_ERROR == DetourTransactionCommit()) {
+        g_MirvPovUserCommandsHooked = true;
+    } else {
+        g_Org_CSVCMsg_UserCommands_Handler = nullptr;
+    }
 }
 
 CEntityInstance * GetEntityFromIndex(int index) {
@@ -799,7 +1032,7 @@ CON_COMMAND(mirv_listentities, "List entities.")
 			"\t\"sort=distance\" - Sort entities by distance relative to current position, from closest to most distant.\n"
 			"\t\"limit=<i>\" - Limit number of printed entries.\n"
 			"Example:\n"
-			"%s sort=distance limit=10\n" 
+			"%s sort=distance limit=10\n"
 			, arg0, arg0, arg0
 		);
 		return;
@@ -808,7 +1041,7 @@ CON_COMMAND(mirv_listentities, "List entities.")
 			const char * argI = args->ArgV(i);
 			if (StringIBeginsWith(argI, "limit=")) {
 				printCount = atoi(argI + strlen("limit="));
-			} 
+			}
 			else if (StringIBeginsWith(argI, "sort=")) {
 				if (0 == _stricmp(argI + strlen("sort="), "distance")) sortByDistance = true;
 			}
@@ -824,7 +1057,7 @@ CON_COMMAND(mirv_listentities, "List entities.")
     for(int i = 0; i < highestIndex + 1; i++) {
         if(auto ent = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList,i)) {
 			if (filterPlayers && !ent->IsPlayerController() && !ent->IsPlayerPawn()) continue;
-			
+
             float render_origin[3];
             float render_angles[3];
             ent->GetRenderEyeOrigin(render_origin);
@@ -836,10 +1069,10 @@ CON_COMMAND(mirv_listentities, "List entities.")
 
 			entries.emplace_back(
 				MirvEntityEntry {
-					i, ent->GetHandle().ToInt(), 
+					i, ent->GetHandle().ToInt(),
 					debugName ? debugName : "", className ? className : "", clientClassName ? clientClassName : "",
 					SOURCESDK::Vector {render_origin[0], render_origin[1], render_origin[2]},
-					SOURCESDK::QAngle {render_angles[0], render_angles[1], render_angles[2]} 
+					SOURCESDK::QAngle {render_angles[0], render_angles[1], render_angles[2]}
 				}
 			);
 
@@ -863,7 +1096,7 @@ CON_COMMAND(mirv_listentities, "List entities.")
 		advancedfx::Message("%i / %i / %s / %s / %s / [ %f , %f , %f , %f , %f , %f ]\n"
 			, e.entryIndex, e.handle
 			, e.debugName.c_str(), e.className.c_str(), e.clientClassName.c_str()
-			, e.origin.x, e.origin.y, e.origin.z 
+			, e.origin.x, e.origin.y, e.origin.z
 			, e.angles.x, e.angles.y, e.angles.z
 		);
 	}
@@ -932,7 +1165,7 @@ extern "C" int afx_hook_source2_get_entity_ref_player_pawn_handle(void * pRef) {
     if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
         return pInstance->GetPlayerPawnHandle().ToInt();
     }
-    return SOURCESDK_CS2_INVALID_EHANDLE_INDEX;    
+    return SOURCESDK_CS2_INVALID_EHANDLE_INDEX;
 }
 
 extern "C" FFIBool afx_hook_source2_get_entity_ref_is_player_controller(void * pRef) {
@@ -942,12 +1175,26 @@ extern "C" FFIBool afx_hook_source2_get_entity_ref_is_player_controller(void * p
     return FFIBOOL_FALSE;
 }
 
+bool MirvPov_IsScoreboardSyncEnabled() {
+    return g_MirvPovScoreboardSyncEnabled;
+}
+
+void MirvPov_SetScoreboardSyncEnabled(bool enabled) {
+    g_MirvPovScoreboardSyncEnabled = enabled;
+    if(!enabled) MirvPov_SetScoreboardOpen(false);
+}
+
 void MirvPov_Enable(HMODULE clientDll) {
     if(g_MirvPovEnabled) return;
     g_MirvPovAutoSync = true;
+    g_MirvPovScoreboardSyncEnabled = false;
+    g_MirvPovHltvScoreboardOpen = false;
+    memset(g_MirvPovUserCmdScoreboardOpen, 0, sizeof(g_MirvPovUserCmdScoreboardOpen));
     MirvPovHud_ApplyPatches(clientDll);
     MirvPov_ApplyRadarPatches(clientDll);
     MirvPov_HookVoiceHud(clientDll);
+    MirvPov_HookHltvFixupOperatorTick(clientDll);
+    MirvPov_HookUserCommands(clientDll);
     MirvPov_ResetVoiceHud();
     g_MirvPovEnabled = true;
     MirvPov_UpdateVoiceTeam();
@@ -955,6 +1202,8 @@ void MirvPov_Enable(HMODULE clientDll) {
 
 void MirvPov_Disable() {
     if(!g_MirvPovEnabled) return;
+    MirvPov_SetScoreboardOpen(false);
+    g_MirvPovScoreboardSyncEnabled = false;
     g_MirvPovAutoSync = false;
     MirvPovHud_RemovePatches();
     MirvPov_RemoveRadarPatches();
@@ -967,28 +1216,28 @@ extern "C" int afx_hook_source2_get_entity_ref_player_controller_handle(void * p
     if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
         return pInstance->GetPlayerControllerHandle().ToInt();
     }
-    return SOURCESDK_CS2_INVALID_EHANDLE_INDEX;  
+    return SOURCESDK_CS2_INVALID_EHANDLE_INDEX;
 }
 
 extern "C" int afx_hook_source2_get_entity_ref_health(void * pRef) {
     if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
         return pInstance->GetHealth();
     }
-    return 0;    
+    return 0;
 }
 
 extern "C" int afx_hook_source2_get_entity_ref_team(void * pRef) {
     if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
         return pInstance->GetTeam();
     }
-    return 0;    
+    return 0;
 }
 
 
 extern "C" void afx_hook_source2_get_entity_ref_origin(void * pRef, float & x, float & y, float & z) {
     if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
        pInstance->GetOrigin(x,y,z);
-    }    
+    }
 }
 
 extern "C" void afx_hook_source2_get_entity_ref_render_eye_origin(void * pRef, float & x, float & y, float & z) {
@@ -998,7 +1247,7 @@ extern "C" void afx_hook_source2_get_entity_ref_render_eye_origin(void * pRef, f
        x = tmp[0];
        y = tmp[1];
        z = tmp[2];
-    }    
+    }
 }
 
 extern "C" void afx_hook_source2_get_entity_ref_render_eye_angles(void * pRef, float & x, float & y, float & z) {
@@ -1008,7 +1257,7 @@ extern "C" void afx_hook_source2_get_entity_ref_render_eye_angles(void * pRef, f
        x = tmp[0];
        y = tmp[1];
        z = tmp[2];
-    }    
+    }
 }
 
 extern "C" int afx_hook_source2_get_entity_ref_view_entity_handle(void * pRef) {
@@ -1126,7 +1375,7 @@ extern "C" FFIBool afx_hook_source2_get_entity_ref_attachment(void * pRef, const
     if(auto pInstance = ((CAfxEntityInstanceRef *)pRef)->GetInstance()) {
 		auto idx = pInstance->LookupAttachment(attachmentName);
 		if (0 == idx) return FFIBOOL_FALSE;
-		
+
 		SOURCESDK::Vector origin;
 		SOURCESDK::Quaternion angles;
 
