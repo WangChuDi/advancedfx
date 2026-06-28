@@ -12,12 +12,11 @@ bool Hook_GetSplitScreenPlayer(void * pAddr);
 
 class CEntityInstance * GetEntityFromIndex(int index);
 class CEntityInstance * GetRealSplitScreenPlayer(int slot);
-// mirv_pov API
+class CEntityInstance * GetEffectiveSplitScreenPlayer(int slot);
 bool MirvPov_IsEnabled();
 void MirvPov_Enable(HMODULE clientDll);
 void MirvPov_Disable();
 
-// Frame context (called from main.cpp render hooks)
 void MirvPov_BeginFrame();
 void MirvPov_UpdateSeekDetection();
 void MirvPov_ReWriteSpotted();

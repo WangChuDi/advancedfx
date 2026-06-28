@@ -26,6 +26,35 @@
 #include <algorithm>
 #include <vector>
 
+
+typedef __int64 (__fastcall * MirvPov_PlayEntitySound_t)(void* entity, void* filterEntity, const char* soundName);
+
+MirvPov_PlayEntitySound_t g_MirvPov_PlayEntitySound = nullptr;
+
+static bool MirvPov_HasPlayerDeathSoundHooks()
+{
+	return nullptr != g_MirvPov_PlayEntitySound;
+}
+
+static bool MirvPov_PawnHasHelmet(SOURCESDK::CS2::CEntityInstance* pawn)
+{
+	if (!pawn) return false;
+	unsigned char* itemServices = *(unsigned char**)((unsigned char*)pawn + 4584);
+	return itemServices && itemServices[73];
+}
+
+static void MirvPov_PlayHeadshotFeedback(SOURCESDK::CS2::CEntityInstance* attackerPawn, const char* soundName)
+{
+	if (!attackerPawn || !soundName || !MirvPov_HasPlayerDeathSoundHooks()) return;
+
+	g_MirvPov_PlayEntitySound(attackerPawn, attackerPawn, soundName);
+}
+
+void MirvPov_GetDeathSoundAddrs(HMODULE clientDll)
+{
+	g_MirvPov_PlayEntitySound = (MirvPov_PlayEntitySound_t)getAddress(clientDll, "48 89 5C 24 ?? 48 89 6C 24 ?? 48 89 74 24 ?? 57 48 81 EC ?? ?? ?? ?? 49 8B E8");
+}
+
 // TODO: move panorama stuff out after addresses.cpp is done
 // decompose/change myPanoramaWrapper too
 // doing it messy way here for now because lazy
@@ -843,9 +872,31 @@ private:
 };
 
 struct CS2_MirvDeathMsgGlobals : MirvDeathMsgGlobals {
-	bool hooked = false; 
+	bool hooked = false;
 	MyDeathMsgGameEventWrapper* activeWrapper = nullptr;
 } g_MirvDeathMsgGlobals;
+
+void MirvPov_HandlePlayerHurt(SOURCESDK::CS2::IGameEvent* gameEvent)
+{
+	if (!gameEvent || !g_Original_hashString || !MirvPov_IsEnabled()) return;
+
+	MyDeathMsgGameEventWrapper wrapper(gameEvent);
+	int hitgroup = gameEvent->GetInt(wrapper.hashString("hitgroup"));
+	if (hitgroup != 1) return;
+
+	auto attackerPawn = gameEvent->GetPlayerPawn(wrapper.hashString("attacker"));
+	auto victimPawn = gameEvent->GetPlayerPawn(wrapper.hashString("userid"));
+	CEntityInstance* effectiveController = GetEffectiveSplitScreenPlayer(0);
+	if (!attackerPawn || !effectiveController) return;
+
+	auto effectivePawnHandle = effectiveController->GetPlayerPawnHandle();
+	if (!effectivePawnHandle.IsValid()) return;
+	SOURCESDK::CS2::CEntityInstance* effectivePawn = (SOURCESDK::CS2::CEntityInstance*)GetEntityFromIndex(effectivePawnHandle.GetEntryIndex());
+	if (!effectivePawn || attackerPawn != effectivePawn) return;
+
+	bool hasHelmet = MirvPov_PawnHasHelmet(victimPawn);
+	MirvPov_PlayHeadshotFeedback(attackerPawn, hasHelmet ? "Player.DamageHeadShotArmor.AttackerFeedback" : "Player.DamageHeadShot.AttackerFeedback");
+}
 
 typedef uint64_t (__fastcall *g_Original_getLocalSteamId_t)(void* param_1);
 g_Original_getLocalSteamId_t g_Original_getLocalSteamId = nullptr;
@@ -949,6 +1000,21 @@ void __fastcall handleDeathnotice(u_char* hudDeathNotice, SOURCESDK::CS2::IGameE
 	auto attackerController = gameEvent->GetPlayerController(myWrapper.hashString("attacker"));
 	auto victimController = gameEvent->GetPlayerController(myWrapper.hashString("userid"));
 	auto assisterController = gameEvent->GetPlayerController(myWrapper.hashString("assister"));
+	auto attackerPawn = gameEvent->GetPlayerPawn(myWrapper.hashString("attacker"));
+	auto victimPawn = gameEvent->GetPlayerPawn(myWrapper.hashString("userid"));
+	bool isHeadshot = 0 != gameEvent->GetInt(myWrapper.hashString("headshot"));
+
+	CEntityInstance* effectiveController = GetEffectiveSplitScreenPlayer(0);
+	SOURCESDK::CS2::CEntityInstance* effectivePawn = nullptr;
+	if (effectiveController) {
+		auto effectivePawnHandle = effectiveController->GetPlayerPawnHandle();
+		if (effectivePawnHandle.IsValid()) effectivePawn = (SOURCESDK::CS2::CEntityInstance*)GetEntityFromIndex(effectivePawnHandle.GetEntryIndex());
+	}
+
+	if (MirvPov_IsEnabled() && isHeadshot && attackerPawn && effectivePawn && attackerPawn == effectivePawn) {
+		bool hasHelmet = MirvPov_PawnHasHelmet(victimPawn);
+		MirvPov_PlayHeadshotFeedback(attackerPawn, hasHelmet ? "Player.DeathHeadShotArmor.AttackerFeedback" : "Player.DeathHeadShot.AttackerFeedback");
+	}
 
 	if (g_MirvDeathMsgGlobals.Settings.Debug)
 	{
@@ -1460,7 +1526,8 @@ void HookPanorama(HMODULE panoramaDll)
 void HookDeathMsg(HMODULE clientDll) {
 	if (g_MirvDeathMsgGlobals.hooked) return;
 
-    getDeathMsgAddrs(clientDll);
+	getDeathMsgAddrs(clientDll);
+	MirvPov_GetDeathSoundAddrs(clientDll);
 	if (!getPanoramaAddrsFromClient(clientDll)) return;
 
 	DetourTransactionBegin();

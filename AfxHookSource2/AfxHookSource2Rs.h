@@ -21,6 +21,8 @@ bool AfxHookSource2Rs_OnCViewRenderSetupView(float curTime, float absTime, float
 void AfxHookSource2Rs_Engine_OnClientFrameStageNotify(int event_id, bool is_before);
 
 
+void AfxHookSourceRs_Engine_Load(const char * szFilePath);
+
 extern bool g_b_on_add_entity;
 void AfxHookSource2Rs_Engine_OnAddEntity(void * pEntityRef, int handle);
 

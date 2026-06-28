@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "GameEvents.h"
+#include "DeathMsg.h"
 
 #include "../deps/release/prop/AfxHookSource/SourceSdkShared.h"
 #include "../deps/release/prop/cs2/sdk_src/public/igameevents.h"
@@ -72,6 +73,8 @@ void SendGameEvent(SOURCESDK::CS2::CGameEvent *event) {
 bool New_CGameEventManager_FireEvent( void * This, SOURCESDK::CS2::CGameEvent *event, bool bDontBroadcast /*= false*/ ) {
     g_pGameEventManager = This;
 
+    if(event && 0 == strcmp(event->GetName(), "player_hurt")) MirvPov_HandlePlayerHurt(event);
+
     //advancedfx::Message("Server Event: %s\n", event->GetName());
 
     return g_Old_CGameEventManager_FireEvent(This, event, bDontBroadcast);
@@ -81,6 +84,8 @@ extern bool g_b_on_game_event;
 
 bool New_CGameEventManager_FireEventClientSide( void * This, SOURCESDK::CS2::CGameEvent *event ) {
     g_pGameEventManager = This;
+
+    if(event && 0 == strcmp(event->GetName(), "player_hurt")) MirvPov_HandlePlayerHurt(event);
 
     if(g_b_on_game_event) SendGameEvent(event);
 

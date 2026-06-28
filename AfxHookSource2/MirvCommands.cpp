@@ -5,10 +5,13 @@
 
 #include "SceneSystem.h"
 #include "SchemaSystem.h"
+#include "AfxHookSource2Rs.h"
+#include "hlaeFolder.h"
 
 #include "../deps/release/prop/cs2/sdk_src/public/cdll_int.h"
 
 #include <string>
+#include <filesystem>
 
 #include <algorithm>
 
@@ -92,6 +95,13 @@ CON_COMMAND(mirv_noflash, "Disables flash overlay.")
 	mirvNoFlash_Console(args);
 }
 
+static void MirvPov_LoadVoiceScript()
+{
+	std::filesystem::path path(GetHlaeFolder());
+	path /= "resources\\AfxHookSource2\\snippets\\mirv_script_voice.js";
+	AfxHookSourceRs_Engine_Load(path.string().c_str());
+}
+
 CON_COMMAND(mirv_pov, "POV HUD with radar showing teammates. Offline demo playback only.")
 {
 	int argc = args->ArgC();
@@ -99,10 +109,10 @@ CON_COMMAND(mirv_pov, "POV HUD with radar showing teammates. Offline demo playba
 		const char * arg1 = args->ArgV(1);
 		if(0 == _stricmp(arg1, "true") || 0 == _stricmp(arg1, "1") || 0 == _stricmp(arg1, "on")) {
 			HMODULE hClient = GetModuleHandleW(L"client.dll");
-			if(g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, "mirv_script_load mirv_script_voice.js", true);
+			MirvPov_LoadVoiceScript();
 			MirvPov_Enable(hClient);
 			if(g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, "cl_teammate_colors_show 1", true);
-			advancedfx::Message("mirv_pov enabled. Use mp_forcecamera 0 for cross-team switching.\n");
+			advancedfx::Message("mirv_pov enabled.\n");
 			return;
 		}
 		if(0 == _stricmp(arg1, "false") || 0 == _stricmp(arg1, "0") || 0 == _stricmp(arg1, "off")) {
@@ -117,7 +127,7 @@ CON_COMMAND(mirv_pov, "POV HUD with radar showing teammates. Offline demo playba
 		"  false - Disable and restore original behavior\n"
 		"Current: %s\n"
 		"Build: %s\n"
-		"Note: Use mp_forcecamera 0 for cross-team switching. Offline demo only. Enables cl_teammate_colors_show 1 once.\n"
+		"Note: Offline demo only. Enables cl_teammate_colors_show 1 once.\n"
 		, MirvPov_IsEnabled() ? "enabled" : "disabled", MIRV_POV_LOCAL_BUILD
 	);
 }

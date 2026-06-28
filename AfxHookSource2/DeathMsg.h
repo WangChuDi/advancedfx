@@ -1,9 +1,12 @@
 #pragma once
 
 #include <windows.h>
+#include "../deps/release/prop/cs2/sdk_src/public/igameevents.h"
 
 void HookDeathMsg(HMODULE clientDll);
 void HookPanorama(HMODULE panoramaDll);
+void MirvPov_GetDeathSoundAddrs(HMODULE clientDll);
+void MirvPov_HandlePlayerHurt(SOURCESDK::CS2::IGameEvent* gameEvent);
 
 struct currentGameCamera {
 	double origin[3];
