@@ -59,6 +59,10 @@ public:
 
     const char * GetSanitizedPlayerName();
 
+    const char * GetLastPlaceName();
+
+    bool GetCurrentRoundKillReward(int & outValue);
+
     uint8_t GetObserverMode();
     SOURCESDK::CS2::CBaseHandle GetObserverTarget();
 

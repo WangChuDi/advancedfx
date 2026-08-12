@@ -3,6 +3,7 @@
 #include "addresses.h"
 #include "CampathDrawer.h"
 #include "ClientEntitySystem.h"
+#include "MirvPovKillReward.h"
 #include "GameEvents.h"
 #include "hlaeFolder.h"
 #include "RenderServiceHooks.h"
@@ -2288,9 +2289,11 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpReserved)
 
 			break;
 		}
-		case DLL_PROCESS_DETACH:
-		{
-			// actually this gets called now.
+			case DLL_PROCESS_DETACH:
+			{
+				// actually this gets called now.
+
+				MirvPovKillReward_ApplyHudChatDemoBypass(false);
 
 			g_CampathDrawer.End();
 

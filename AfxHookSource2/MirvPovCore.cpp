@@ -6,7 +6,9 @@
 #include "Globals.h"
 #include "MirvPovFeedback.h"
 #include "MirvPovHud.h"
+#include "MirvPovKillReward.h"
 #include "MirvPovPickupPrompt.h"
+#include "MirvPovRadio.h"
 #include "MirvPovRadar.h"
 #include "MirvPovScoreboard.h"
 #include "MirvPovSoundCircle.h"
@@ -145,7 +147,10 @@ void MirvPov_UpdateSeekDetection()
     if(!MirvPov_IsEnabled() || !g_pEngineToClient) return;
     SOURCESDK::CS2::IDemoFile * demoFile = g_pEngineToClient->GetDemoFile();
     if(!demoFile) return;
-    MirvPovHud_UpdateSeekDetection(demoFile->GetDemoTick());
+    const int demoTick = demoFile->GetDemoTick();
+    MirvPovHud_UpdateSeekDetection(demoTick);
+    MirvPovKillReward_OnDemoTick(demoTick);
+    MirvPovRadio_OnDemoTick(demoTick);
 }
 
 void MirvPov_OnFrameStageBefore(int frameStage)
@@ -197,6 +202,8 @@ void MirvPov_Enable(HMODULE clientDll)
     g_MirvPovEnabled = true;
     MirvPovPickupPrompt_Initialize(clientDll);
     MirvPovFeedback_Initialize(clientDll);
+    MirvPovKillReward_Initialize(clientDll);
+    MirvPovRadio_Initialize(clientDll);
     if(MirvPovVoice_IsEnabled()) MirvPov_UpdateVoiceTeam();
 }
 
@@ -211,5 +218,8 @@ void MirvPov_Disable()
     MirvPovTeamID_RemovePatches();
     MirvPovPickupPrompt_RemovePatches();
     MirvPov_ResetVoiceHud();
+    MirvPovKillReward_ApplyHudChatDemoBypass(false);
+    MirvPovKillReward_Reset("mirv_pov disabled");
+    MirvPovRadio_Reset("mirv_pov disabled");
     g_MirvPovEnabled = false;
 }

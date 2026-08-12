@@ -34,6 +34,9 @@ void getOffsetsFromSchemaSystem(SDK::CSchemaSystem* pSchemaSystem)
 			if (!pClass) continue;
 
 			const char* className = pClass->m_szName;
+			if (0 == strcmp(className, "CSPerRoundStats_t")) {
+				g_clientDllOffsets.CSPerRoundStats_t.size = pClass->m_nSize;
+			}
 
 			uintptr_t pClassFields = (uintptr_t)(pClass->m_pFields);
 			if (pClassFields)
@@ -104,12 +107,35 @@ void initSchemaSystemOffsets()
 	bOk = bOk && getOffset(&g_clientDllOffsets.CCSPlayerController.m_sSanitizedPlayerName, "client.dll", "CCSPlayerController", "m_sSanitizedPlayerName");
 	bOk = bOk && getOffset(&g_clientDllOffsets.CCSPlayerController.m_hPlayerPawn, "client.dll", "CCSPlayerController", "m_hPlayerPawn");
 	bOk = bOk && getOffset(&g_clientDllOffsets.CCSPlayerController.m_hObserverPawn, "client.dll", "CCSPlayerController", "m_hObserverPawn");
-	if (!getOffset(&g_clientDllOffsets.CCSPlayerController.m_bHasCommunicationAbuseMute,
+		if (!getOffset(&g_clientDllOffsets.CCSPlayerController.m_bHasCommunicationAbuseMute,
 		"client.dll", "CCSPlayerController", "m_bHasCommunicationAbuseMute")
 		&& !getOffset(&g_clientDllOffsets.CCSPlayerController.m_bHasCommunicationAbuseMute,
 			"client.dll", "C_CSPlayerController", "m_bHasCommunicationAbuseMute")) {
-		advancedfx::Warning("SchemaSystem optional offset lookup failed: CCSPlayerController.m_bHasCommunicationAbuseMute\n");
-	}
+			advancedfx::Warning("SchemaSystem optional offset lookup failed: CCSPlayerController.m_bHasCommunicationAbuseMute\n");
+		}
+		if (!getOffset(&g_clientDllOffsets.CCSPlayerController.m_nPawnCharacterDefIndex,
+			"client.dll", "CCSPlayerController", "m_nPawnCharacterDefIndex")
+			&& !getOffset(&g_clientDllOffsets.CCSPlayerController.m_nPawnCharacterDefIndex,
+				"client.dll", "C_CSPlayerController", "m_nPawnCharacterDefIndex")) {
+			advancedfx::Warning("SchemaSystem optional offset lookup failed: CCSPlayerController.m_nPawnCharacterDefIndex\n");
+		}
+		if (!getOffset(&g_clientDllOffsets.CCSPlayerController.m_pActionTrackingServices,
+			"client.dll", "CCSPlayerController", "m_pActionTrackingServices")
+			&& !getOffset(&g_clientDllOffsets.CCSPlayerController.m_pActionTrackingServices,
+				"client.dll", "C_CSPlayerController", "m_pActionTrackingServices")) {
+			advancedfx::Warning("SchemaSystem optional offset lookup failed: CCSPlayerController.m_pActionTrackingServices\n");
+		}
+		if (!getOffset(&g_clientDllOffsets.CCSPlayerController_ActionTrackingServices.m_perRoundStats,
+			"client.dll", "CCSPlayerController_ActionTrackingServices", "m_perRoundStats")) {
+			advancedfx::Warning("SchemaSystem optional offset lookup failed: CCSPlayerController_ActionTrackingServices.m_perRoundStats\n");
+		}
+		if (!getOffset(&g_clientDllOffsets.CSPerRoundStats_t.m_iKillReward,
+			"client.dll", "CSPerRoundStats_t", "m_iKillReward")) {
+			advancedfx::Warning("SchemaSystem optional offset lookup failed: CSPerRoundStats_t.m_iKillReward\n");
+		}
+		if (g_clientDllOffsets.CSPerRoundStats_t.size <= (size_t)g_clientDllOffsets.CSPerRoundStats_t.m_iKillReward) {
+			advancedfx::Warning("SchemaSystem optional class-size lookup failed: CSPerRoundStats_t\n");
+		}
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_BasePlayerPawn.m_hController, "client.dll", "C_BasePlayerPawn", "m_hController");
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_BasePlayerPawn.m_pWeaponServices, "client.dll", "C_BasePlayerPawn", "m_pWeaponServices");
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_BasePlayerPawn.m_pObserverServices, "client.dll", "C_BasePlayerPawn", "m_pObserverServices");
@@ -121,13 +147,34 @@ void initSchemaSystemOffsets()
 	if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_ArmorValue, "client.dll", "C_CSPlayerPawn", "m_ArmorValue")) {
 		advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_ArmorValue\n");
 	}
-	if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bPrevHelmet, "client.dll", "C_CSPlayerPawn", "m_bPrevHelmet")) {
-		advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_bPrevHelmet\n");
-	}
+		if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bPrevHelmet, "client.dll", "C_CSPlayerPawn", "m_bPrevHelmet")) {
+			advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_bPrevHelmet\n");
+		}
+		if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_szLastPlaceName, "client.dll", "C_CSPlayerPawn", "m_szLastPlaceName")) {
+			advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_szLastPlaceName\n");
+		}
+		if (!getOffset(&g_clientDllOffsets.C_BasePlayerPawn.m_flDeathTime,
+			"client.dll", "C_BasePlayerPawn", "m_flDeathTime")) {
+			advancedfx::Warning("SchemaSystem optional offset lookup failed: C_BasePlayerPawn.m_flDeathTime\n");
+		}
+		if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bKilledByHeadshot,
+			"client.dll", "C_CSPlayerPawn", "m_bKilledByHeadshot")
+			&& !getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bKilledByHeadshot,
+				"client.dll", "C_CSPlayerPawnBase", "m_bKilledByHeadshot")) {
+			advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_bKilledByHeadshot\n");
+		}
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_BaseCSGrenadeProjectile.m_bCanCreateGrenadeTrail, "client.dll", "C_BaseCSGrenadeProjectile", "m_bCanCreateGrenadeTrail");
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_BaseCSGrenadeProjectile.m_nSnapshotTrajectoryEffectIndex, "client.dll", "C_BaseCSGrenadeProjectile", "m_nSnapshotTrajectoryEffectIndex");
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_BaseCSGrenadeProjectile.m_flTrajectoryTrailEffectCreationTime, "client.dll", "C_BaseCSGrenadeProjectile", "m_flTrajectoryTrailEffectCreationTime");
-	bOk = bOk && getOffset(&g_clientDllOffsets.C_SmokeGrenadeProjectile.m_vSmokeColor, "client.dll", "C_SmokeGrenadeProjectile", "m_vSmokeColor");
+		bOk = bOk && getOffset(&g_clientDllOffsets.C_SmokeGrenadeProjectile.m_vSmokeColor, "client.dll", "C_SmokeGrenadeProjectile", "m_vSmokeColor");
+		if (!getOffset(&g_clientDllOffsets.C_BaseGrenade.m_hThrower,
+			"client.dll", "C_BaseGrenade", "m_hThrower")) {
+			advancedfx::Warning("SchemaSystem optional offset lookup failed: C_BaseGrenade.m_hThrower\n");
+		}
+		if (!getOffset(&g_clientDllOffsets.C_BaseGrenade.m_hOriginalThrower,
+			"client.dll", "C_BaseGrenade", "m_hOriginalThrower")) {
+			advancedfx::Warning("SchemaSystem optional offset lookup failed: C_BaseGrenade.m_hOriginalThrower\n");
+		}
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_EnvSky.m_hSkyMaterial, "client.dll", "C_EnvSky", "m_hSkyMaterial");
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_EnvSky.m_vTintColor, "client.dll", "C_EnvSky", "m_vTintColor");
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_EnvSky.m_flBrightnessScale, "client.dll", "C_EnvSky", "m_flBrightnessScale");
