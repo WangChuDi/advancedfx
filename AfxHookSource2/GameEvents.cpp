@@ -2,6 +2,8 @@
 
 #include "GameEvents.h"
 #include "MirvPovCore.h"
+#include "MirvPovKillReward.h"
+#include "MirvPovRadio.h"
 
 #include "../deps/release/prop/AfxHookSource/SourceSdkShared.h"
 #include "../deps/release/prop/cs2/sdk_src/public/igameevents.h"
@@ -73,6 +75,8 @@ void SendGameEvent(SOURCESDK::CS2::CGameEvent *event) {
 bool New_CGameEventManager_FireEvent( void * This, SOURCESDK::CS2::CGameEvent *event, bool bDontBroadcast /*= false*/ ) {
     g_pGameEventManager = This;
 
+    MirvPovRadio_HandleGameEvent(event);
+
     //advancedfx::Message("Server Event: %s\n", event->GetName());
 
     return g_Old_CGameEventManager_FireEvent(This, event, bDontBroadcast);
@@ -84,6 +88,8 @@ bool New_CGameEventManager_FireEventClientSide( void * This, SOURCESDK::CS2::CGa
     g_pGameEventManager = This;
 
     MirvPov_OnGameEvent(event);
+    MirvPovKillReward_HandleGameEvent(event);
+    MirvPovRadio_HandleGameEvent(event);
     if(g_b_on_game_event) SendGameEvent(event);
 
     return g_Old_CGameEventManager_FireEventClientSide(This, event);

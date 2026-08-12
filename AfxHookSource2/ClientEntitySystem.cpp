@@ -4,6 +4,7 @@
 #include "DeathMsg.h"
 #include "WrpConsole.h"
 #include "Globals.h"
+#include "MirvPovRadio.h"
 
 #include "../deps/release/prop/AfxHookSource/SourceSdkShared.h"
 
@@ -176,7 +177,8 @@ SOURCESDK::CS2::CBaseHandle CEntityInstance::GetActiveWeaponHandle() {
 
 const char * CEntityInstance::GetPlayerName(){
     if (!IsPlayerController()) return nullptr;
-    return *(const char **)((u_char*)(this) + g_clientDllOffsets.CBasePlayerController.m_iszPlayerName);
+    // m_iszPlayerName is an inline char[128] network field, not a pointer.
+    return (const char *)((u_char*)(this) + g_clientDllOffsets.CBasePlayerController.m_iszPlayerName);
 }
 
 uint64_t CEntityInstance::GetSteamId(){
@@ -188,6 +190,37 @@ const char * CEntityInstance::GetSanitizedPlayerName() {
    if (!IsPlayerController()) return nullptr;
     return *(const char **)((u_char*)(this) + g_clientDllOffsets.CCSPlayerController.m_sSanitizedPlayerName);
 
+}
+
+const char * CEntityInstance::GetLastPlaceName() {
+    if (!IsPlayerPawn() || g_clientDllOffsets.C_CSPlayerPawn.m_szLastPlaceName < 0)
+        return nullptr;
+    return (const char *)((u_char *)this + g_clientDllOffsets.C_CSPlayerPawn.m_szLastPlaceName);
+}
+
+bool CEntityInstance::GetCurrentRoundKillReward(int & outValue) {
+    if (!IsPlayerController()
+        || g_clientDllOffsets.CCSPlayerController.m_pActionTrackingServices < 0
+        || g_clientDllOffsets.CCSPlayerController_ActionTrackingServices.m_perRoundStats < 0
+        || g_clientDllOffsets.CSPerRoundStats_t.m_iKillReward < 0
+        || g_clientDllOffsets.CSPerRoundStats_t.size
+            <= (size_t)g_clientDllOffsets.CSPerRoundStats_t.m_iKillReward) return false;
+
+    void * actionTrackingServices = *(void **)(
+        (unsigned char *)this
+        + g_clientDllOffsets.CCSPlayerController.m_pActionTrackingServices);
+    if(nullptr == actionTrackingServices) return false;
+
+    unsigned char * perRoundStats = (unsigned char *)actionTrackingServices
+        + g_clientDllOffsets.CCSPlayerController_ActionTrackingServices.m_perRoundStats;
+    int count = *(int *)perRoundStats;
+    unsigned char * data = *(unsigned char **)(perRoundStats + 8);
+    if(count <= 0 || 128 < count || nullptr == data) return false;
+
+    unsigned char * currentRound = data
+        + (count - 1) * g_clientDllOffsets.CSPerRoundStats_t.size;
+    outValue = *(int *)(currentRound + g_clientDllOffsets.CSPerRoundStats_t.m_iKillReward);
+    return true;
 }
 
 uint8_t CEntityInstance::GetObserverMode() {
@@ -313,6 +346,8 @@ OnAddEntity_t g_Org_OnAddEntity = nullptr;
 void* __fastcall New_OnAddEntity(void* This, CEntityInstance* pInstance, SOURCESDK::uint32 handle) {
 
     void * result =  g_Org_OnAddEntity(This,pInstance,handle);
+
+    MirvPovRadio_HandleEntityAdded(pInstance, static_cast<int>(handle));
 
     if(g_b_on_add_entity && pInstance) {
         auto pRef = CAfxEntityInstanceRef::Aquire(pInstance);

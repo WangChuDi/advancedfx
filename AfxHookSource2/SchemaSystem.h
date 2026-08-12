@@ -46,6 +46,11 @@ struct ClientDllOffsets_t {
 
 	} C_BaseCSGrenadeProjectile;
 
+	struct C_BaseGrenade {
+		ptrdiff_t m_hThrower = -1; // CHandle<C_CSPlayerPawn>
+		ptrdiff_t m_hOriginalThrower = -1; // CHandle<C_CSPlayerPawn>
+	} C_BaseGrenade;
+
 	struct C_SmokeGrenadeProjectile {
 		ptrdiff_t m_vSmokeColor = 0; // Vector
 	} C_SmokeGrenadeProjectile;
@@ -60,19 +65,33 @@ struct ClientDllOffsets_t {
 		ptrdiff_t m_sSanitizedPlayerName = 0; // CUtlString
 		ptrdiff_t m_hPlayerPawn = 0; // CHandle< C_CSPlayerPawn >
 		ptrdiff_t m_hObserverPawn = 0; // CHandle< C_CSObserverPawn >
+		ptrdiff_t m_nPawnCharacterDefIndex = -1; // item_definition_index_t
 		ptrdiff_t m_bHasCommunicationAbuseMute = -1; // bool
+		ptrdiff_t m_pActionTrackingServices = -1; // CCSPlayerController_ActionTrackingServices*
 	} CCSPlayerController;
+
+	struct CCSPlayerController_ActionTrackingServices {
+		ptrdiff_t m_perRoundStats = -1; // CUtlVectorEmbeddedNetworkVar<CSPerRoundStats_t,...>
+	} CCSPlayerController_ActionTrackingServices;
+
+	struct CSPerRoundStats_t {
+		ptrdiff_t m_iKillReward = -1; // int32
+		size_t size = 0;
+	} CSPerRoundStats_t;
 
 	struct C_BasePlayerPawn {
 		ptrdiff_t m_hController = 0; // CHandle< CBasePlayerController >
 		ptrdiff_t m_pWeaponServices = 0; // CPlayer_WeaponServices*
 		ptrdiff_t m_pObserverServices = 0; // CPlayer_ObserverServices*
 		ptrdiff_t m_pCameraServices = 0; // CPlayer_CameraServices*
+		ptrdiff_t m_flDeathTime = -1; // float32
 	} C_BasePlayerPawn;
 
 	struct C_CSPlayerPawn {
 		ptrdiff_t m_ArmorValue = 0; // int32
 		ptrdiff_t m_bPrevHelmet = 0; // bool
+		ptrdiff_t m_szLastPlaceName = -1; // CNetworkString(18)
+		ptrdiff_t m_bKilledByHeadshot = -1; // bool
 	} C_CSPlayerPawn;
 
 	struct CPlayer_CameraServices {
