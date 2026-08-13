@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Windows.h>
+#include <cstdint>
 
 class CEntityInstance;
 
@@ -16,6 +17,10 @@ void MirvPov_Disable();
 
 CEntityInstance * GetCurrentPovPlayerController();
 CEntityInstance * GetCurrentPovPlayerPawn();
+CEntityInstance * GetObservedPlayerController();
+CEntityInstance * GetObservedPlayerPawn();
+bool MirvPov_GetObserverState(uint8_t & observerMode, uint32_t & observerTarget);
+CEntityInstance * GetRealLocalPlayerPawn();
 CEntityInstance * GetEffectiveSplitScreenPlayer(int slot);
 
 CEntityInstance * GetFakePovRadarController();

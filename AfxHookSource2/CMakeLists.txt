@@ -220,6 +220,18 @@ target_sources(${PROJECT_NAME} PRIVATE
     MirvPovCore.cpp
     MirvPovCore.h
 
+    MirvPanorama.cpp
+    MirvPanorama.h
+
+    MirvPovDeathCam.cpp
+    MirvPovDeathCam.h
+
+    MirvPovDeathPanel.cpp
+    MirvPovDeathPanel.h
+
+    MirvPovTest.cpp
+    MirvPovTest.h
+
     MirvPovHud.cpp
     MirvPovHud.h
 

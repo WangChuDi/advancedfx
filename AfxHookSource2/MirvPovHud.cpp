@@ -1,11 +1,11 @@
 #include "stdafx.h"
 
 #include "MirvPovHud.h"
+#include "MirvPovCore.h"
 
 #include "ClientEntitySystem.h"
-#include "DeathMsg.h"
-#include "MirvPovCore.h"
 #include "Globals.h"
+#include "MirvPanorama.h"
 
 #include "../shared/AfxConsole.h"
 #include "../shared/binutils.h"
@@ -19,100 +19,38 @@
 
 #pragma intrinsic(_ReturnAddress)
 
-static void* g_PovStylePropertyVisibleVtable = nullptr;
-
-typedef void(__fastcall * PovPanelStyleSetStyleProperty_t)(void* This, void* property, bool transition);
-static PovPanelStyleSetStyleProperty_t g_PovPanelStyleSetStyleProperty = nullptr;
-
-typedef uint8_t* (__fastcall * PovResolveStyleProperty_t)(uint8_t* out, const char* stylePropertyName);
-static PovResolveStyleProperty_t g_PovResolveStyleProperty = nullptr;
-
-struct PovStylePropertyVisible {
-    void* vtable;
-    uint8_t id;
-    bool disallowTransition = false;
-    unsigned char pad[0x6];
-    uint16_t value;
-
-    PovStylePropertyVisible(void* vt, uint8_t i, bool v)
-        : vtable(vt), id(i), value(v ? 0x0101 : 0x0001) {}
-};
-
-static bool MirvPovHud_SetPanelVisible(void* panel, bool value) {
-    if(!panel || !g_PovStylePropertyVisibleVtable || !g_PovPanelStyleSetStyleProperty || !g_PovResolveStyleProperty) return false;
-
-    uint8_t id = 0xFF;
-    g_PovResolveStyleProperty(&id, "visibility");
-    if(0xFF == id) return false;
-
-    PovStylePropertyVisible styleProperty(g_PovStylePropertyVisibleVtable, id, value);
-    auto style = (unsigned char*)panel + CS2::PanoramaUIPanel::panelStyle;
-    g_PovPanelStyleSetStyleProperty(style, &styleProperty, true);
-    return true;
-}
-
-static unsigned char* MirvPovHud_GetHudPanel() {
-    void ** hudPanel = DeathMsg_GetPanoramaHudPanel();
-    return hudPanel ? ((unsigned char***)hudPanel)[0][1] : nullptr;
-}
-
-static bool MirvPovHud_MakeSymbol(const char* name, short& value) {
-    void ** uiEnginePtr = DeathMsg_GetPanoramaUIEngine();
-    if(!name || !uiEnginePtr || !*uiEnginePtr || !CS2::PanoramaUIEngine::makeSymbol) return false;
-
-    typedef short(__fastcall * MakeSymbol_t)(void*, int, const char*);
-    auto uiEngine = *uiEnginePtr;
-    auto vtable = *(unsigned char**)uiEngine;
-    if(!vtable) return false;
-
-    auto makeSymbol = *(MakeSymbol_t*)(vtable + CS2::PanoramaUIEngine::makeSymbol);
-    if(!makeSymbol) return false;
-
-    value = makeSymbol(uiEngine, 0, name);
-    return value != (short)-1;
-}
-
-static bool MirvPovHud_SetPanelClass(void* panel, const char* className, bool value) {
-    if(!panel || !className) return false;
-
-    short classSymbol = -1;
-    if(!MirvPovHud_MakeSymbol(className, classSymbol)) return false;
-
-    typedef void (__fastcall * SetPanelClass_t)(void*, short);
-    typedef bool (__fastcall * HasPanelClass_t)(void*, short);
-    auto vtable = *(void***)panel;
-    if(!vtable) return false;
-
-    auto setPanelClass = (SetPanelClass_t)vtable[value ? 144 : 147];
-    auto hasPanelClass = (HasPanelClass_t)vtable[157];
-    if(!setPanelClass || !hasPanelClass) return false;
-
-    setPanelClass(panel, classSymbol);
-    return hasPanelClass(panel, classSymbol) == value;
+void MirvPovHud_OnPanoramaDllLoaded(HMODULE panoramaDll)
+{
+    // The Panorama hook is installed by DeathMsg. Keep this callback as a
+    // lifecycle notification only; native style resolution is intentionally
+    // deferred until a POV feature actually needs it.
+    (void)panoramaDll;
 }
 
 static unsigned char* MirvPovHud_FindPanelByIdRecursive(unsigned char* parentPanel, const char* panelId) {
     if(!parentPanel) return nullptr;
+    __try {
+        const auto currentPanelId = *(char**)(parentPanel + CS2::PanoramaUIPanel::panelId);
+        if(currentPanelId && 0 == strcmp(currentPanelId, panelId)) return parentPanel;
 
-    const auto currentPanelId = *(char**)(parentPanel + CS2::PanoramaUIPanel::panelId);
-    if(currentPanelId && 0 == strcmp(currentPanelId, panelId)) return parentPanel;
-
-    const auto children = parentPanel + CS2::PanoramaUIPanel::children;
-    const auto childCount = *(int*)children;
-    for(int i = 0; i < childCount; ++i) {
-        if(auto panel = MirvPovHud_FindPanelByIdRecursive(((unsigned char***)children)[1][i], panelId)) return panel;
+        const auto children = parentPanel + CS2::PanoramaUIPanel::children;
+        const auto childCount = *(int*)children;
+        if(childCount < 0 || childCount > 4096) return nullptr;
+        for(int i = 0; i < childCount; ++i) {
+            if(auto panel = MirvPovHud_FindPanelByIdRecursive(((unsigned char***)children)[1][i], panelId)) return panel;
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
     }
-
     return nullptr;
 }
 
 static unsigned char* MirvPovHud_FindPanelById(unsigned char* parentPanel, const char* panelId) {
     if(!parentPanel || !panelId) return nullptr;
 
-    const auto currentPanelId = *(char**)(parentPanel + CS2::PanoramaUIPanel::panelId);
-    if(currentPanelId && 0 == strcmp(currentPanelId, panelId)) return parentPanel;
-
     __try {
+        const auto currentPanelId = *(char**)(parentPanel + CS2::PanoramaUIPanel::panelId);
+        if(currentPanelId && 0 == strcmp(currentPanelId, panelId)) return parentPanel;
+
         typedef unsigned char* (__fastcall * FindChildTraverse_t)(unsigned char*, const char*);
         auto vtable = *(void***)parentPanel;
         auto findChildTraverse = vtable ? (FindChildTraverse_t)vtable[47] : nullptr;
@@ -130,34 +68,38 @@ static bool MirvPovHud_PanelContainsId(unsigned char* parentPanel, const char* p
 
 static bool MirvPovHud_SetStrokeSiblingVisibleForAnchor(unsigned char* parentPanel, const char* anchorId) {
     if(!parentPanel) return false;
+    __try {
+        const auto children = parentPanel + CS2::PanoramaUIPanel::children;
+        const auto childCount = *(int*)children;
+        if(childCount < 0 || childCount > 4096) return false;
 
-    const auto children = parentPanel + CS2::PanoramaUIPanel::children;
-    const auto childCount = *(int*)children;
+        if(2 == childCount) {
+            int anchorChild = -1;
+            for(int i = 0; i < childCount; ++i) {
+                if(MirvPovHud_PanelContainsId(((unsigned char***)children)[1][i], anchorId)) {
+                    anchorChild = i;
+                    break;
+                }
+            }
 
-    if(2 == childCount) {
-        int anchorChild = -1;
-        for(int i = 0; i < childCount; ++i) {
-            if(MirvPovHud_PanelContainsId(((unsigned char***)children)[1][i], anchorId)) {
-                anchorChild = i;
-                break;
+            if(-1 != anchorChild) {
+                const auto strokePanel = ((unsigned char***)children)[1][1 - anchorChild];
+                if(Panorama_SetPanelVisible(strokePanel, true)) return true;
             }
         }
 
-        if(-1 != anchorChild) {
-            const auto strokePanel = ((unsigned char***)children)[1][1 - anchorChild];
-            if(MirvPovHud_SetPanelVisible(strokePanel, true)) return true;
+        for(int i = 0; i < childCount; ++i) {
+            if(MirvPovHud_SetStrokeSiblingVisibleForAnchor(((unsigned char***)children)[1][i], anchorId)) return true;
         }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
     }
-
-    for(int i = 0; i < childCount; ++i) {
-        if(MirvPovHud_SetStrokeSiblingVisibleForAnchor(((unsigned char***)children)[1][i], anchorId)) return true;
-    }
-
     return false;
 }
 
 static void MirvPovHud_ShowHealthAmmoCenterStrokes() {
-    auto hudPanel = MirvPovHud_GetHudPanel();
+    if(!CS2::PanoramaUIPanel::hudPanel) return;
+
+    auto hudPanel = ((unsigned char***)CS2::PanoramaUIPanel::hudPanel)[0][1];
     if(!hudPanel) return;
 
     MirvPovHud_SetStrokeSiblingVisibleForAnchor(hudPanel, "hud-HA-main");
@@ -165,24 +107,42 @@ static void MirvPovHud_ShowHealthAmmoCenterStrokes() {
 }
 
 static void MirvPovHud_HideSpecPlayerPanel() {
-    auto hudPanel = MirvPovHud_GetHudPanel();
+    if(!CS2::PanoramaUIPanel::hudPanel) return;
+
+    auto hudPanel = ((unsigned char***)CS2::PanoramaUIPanel::hudPanel)[0][1];
     if(!hudPanel) return;
 
     auto specPlayerBg = MirvPovHud_FindPanelById(hudPanel, "jsHudSpecplayer__Bg");
-    if(specPlayerBg) MirvPovHud_SetPanelVisible(specPlayerBg, false);
+    if(specPlayerBg) Panorama_SetPanelVisible(specPlayerBg, false);
 
     auto specPlayerAvatar = MirvPovHud_FindPanelById(hudPanel, "HudSpecplayer__Avatar");
-    if(specPlayerAvatar) MirvPovHud_SetPanelVisible(specPlayerAvatar, false);
+    if(specPlayerAvatar) Panorama_SetPanelVisible(specPlayerAvatar, false);
 }
 
 static unsigned char* g_SpectatorHotKeyLabelContainerPanel = nullptr;
+static unsigned char* g_SpectatorHotKeyLabelContainerRoot = nullptr;
+
+void MirvPovHud_InvalidatePanelCache() {
+    g_SpectatorHotKeyLabelContainerPanel = nullptr;
+    g_SpectatorHotKeyLabelContainerRoot = nullptr;
+}
 
 static void MirvPovHud_SetSpectatorHotKeyLabelsVisible(bool visible) {
-    __try {
-        if(!g_SpectatorHotKeyLabelContainerPanel) {
-            auto hudPanel = MirvPovHud_GetHudPanel();
-            if(!hudPanel) return;
+    if(!CS2::PanoramaUIPanel::hudPanel) return;
 
+    __try {
+        auto hudPanel = ((unsigned char***)CS2::PanoramaUIPanel::hudPanel)[0][1];
+        if(!hudPanel) {
+            MirvPovHud_InvalidatePanelCache();
+            return;
+        }
+
+        if(g_SpectatorHotKeyLabelContainerRoot != hudPanel) {
+            MirvPovHud_InvalidatePanelCache();
+            g_SpectatorHotKeyLabelContainerRoot = hudPanel;
+        }
+
+        if(!g_SpectatorHotKeyLabelContainerPanel) {
             g_SpectatorHotKeyLabelContainerPanel = MirvPovHud_FindPanelById(
                 hudPanel,
                 "HotKeyLabelContainer");
@@ -191,79 +151,86 @@ static void MirvPovHud_SetSpectatorHotKeyLabelsVisible(bool visible) {
         // Reuse the native DemoUI state that hudlegend.css already handles:
         // .DemoControllerFull .HudSpecplayer__key-hints-text { visibility: collapse; }
         if(g_SpectatorHotKeyLabelContainerPanel) {
-            if(!MirvPovHud_SetPanelClass(
+            if(!Panorama_SetPanelClass(
                 g_SpectatorHotKeyLabelContainerPanel,
                 "DemoControllerFull",
                 !visible)) {
-                g_SpectatorHotKeyLabelContainerPanel = nullptr;
+                MirvPovHud_InvalidatePanelCache();
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {
-        g_SpectatorHotKeyLabelContainerPanel = nullptr;
+        MirvPovHud_InvalidatePanelCache();
     }
 }
 
 void MirvPovHud_OnPanoramaLayoutFileLoaded(const char* filePath) {
+    // Panorama is hooked globally for other Afx features, but these panel
+    // tree mutations belong exclusively to mirv_pov. Ordinary spectating and
+    // HUD rebuilds must stay on the native path.
+    if(nullptr == filePath || !MirvPov_IsEnabled()) return;
     if(0 == strcmp("panorama\\layout\\hud\\hudhealthammocenter.xml", filePath)) {
         MirvPovHud_HideSpecPlayerPanel();
         MirvPovHud_ShowHealthAmmoCenterStrokes();
     } else if(0 == strcmp("panorama\\layout\\hud\\hudlegend.xml", filePath)) {
-        g_SpectatorHotKeyLabelContainerPanel = nullptr;
+        MirvPovHud_InvalidatePanelCache();
         MirvPovHud_SetSpectatorHotKeyLabelsVisible(!MirvPov_IsEnabled());
     }
 }
 
-void MirvPovHud_OnPanoramaDllLoaded(HMODULE panoramaDll) {
-    g_PovStylePropertyVisibleVtable = (void**)Afx::BinUtils::FindClassVtable(
-        panoramaDll,
-        ".?AVCStylePropertyVisible@panorama@@",
-        0,
-        0);
-    if(!g_PovStylePropertyVisibleVtable) {
-        advancedfx::Warning("[mirv_pov_hud] Panorama visibility property was not found.\n");
-    }
-
-    auto resolveAddress = getAddress(
-        panoramaDll,
-        "40 55 56 57 41 54 48 8D 6C 24 ?? 48 81 EC ?? ?? ?? ?? 44 8B 05 ?? ?? ?? ?? 48 8B F9 65 48 8B 04 25 58 00 00 00 45 33 E4 C6 01 FF 48 8B F2");
-    g_PovResolveStyleProperty = (PovResolveStyleProperty_t)resolveAddress;
-    if(!g_PovResolveStyleProperty) {
-        advancedfx::Warning("[mirv_pov_hud] Panorama style-property resolver was not found.\n");
-    }
-
-    auto setterAddress = getAddress(
-        panoramaDll,
-        "E8 ?? ?? ?? ?? 48 8D 05 ?? ?? ?? ?? 48 89 45 ?? EB");
-    g_PovPanelStyleSetStyleProperty = setterAddress
-        ? (PovPanelStyleSetStyleProperty_t)(setterAddress + 5 + *(int32_t*)(setterAddress + 1))
-        : nullptr;
-    if(!g_PovPanelStyleSetStyleProperty) {
-        advancedfx::Warning("[mirv_pov_hud] Panorama style setter was not found.\n");
-    }
-}
-
-static int g_ScoreboardSeekSuppressFrames = 0;
-static int g_LastDemoTick = -1;
+static int g_IsLocalPlayerHLTV_SuppressFrames = 0;
+static int g_IsLocalPlayerHLTV_LastDemoTick = -1;
 
 void MirvPovHud_UpdateSeekDetection(int curTick) {
-    MirvPovHud_SetSpectatorHotKeyLabelsVisible(false);
-
-    if(g_LastDemoTick >= 0) {
-        int delta = curTick - g_LastDemoTick;
+    bool seek = false;
+    if(g_IsLocalPlayerHLTV_LastDemoTick >= 0) {
+        int delta = curTick - g_IsLocalPlayerHLTV_LastDemoTick;
         if(delta < 0) delta = -delta;
         if(delta > 2) {
-            g_ScoreboardSeekSuppressFrames = 16;
+            seek = true;
+            g_IsLocalPlayerHLTV_SuppressFrames = 16;
         }
     }
-    g_LastDemoTick = curTick;
-    if(g_ScoreboardSeekSuppressFrames > 0) {
-        g_ScoreboardSeekSuppressFrames--;
+    g_IsLocalPlayerHLTV_LastDemoTick = curTick;
+    if(seek) MirvPovHud_InvalidatePanelCache();
+    MirvPovHud_SetSpectatorHotKeyLabelsVisible(false);
+    if(g_IsLocalPlayerHLTV_SuppressFrames > 0) {
+        g_IsLocalPlayerHLTV_SuppressFrames--;
     }
 }
 
 bool MirvPovHud_ShouldSuppressFrame() {
-    return g_ScoreboardSeekSuppressFrames > 0;
+    return g_IsLocalPlayerHLTV_SuppressFrames > 0;
 }
+
+// Hook GameStateAPI::IsLocalPlayerHLTV (sub_180EFF830) - Panorama bridge callback.
+// The radar JS calls this to decide spectator vs player color mode.
+// Return original behavior on the stable baseline.
+typedef bool (__fastcall * IsLocalPlayerHLTV_t)();
+static IsLocalPlayerHLTV_t g_Org_IsLocalPlayerHLTV = nullptr;
+static bool g_bIsLocalPlayerHLTVHooked = false;
+
+static bool __fastcall New_IsLocalPlayerHLTV() {
+    return g_Org_IsLocalPlayerHLTV();
+}
+
+// Hook GameStateAPI::IsDemoOrHltv (sub_180EFEEE0) - Panorama bridge callback.
+// Stable baseline keeps original demo/HLTV behavior.
+typedef bool (__fastcall * IsDemoOrHltv_t)();
+static IsDemoOrHltv_t g_Org_IsDemoOrHltv = nullptr;
+static bool g_bIsDemoOrHltvHooked = false;
+
+static bool __fastcall New_IsDemoOrHltv() {
+    return g_Org_IsDemoOrHltv();
+}
+
+// Hook sub_180BD7830 (GetEffectiveLocalPlayer for HUD) - this function is
+// used by the HUD to determine spectator state. It calls sub_1808E0E70(0)
+// directly, bypassing our GetLocalPlayerController hook.
+// Instead of hooking the function (which crashes during demo transitions),
+// keep the spectator CSS state intact for xray/head markers.
+static uint8_t * g_pHudSpectatorCheckPatchAddr = nullptr;
+static uint8_t g_HudSpectatorCheckOrigByte = 0;
+static bool g_bHudSpectatorCheckPatched = false;
 
 typedef bool (__fastcall * FlashViewPredicate_t)();
 static FlashViewPredicate_t g_OrgFlashViewPredicate = nullptr;
@@ -322,10 +289,16 @@ static bool MirvPovHud_InstallFlashPredicateHook(HMODULE clientDll) {
 
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
-    DetourAttach(&(PVOID &)g_OrgFlashViewPredicate, New_FlashViewPredicate);
-    if(NO_ERROR != DetourTransactionCommit()) {
+    LONG attachResult = DetourAttach(&(PVOID &)g_OrgFlashViewPredicate, New_FlashViewPredicate);
+    LONG commitResult = NO_ERROR == attachResult
+        ? DetourTransactionCommit()
+        : DetourTransactionAbort();
+    if(NO_ERROR != attachResult || NO_ERROR != commitResult) {
         g_OrgFlashViewPredicate = nullptr;
-        advancedfx::Warning("[mirv_pov_flash] Flash view predicate Detour failed.\n");
+        advancedfx::Warning(
+            "[mirv_pov_flash] Flash view predicate Detour failed attach=%ld commit=%ld.\n",
+            attachResult,
+            commitResult);
         return false;
     }
 
@@ -350,12 +323,133 @@ static void MirvPovHud_RemoveFlashPredicateHook() {
 
 void MirvPovHud_ApplyPatches(HMODULE clientDll) {
     if(nullptr == clientDll) {
-        advancedfx::Warning("[mirv_pov_hud] client.dll is not loaded.\n");
+        advancedfx::Warning("[mirv_pov_radar_patch] No client.dll handle\n");
         return;
     }
 
-    MirvPovHud_InstallFlashPredicateHook(clientDll);
-    g_FlashHooksActive = true;
+    // The game owns the flash/fade lifecycle. A global predicate hook here
+    // suppresses the native hurt red flash and death red-to-black fade, so it
+    // must remain disabled for the native feedback path.
+    g_FlashHooksActive = false;
+
+    // --- Hook IsLocalPlayerHLTV (Panorama GameStateAPI callback) ---
+    // DISABLED: interferes with xray / head markers in demo POV. Kept code for reference.
+    if(false) {
+        size_t funcAddr = getAddress(clientDll, "48 83 EC ?? 33 C9 E8 ?? ?? ?? ?? 48 85 C0 74 ?? 80 B8");
+        if(0 == funcAddr) {
+            advancedfx::Warning("[mirv_pov_radar_patch] IsLocalPlayerHLTV pattern not found\n");
+        } else {
+            g_Org_IsLocalPlayerHLTV = (IsLocalPlayerHLTV_t)funcAddr;
+            DetourTransactionBegin();
+            DetourUpdateThread(GetCurrentThread());
+            DetourAttach(&(PVOID&)g_Org_IsLocalPlayerHLTV, New_IsLocalPlayerHLTV);
+            if(NO_ERROR == DetourTransactionCommit()) {
+                g_bIsLocalPlayerHLTVHooked = true;
+            } else {
+                advancedfx::Warning("[mirv_pov_radar_patch] IsLocalPlayerHLTV detour failed\n");
+                g_Org_IsLocalPlayerHLTV = nullptr;
+            }
+        }
+    }
+
+    // --- IsDemoOrHltv hook: DISABLED (interferes with xray / head markers in demo POV) ---
+    if(false) {
+        size_t funcAddr = 0;
+        unsigned char * base = (unsigned char *)clientDll;
+        IMAGE_DOS_HEADER * dosHeader = (IMAGE_DOS_HEADER *)base;
+        IMAGE_NT_HEADERS * ntHeaders = (IMAGE_NT_HEADERS *)(base + dosHeader->e_lfanew);
+        size_t size = ntHeaders->OptionalHeader.SizeOfImage;
+
+        const char * searchStr = "IsDemoOrHltv";
+        size_t searchLen = strlen(searchStr);
+        size_t strAddr = 0;
+
+        for(size_t i = 0; i + searchLen < size; i++) {
+            if(0 == memcmp(base + i, searchStr, searchLen + 1)) {
+                strAddr = (size_t)(base + i);
+                break;
+            }
+        }
+
+        if(strAddr) {
+            // Find LEA instruction referencing this string (RIP-relative: REX.W 8D ModRM[rm=5] disp32)
+            for(size_t i = 0; i + 7 < size; i++) {
+                unsigned char * p = base + i;
+                if((p[0] == 0x48 || p[0] == 0x4C) && p[1] == 0x8D && (p[2] & 0x07) == 0x05) {
+                    int32_t disp = *(int32_t *)(p + 3);
+                    size_t target = (size_t)(p + 7) + disp;
+                    if(target == strAddr) {
+                        // Found LEA loading "IsDemoOrHltv". Scan nearby for another LEA (function ptr).
+                        for(int delta = -64; delta <= 64; delta++) {
+                            if(delta >= -3 && delta <= 6) continue;
+                            unsigned char * q = p + delta;
+                            if(q < base || q + 7 >= base + size) continue;
+                            if((q[0] == 0x48 || q[0] == 0x4C) && q[1] == 0x8D && (q[2] & 0x07) == 0x05) {
+                                int32_t disp2 = *(int32_t *)(q + 3);
+                                size_t candidate = (size_t)(q + 7) + disp2;
+                                if(candidate >= (size_t)base && candidate < (size_t)base + size) {
+                                    unsigned char * cand = (unsigned char *)candidate;
+                                    // Heuristic: looks like function prologue
+                                    if(cand[0] == 0x48 || cand[0] == 0x40 || cand[0] == 0x55 ||
+                                       cand[0] == 0x53 || cand[0] == 0x56 || cand[0] == 0x41 ||
+                                       cand[0] == 0xB0 || (cand[0] == 0x33 && cand[1] == 0xC0) ||
+                                       cand[0] == 0x8B) {
+                                        funcAddr = candidate;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if(funcAddr) break;
+                    }
+                }
+            }
+        } else {
+            advancedfx::Warning("[mirv_pov_radar_patch] IsDemoOrHltv string not found in client.dll\n");
+        }
+
+        if(0 == funcAddr) {
+            advancedfx::Warning("[mirv_pov_radar_patch] IsDemoOrHltv function not found\n");
+            g_bIsDemoOrHltvHooked = true;
+        } else {
+            g_Org_IsDemoOrHltv = (IsDemoOrHltv_t)funcAddr;
+            DetourTransactionBegin();
+            DetourUpdateThread(GetCurrentThread());
+            DetourAttach(&(PVOID&)g_Org_IsDemoOrHltv, New_IsDemoOrHltv);
+            if(NO_ERROR == DetourTransactionCommit()) {
+                g_bIsDemoOrHltvHooked = true;
+            } else {
+                advancedfx::Warning("[mirv_pov_radar_patch] IsDemoOrHltv detour failed\n");
+                g_Org_IsDemoOrHltv = nullptr;
+                g_bIsDemoOrHltvHooked = true;
+            }
+        }
+    }
+
+    // --- Patch 3: HUD spectator check (cmp byte ptr [rax+3EBh], 1 -> 0xFF) ---
+    // DISABLED: this toggles the Panorama "HUD--localplayer--spectator" CSS class,
+    // which also drives spectator head markers / xray overlay. Forcing it off removed
+    // those. Bottom spectator bar is still hidden separately by Patch 4.
+    if(false) {
+        size_t match3 = getAddress(clientDll, "80 B8 EB 03 00 00 01 48 8B 11 41 0F 94 C0");
+        if(0 == match3) {
+            advancedfx::Warning("[mirv_pov_radar_patch] HUD spectator check pattern not found\n");
+        } else {
+            uint8_t * patchAddr = (uint8_t *)(match3 + 6);
+            g_HudSpectatorCheckOrigByte = *patchAddr;
+
+            DWORD oldProtect;
+            if(VirtualProtect(patchAddr, 1, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+                *patchAddr = 0xFF;
+                DWORD dummy;
+                VirtualProtect(patchAddr, 1, oldProtect, &dummy);
+                g_pHudSpectatorCheckPatchAddr = patchAddr;
+                g_bHudSpectatorCheckPatched = true;
+            } else {
+                advancedfx::Warning("[mirv_pov_radar_patch] VirtualProtect failed for HUD spectator patch (error %lu)\n", GetLastError());
+            }
+        }
+    }
 
     MirvPovHud_HideSpecPlayerPanel();
     MirvPovHud_ShowHealthAmmoCenterStrokes();
@@ -370,7 +464,35 @@ void MirvPovHud_RemovePatches() {
     g_FlashViewPredicateReturnAddresses[0] = nullptr;
     g_FlashViewPredicateReturnAddresses[1] = nullptr;
     MirvPovHud_SetSpectatorHotKeyLabelsVisible(true);
-    g_SpectatorHotKeyLabelContainerPanel = nullptr;
-    g_ScoreboardSeekSuppressFrames = 0;
-    g_LastDemoTick = -1;
+    MirvPovHud_InvalidatePanelCache();
+
+    if(g_bIsLocalPlayerHLTVHooked && g_Org_IsLocalPlayerHLTV) {
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourDetach(&(PVOID&)g_Org_IsLocalPlayerHLTV, New_IsLocalPlayerHLTV);
+        DetourTransactionCommit();
+        g_bIsLocalPlayerHLTVHooked = false;
+        g_IsLocalPlayerHLTV_SuppressFrames = 0;
+        g_IsLocalPlayerHLTV_LastDemoTick = -1;
+    }
+
+    if(g_bIsDemoOrHltvHooked && g_Org_IsDemoOrHltv) {
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourDetach(&(PVOID&)g_Org_IsDemoOrHltv, New_IsDemoOrHltv);
+        DetourTransactionCommit();
+        g_bIsDemoOrHltvHooked = false;
+    }
+
+    if(g_bHudSpectatorCheckPatched && g_pHudSpectatorCheckPatchAddr) {
+        DWORD oldProtect;
+        if(VirtualProtect(g_pHudSpectatorCheckPatchAddr, 1, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            *g_pHudSpectatorCheckPatchAddr = g_HudSpectatorCheckOrigByte;
+            DWORD dummy;
+            VirtualProtect(g_pHudSpectatorCheckPatchAddr, 1, oldProtect, &dummy);
+        }
+        g_bHudSpectatorCheckPatched = false;
+        g_pHudSpectatorCheckPatchAddr = nullptr;
+    }
+
 }

@@ -147,22 +147,23 @@ void initSchemaSystemOffsets()
 	if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_ArmorValue, "client.dll", "C_CSPlayerPawn", "m_ArmorValue")) {
 		advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_ArmorValue\n");
 	}
-		if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bPrevHelmet, "client.dll", "C_CSPlayerPawn", "m_bPrevHelmet")) {
-			advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_bPrevHelmet\n");
-		}
-		if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_szLastPlaceName, "client.dll", "C_CSPlayerPawn", "m_szLastPlaceName")) {
-			advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_szLastPlaceName\n");
-		}
-		if (!getOffset(&g_clientDllOffsets.C_BasePlayerPawn.m_flDeathTime,
-			"client.dll", "C_BasePlayerPawn", "m_flDeathTime")) {
-			advancedfx::Warning("SchemaSystem optional offset lookup failed: C_BasePlayerPawn.m_flDeathTime\n");
-		}
-		if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bKilledByHeadshot,
-			"client.dll", "C_CSPlayerPawn", "m_bKilledByHeadshot")
-			&& !getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bKilledByHeadshot,
-				"client.dll", "C_CSPlayerPawnBase", "m_bKilledByHeadshot")) {
-			advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_bKilledByHeadshot\n");
-		}
+	if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bPrevHelmet, "client.dll", "C_CSPlayerPawn", "m_bPrevHelmet")) {
+		advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_bPrevHelmet\n");
+	}
+	if (!getOffset(&g_clientDllOffsets.C_BasePlayerPawn.m_flDeathTime,
+		"client.dll", "C_BasePlayerPawn", "m_flDeathTime")) {
+		advancedfx::Warning("SchemaSystem optional offset lookup failed: C_BasePlayerPawn.m_flDeathTime\n");
+	}
+	if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bKilledByHeadshot,
+		"client.dll", "C_CSPlayerPawn", "m_bKilledByHeadshot")
+		&& !getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bKilledByHeadshot,
+			"client.dll", "C_CSPlayerPawnBase", "m_bKilledByHeadshot")) {
+		advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_bKilledByHeadshot\n");
+	}
+	if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_szLastPlaceName,
+		"client.dll", "C_CSPlayerPawn", "m_szLastPlaceName")) {
+		advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_szLastPlaceName\n");
+	}
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_BaseCSGrenadeProjectile.m_bCanCreateGrenadeTrail, "client.dll", "C_BaseCSGrenadeProjectile", "m_bCanCreateGrenadeTrail");
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_BaseCSGrenadeProjectile.m_nSnapshotTrajectoryEffectIndex, "client.dll", "C_BaseCSGrenadeProjectile", "m_nSnapshotTrajectoryEffectIndex");
 	bOk = bOk && getOffset(&g_clientDllOffsets.C_BaseCSGrenadeProjectile.m_flTrajectoryTrailEffectCreationTime, "client.dll", "C_BaseCSGrenadeProjectile", "m_flTrajectoryTrailEffectCreationTime");

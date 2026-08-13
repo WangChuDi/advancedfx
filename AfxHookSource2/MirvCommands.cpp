@@ -1,12 +1,16 @@
 #include "MirvCommands.h"
 #include "ClientEntitySystem.h"
+#include "MirvPovRadar.h"
+#include "MirvPovTeamID.h"
+#include "MirvPovFeedback.h"
 #include "MirvPovCore.h"
 #include "MirvPovKillReward.h"
-#include "MirvPovRadar.h"
 #include "MirvPovRadio.h"
 #include "MirvPovScoreboard.h"
-#include "MirvPovTeamID.h"
 #include "MirvPovVoice.h"
+#include "DeathMsg.h"
+#include "MirvPovDeathPanel.h"
+#include "GameEvents.h"
 
 #include "../shared/StringTools.h"
 
@@ -25,6 +29,8 @@
 #include <algorithm>
 
 bool g_bHookedMirvCommands = false;
+
+static const char * MIRV_POV_LOCAL_BUILD = "mirv_pov-local-20260809-deathpanel-modes";
 
 extern SOURCESDK::CS2::ISource2EngineToClient * g_pEngineToClient;
 
@@ -156,7 +162,7 @@ CON_COMMAND(mirv_endofmatch, "Disables end of match scene.")
 typedef void (__fastcall *g_Original_OnFlashMaxAlphaChanged_t)(u_char* param_1, u_char* param_2, float* param_3);
 g_Original_OnFlashMaxAlphaChanged_t g_Original_OnFlashMaxAlphaChanged = nullptr;
 
-void __fastcall new_OnFlashMaxAlphaChanged(u_char* param_1, u_char* param_2, float* param_3) {	
+void __fastcall new_OnFlashMaxAlphaChanged(u_char* param_1, u_char* param_2, float* param_3) {
 	if (g_fNoFlashAmount == 0.0f) return g_Original_OnFlashMaxAlphaChanged(param_1, param_2, param_3);
 
 	auto newMaxAlpha = *param_3 * (1.0f - g_fNoFlashAmount);
@@ -181,7 +187,7 @@ void mirvNoFlash_Console(advancedfx::ICommandArgs* args) {
 		"0.25 = reduce flash by 25%% percent.\n"
 		"1 = remove flash completely.\n"
 		"Current value: %f\n"
-		, arg0, g_fNoFlashAmount 
+		, arg0, g_fNoFlashAmount
 	);
 
 }
@@ -198,18 +204,20 @@ static void MirvPov_LoadVoiceScript()
 	AfxHookSourceRs_Engine_Load(path.string().c_str());
 }
 
-CON_COMMAND(mirv_pov, "POV HUD with radar, feedback, and native pickup prompts. Offline demo playback only.")
+CON_COMMAND(mirv_pov, "POV HUD with radar showing teammates. Offline demo playback only.")
 {
 	int argc = args->ArgC();
 	if(2 == argc) {
 		const char * arg1 = args->ArgV(1);
 		if(0 == _stricmp(arg1, "true") || 0 == _stricmp(arg1, "1") || 0 == _stricmp(arg1, "on")) {
 			HMODULE hClient = GetModuleHandleW(L"client.dll");
-			MirvPov_LoadVoiceScript();
-			MirvPov_ApplyCvarSettings();
-			MirvPovTeamID_ApplyPatches(hClient);
+				MirvPov_LoadVoiceScript();
+				MirvPov_ApplyCvarSettings();
+				MirvPovTeamID_ApplyPatches(hClient);
 				MirvPov_Enable(hClient);
-				advancedfx::Message("mirv_pov enabled. Use mp_forcecamera 0 for cross-team switching.\n");
+				advancedfx::Message(
+					"mirv_pov %s. Use mp_forcecamera 0 for cross-team switching.\n",
+					MirvPov_IsEnabled() ? "enabled" : "enable failed");
 				advancedfx::Message(
 					"Current fix: killreward (HudChat: %s); radio / grenade-radio (HudChat: %s).\n"
 					"Radio mode: %d (%s). Switch: mirv_pov_radio_mode 0..6\n",
@@ -217,7 +225,7 @@ CON_COMMAND(mirv_pov, "POV HUD with radar, feedback, and native pickup prompts. 
 					MirvPovRadio_IsAvailable() ? "available" : "unavailable",
 					MirvPovRadio_GetMode(),
 					MirvPovRadio_GetModeDescription(MirvPovRadio_GetMode()));
-			return;
+				return;
 		}
 		if(0 == _stricmp(arg1, "false") || 0 == _stricmp(arg1, "0") || 0 == _stricmp(arg1, "off")) {
 			MirvPov_Disable();
@@ -228,36 +236,12 @@ CON_COMMAND(mirv_pov, "POV HUD with radar, feedback, and native pickup prompts. 
 	}
 	advancedfx::Message(
 		"Usage: mirv_pov true|false\n"
-			"  true  - Enable POV HUD, native pickup prompts, teammate competitive radar colors, smoke-visible teammates, red enemies\n"
-			"  false - Disable and restore original behavior\n"
-			"Current: %s\n"
-			"Note: Use mirv_pov_scoreboard 1 to enable demo scoreboard sync. Use mp_forcecamera 0 for cross-team switching. Offline demo only. Restores POV cvars on disable.\n"
-			, MirvPov_IsEnabled() ? "enabled" : "disabled"
-		);
-}
-
-CON_COMMAND(mirv_pov_scoreboard, "Sync demo POV scoreboard key to +showscores. Disabled by default.")
-{
-	int argc = args->ArgC();
-	if(2 == argc) {
-		const char * arg1 = args->ArgV(1);
-		if(0 == _stricmp(arg1, "true") || 0 == _stricmp(arg1, "1") || 0 == _stricmp(arg1, "on")) {
-			MirvPovScoreboard_SetEnabled(true);
-			advancedfx::Message("mirv_pov_scoreboard enabled.\n");
-			return;
-		}
-		if(0 == _stricmp(arg1, "false") || 0 == _stricmp(arg1, "0") || 0 == _stricmp(arg1, "off")) {
-			MirvPovScoreboard_SetEnabled(false);
-			advancedfx::Message("mirv_pov_scoreboard disabled.\n");
-			return;
-		}
-	}
-	advancedfx::Message(
-		"Usage: mirv_pov_scoreboard true|false\n"
-		"  true  - Enable scoreboard sync from current POV target's demo ButtonScore\n"
-		"  false - Disable scoreboard sync and close +showscores\n"
+		"  true  - Enable POV HUD, teammate competitive radar colors, smoke-visible teammates, red enemies\n"
+		"  false - Disable and restore original behavior\n"
 		"Current: %s\n"
-			, MirvPovScoreboard_IsEnabled() ? "enabled" : "disabled"
+		"Build: %s\n"
+		"Note: Use mirv_pov_scoreboard 1 to enable demo scoreboard sync. Use mp_forcecamera 0 for cross-team switching. Offline demo only. Restores POV cvars on disable.\n"
+			, MirvPov_IsEnabled() ? "enabled" : "disabled", MIRV_POV_LOCAL_BUILD
 	);
 }
 
@@ -281,9 +265,62 @@ CON_COMMAND(mirv_pov_voice, "Enable POV team voice routing and voice HUD synchro
 		"Usage: mirv_pov_voice true|false\n"
 		"  true  - Route voice to the current POV team and synchronize the voice HUD\n"
 		"  false - Restore the original voice masks and disable synthetic speaking\n"
+		"Current: %s\n",
+		MirvPovVoice_IsEnabled() ? "enabled" : "disabled");
+}
+
+CON_COMMAND(mirv_pov_scoreboard, "Sync demo POV scoreboard key to +showscores. Disabled by default.")
+{
+	int argc = args->ArgC();
+	if(2 == argc) {
+		const char * arg1 = args->ArgV(1);
+		if(0 == _stricmp(arg1, "true") || 0 == _stricmp(arg1, "1") || 0 == _stricmp(arg1, "on")) {
+				MirvPovScoreboard_SetEnabled(true);
+			advancedfx::Message("mirv_pov_scoreboard enabled.\n");
+			return;
+		}
+		if(0 == _stricmp(arg1, "false") || 0 == _stricmp(arg1, "0") || 0 == _stricmp(arg1, "off")) {
+				MirvPovScoreboard_SetEnabled(false);
+			advancedfx::Message("mirv_pov_scoreboard disabled.\n");
+			return;
+		}
+	}
+	advancedfx::Message(
+		"Usage: mirv_pov_scoreboard true|false\n"
+		"  true  - Enable scoreboard sync from current POV target's demo ButtonScore\n"
+		"  false - Disable scoreboard sync and close +showscores\n"
 		"Current: %s\n"
-			, MirvPovVoice_IsEnabled() ? "enabled" : "disabled"
+			, MirvPovScoreboard_IsEnabled() ? "enabled" : "disabled"
 	);
+}
+
+CON_COMMAND(mirv_pov_deathpanel, "Select native POV DeathPanel implementation for testing.")
+{
+	if(2 == args->ArgC()) {
+		const char * value = args->ArgV(1);
+		if(nullptr != value
+			&& '0' <= value[0]
+			&& value[0] <= '5'
+			&& '\0' == value[1]) {
+			const int mode = value[0] - '0';
+			if(MirvPovDeathPanel_SetMode(mode)) {
+				advancedfx::Message("mirv_pov_deathpanel mode %d selected.\n", mode);
+				return;
+			}
+		}
+	}
+
+	advancedfx::Message(
+		"Usage: mirv_pov_deathpanel <0|1|2|3|4|5>\n"
+		"  0 - Safe control: native listener, no POV Pawn/replay override\n"
+		"  1 - Preferred: native listener + POV Pawn/replay override + native full Show\n"
+		"  2 - Diagnostic alias: mode 1 native full Show path\n"
+		"  3 - Diagnostic: mode 1, then remove Hidden class + native main visibility\n"
+		"  4 - Experimental: direct native player_death handler, then native full Show\n"
+		"  5 - Experimental: direct handler, then remove Hidden class + native main visibility\n"
+		"Modes 4/5 fall back to mode 1 if the direct handler is unavailable.\n"
+		"Current: %d\n",
+		MirvPovDeathPanel_GetMode());
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -300,8 +337,8 @@ bool MirvFovOverride(float &fov) {
 		if(!g_bMirvFovHandleZoom || g_fMirvFovMinUnzoomedFov <= fov) {
 			fov = g_fMirvFovValue;
 			return true;
-		}
-	}
+				}
+			}
 	return false;
 }
 
@@ -471,14 +508,14 @@ void new_setGlowProps (u_char* glowProperty, int param_2, float param_3) {
 
 		if (0 != resolvedPlayerPawn) {
 			auto controllerHandle = resolvedPlayerPawn->GetPlayerControllerHandle();
-			if (controllerHandle.IsValid()) {
-				if(auto controller = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList,controllerHandle.GetEntryIndex())) {
-					auto steamId = controller->GetSteamId();
+				if (controllerHandle.IsValid()) {
+					if(auto controller = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList,controllerHandle.GetEntryIndex())) {
+						auto steamId = controller->GetSteamId();
 
-					if (g_MirvGlow.players.find(steamId) != g_MirvGlow.players.end()) shouldGlow = g_MirvGlow.players[steamId];
+						if (g_MirvGlow.players.find(steamId) != g_MirvGlow.players.end()) shouldGlow = g_MirvGlow.players[steamId];
+					}
 				}
 			}
-		}
 
 		if (!shouldGlow) return g_Original_setGlowProps(glowProperty, 0, param_3);
 	}
@@ -580,7 +617,7 @@ CON_COMMAND(mirv_glow, "Manage glow drawing.")
                 }
                 else if (!_stricmp("remove", arg2) && 4 <= argC) {
                     const char * arg3 = args->ArgV(3);
-                    if(StringIBeginsWith(arg3,"x")) arg3++;                    
+                    if(StringIBeginsWith(arg3,"x")) arg3++;
                     g_MirvGlow.players.erase(strtoull(arg3,nullptr,10));
                     return;
                 }
@@ -589,7 +626,7 @@ CON_COMMAND(mirv_glow, "Manage glow drawing.")
                         advancedfx::Message("x%llu: %i\n",it->first,it->second ? 1 : 0);
                     }
                     return;
-                }                
+                }
                 else if (!_stricmp("help", arg2)) {
                     deathMsgPlayers_PrintHelp_Console();
 					return;
@@ -624,7 +661,7 @@ CON_COMMAND(mirv_glow, "Manage glow drawing.")
                         advancedfx::Message("%i: %i\n",it->first,it->second ? 1 : 0);
                     }
                     return;
-                }                
+                }
             }
 			advancedfx::Message(
 				"%s %s set <iHandle> 0|1 - Enable (1) / disable (0) glow for given entity.\n"
@@ -690,7 +727,7 @@ bool getAddressesFromClient(HMODULE clientDll) {
 
 	if (auto addr = getAddress(clientDll, "E8 ?? ?? ?? ?? 45 33 F6 84 C0 0F 84")) {
 		org_shouldGlow = (org_shouldGlow_t)(addr + 5 + *(int32_t*)(addr + 1));
-	} else ErrorBox(MkErrStr(__FILE__, __LINE__)); 
+	} else ErrorBox(MkErrStr(__FILE__, __LINE__));
 
    // Has offset to material of skybox (other members too), pCSceneSystem and it's function to update skybox.
    //
@@ -713,11 +750,17 @@ bool getAddressesFromClient(HMODULE clientDll) {
 	if (auto addr = getAddress(clientDll, "33 DB 48 8D 05 ?? ?? ?? ?? 48 8B CF 48 89 44 24 ??")) {
 		auto offset = *(int32_t*)(addr + 5);
 		org_ForceUpdateSkybox = (ForceUpdateSkybox_t)(addr + 2 + 7 + offset);
-	} else ErrorBox(MkErrStr(__FILE__, __LINE__));
+	} else {
+		advancedfx::Warning("Warning: force update skybox pattern not found. Disabling MirvCommands hooks for this client.dll.\n");
+		res = false;
+	}
 
 	if (auto addr = getAddress(clientDll, "48 8D B3 ?? ?? ?? ?? 48 8B 0E")) {
 		g_Skybox_UnkPtr_Offset =  *(uint32_t*)(addr + 3);
-	} else ErrorBox(MkErrStr(__FILE__, __LINE__));
+	} else {
+		advancedfx::Warning("Warning: skybox pointer offset pattern not found. Disabling MirvCommands hooks for this client.dll.\n");
+		res = false;
+	}
 
 	return res;
 }
@@ -743,4 +786,3 @@ void HookMirvCommands(HMODULE clientDll) {
 
 	g_bHookedMirvCommands = true;
 };
-
