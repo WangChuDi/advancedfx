@@ -3,7 +3,7 @@
 #include "MirvPovHud.h"
 
 #include "ClientEntitySystem.h"
-#include "DeathMsg.h"
+#include "MirvPanorama.h"
 #include "MirvPovCore.h"
 #include "Globals.h"
 
@@ -52,12 +52,12 @@ static bool MirvPovHud_SetPanelVisible(void* panel, bool value) {
 }
 
 static unsigned char* MirvPovHud_GetHudPanel() {
-    void ** hudPanel = DeathMsg_GetPanoramaHudPanel();
+    void ** hudPanel = MirvPanorama_GetHudPanel();
     return hudPanel ? ((unsigned char***)hudPanel)[0][1] : nullptr;
 }
 
 static bool MirvPovHud_MakeSymbol(const char* name, short& value) {
-    void ** uiEnginePtr = DeathMsg_GetPanoramaUIEngine();
+    void ** uiEnginePtr = MirvPanorama_GetUIEngine();
     if(!name || !uiEnginePtr || !*uiEnginePtr || !CS2::PanoramaUIEngine::makeSymbol) return false;
 
     typedef short(__fastcall * MakeSymbol_t)(void*, int, const char*);

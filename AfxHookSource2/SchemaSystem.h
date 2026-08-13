@@ -84,14 +84,14 @@ struct ClientDllOffsets_t {
 		ptrdiff_t m_pWeaponServices = 0; // CPlayer_WeaponServices*
 		ptrdiff_t m_pObserverServices = 0; // CPlayer_ObserverServices*
 		ptrdiff_t m_pCameraServices = 0; // CPlayer_CameraServices*
-		ptrdiff_t m_flDeathTime = -1; // float32
+		ptrdiff_t m_flDeathTime = -1; // float32, optional death-camera integration
 	} C_BasePlayerPawn;
 
 	struct C_CSPlayerPawn {
 		ptrdiff_t m_ArmorValue = 0; // int32
 		ptrdiff_t m_bPrevHelmet = 0; // bool
 		ptrdiff_t m_szLastPlaceName = -1; // CNetworkString(18)
-		ptrdiff_t m_bKilledByHeadshot = -1; // bool
+		ptrdiff_t m_bKilledByHeadshot = -1; // bool, optional death-camera integration
 	} C_CSPlayerPawn;
 
 	struct CPlayer_CameraServices {

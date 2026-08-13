@@ -5,7 +5,10 @@
 #include "ClientEntitySystem.h"
 #include "Globals.h"
 #include "MirvPovFeedback.h"
+#include "MirvPovDeathCam.h"
 #include "MirvPovHud.h"
+#include "DeathMsg.h"
+#include "MirvPovDeathPanel.h"
 #include "MirvPovKillReward.h"
 #include "MirvPovPickupPrompt.h"
 #include "MirvPovRadio.h"
@@ -16,6 +19,7 @@
 #include "MirvPovTeamID.h"
 #include "MirvPovVoice.h"
 #include "MirvPovVoiceBan.h"
+#include "RenderSystemDX11Hooks.h"
 #include "SchemaSystem.h"
 
 #include "../deps/release/prop/cs2/sdk_src/public/cdll_int.h"
@@ -38,7 +42,7 @@ CEntityInstance * GetPawnFromController(CEntityInstance * controller)
     return nullptr != pawn && pawn->IsPlayerPawn() ? pawn : nullptr;
 }
 
-CEntityInstance * GetObservedPlayerPawn()
+CEntityInstance * ResolveObservedPlayerPawn()
 {
     CEntityInstance * realPawn = GetPawnFromController(GetRealSplitScreenPlayer(0));
     if(nullptr == realPawn || 0 == realPawn->GetObserverMode()) return nullptr;
@@ -50,9 +54,9 @@ CEntityInstance * GetObservedPlayerPawn()
     return nullptr != targetPawn && targetPawn->IsPlayerPawn() ? targetPawn : nullptr;
 }
 
-CEntityInstance * GetObservedPlayerController()
+CEntityInstance * ResolveObservedPlayerController()
 {
-    CEntityInstance * targetPawn = GetObservedPlayerPawn();
+    CEntityInstance * targetPawn = ResolveObservedPlayerPawn();
     if(nullptr == targetPawn) return nullptr;
 
     auto controllerHandle = targetPawn->GetPlayerControllerHandle();
@@ -64,7 +68,7 @@ CEntityInstance * GetObservedPlayerController()
 
 CEntityInstance * ResolveConfiguredPovPlayerController()
 {
-    if(g_MirvPovAutoSync) return GetObservedPlayerController();
+    if(g_MirvPovAutoSync) return ResolveObservedPlayerController();
     if(g_FakePovRadarControllerIndex <= 0) return nullptr;
 
     CEntityInstance * controller = GetEntityFromIndex(g_FakePovRadarControllerIndex);
@@ -86,8 +90,55 @@ CEntityInstance * GetCurrentPovPlayerController()
 CEntityInstance * GetCurrentPovPlayerPawn()
 {
     if(!MirvPov_IsEnabled()) return nullptr;
-    if(g_MirvPovAutoSync) return GetObservedPlayerPawn();
+    if(g_MirvPovAutoSync) return ResolveObservedPlayerPawn();
     return GetPawnFromController(ResolveConfiguredPovPlayerController());
+}
+
+CEntityInstance * GetObservedPlayerPawn()
+{
+    __try {
+        return ResolveObservedPlayerPawn();
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
+CEntityInstance * GetObservedPlayerController()
+{
+    __try {
+        return ResolveObservedPlayerController();
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
+bool MirvPov_GetObserverState(uint8_t & observerMode, uint32_t & observerTarget)
+{
+    observerMode = 0;
+    observerTarget = 0xFFFFFFFFu;
+
+    __try {
+        CEntityInstance * realPawn = GetRealLocalPlayerPawn();
+        if(nullptr == realPawn || !realPawn->IsPlayerPawn()) return false;
+
+        observerMode = static_cast<uint8_t>(realPawn->GetObserverMode());
+        const auto targetHandle = realPawn->GetObserverTarget();
+        if(targetHandle.IsValid()) observerTarget = targetHandle.ToInt();
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        observerMode = 0;
+        observerTarget = 0xFFFFFFFFu;
+        return false;
+    }
+}
+
+CEntityInstance * GetRealLocalPlayerPawn()
+{
+    __try {
+        return GetPawnFromController(GetRealSplitScreenPlayer(0));
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
 }
 
 CEntityInstance * GetFakePovRadarController()
@@ -148,6 +199,7 @@ void MirvPov_UpdateSeekDetection()
     SOURCESDK::CS2::IDemoFile * demoFile = g_pEngineToClient->GetDemoFile();
     if(!demoFile) return;
     const int demoTick = demoFile->GetDemoTick();
+    MirvPovDeathCam_UpdateDemoTick(demoTick);
     MirvPovHud_UpdateSeekDetection(demoTick);
     MirvPovKillReward_OnDemoTick(demoTick);
     MirvPovRadio_OnDemoTick(demoTick);
@@ -159,19 +211,26 @@ void MirvPov_OnFrameStageBefore(int frameStage)
 
     MirvPovVoice_OnRenderPass();
     MirvPovVoiceBan_OnRenderPass();
-    MirvPov_UpdateSeekDetection();
     MirvPovScoreboard_Update();
 }
 
 void MirvPov_OnFrameStageAfter(int frameStage)
 {
     if(SOURCESDK::CS2::FRAME_RENDER_PASS == frameStage) {
+        // Run after the game's native FrameStageNotify. Observer target and
+        // Pawn state are committed there; sampling them before the original
+        // call shifts fade cleanup and replay timing by one frame.
+        MirvPovFeedback_UpdatePovSelection();
+        MirvPovDeathPanel_Update();
+        RenderSystemDX11_DeathFade_UpdateObserverState();
+        MirvPov_UpdateSeekDetection();
         MirvPovVoice_AfterRenderPass();
     }
 }
 
 void MirvPov_OnGameEvent(SOURCESDK::CS2::IGameEvent * event)
 {
+    MirvPovDeathCam_HandleGameEvent(event);
     MirvPovFeedback_HandleGameEvent(event);
 }
 
@@ -200,8 +259,9 @@ void MirvPov_Enable(HMODULE clientDll)
     MirvPov_ResetVoiceHud();
 
     g_MirvPovEnabled = true;
-    MirvPovPickupPrompt_Initialize(clientDll);
     MirvPovFeedback_Initialize(clientDll);
+    MirvPovDeathCam_Initialize(clientDll);
+    MirvPovPickupPrompt_Initialize(clientDll);
     MirvPovKillReward_Initialize(clientDll);
     MirvPovRadio_Initialize(clientDll);
     if(MirvPovVoice_IsEnabled()) MirvPov_UpdateVoiceTeam();
@@ -212,12 +272,17 @@ void MirvPov_Disable()
     if(!g_MirvPovEnabled) return;
 
     MirvPovScoreboard_Reset();
+    MirvPovDeathPanel_Clear();
+    RenderSystemDX11_DeathFade_Reset();
+    RenderSystemDX11_DeathFade_ResetObserverState();
+    MirvPovFeedback_ResetPovSelection();
     g_MirvPovAutoSync = false;
     MirvPovHud_RemovePatches();
     MirvPov_RemoveRadarPatches();
     MirvPovTeamID_RemovePatches();
-    MirvPovPickupPrompt_RemovePatches();
     MirvPov_ResetVoiceHud();
+    MirvPovDeathCam_Reset();
+    MirvPovPickupPrompt_RemovePatches();
     MirvPovKillReward_ApplyHudChatDemoBypass(false);
     MirvPovKillReward_Reset("mirv_pov disabled");
     MirvPovRadio_Reset("mirv_pov disabled");
