@@ -28,19 +28,31 @@ message(STATUS "AFX_RUST_CARGO_LOCKED=${AFX_RUST_CARGO_LOCKED}")
 # Get Microsoft Visual Studio related paths:
 #
 
+if(DEFINED ENV{ProgramFiles_x86})
+    set(AFX_VSWHERE "$ENV{ProgramFiles_x86}/Microsoft Visual Studio/Installer/vswhere.exe")
+else()
+    set(AFX_VSWHERE "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe")
+endif()
+
 execute_process(
-    COMMAND "$ENV{ProgramFiles\(x86\)}\\Microsoft Visual Studio\\Installer\\vswhere.exe" "-latest" "-version" "[17.0,18.0)" "-property" "installationPath"
+    COMMAND "${AFX_VSWHERE}" "-latest" "-version" "[17.0,18.0)" "-property" "installationPath"
     OUTPUT_VARIABLE VS_INSTALLPATH
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
-string(REPLACE "\\" "/" VS_INSTALLPATH ${VS_INSTALLPATH})
+string(REPLACE "\\" "/" VS_INSTALLPATH "${VS_INSTALLPATH}")
+if(NOT VS_INSTALLPATH)
+    set(VS_INSTALLPATH "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools")
+endif()
 
 execute_process(
-    COMMAND "$ENV{ProgramFiles\(x86\)}\\Microsoft Visual Studio\\Installer\\vswhere.exe" "-latest" "-version" "[17.0,18.0)" "-requires" "Microsoft.Component.MSBuild" "-find" "MSBuild\\**\\**\\Bin\\MSBuild.exe"
+    COMMAND "${AFX_VSWHERE}" "-latest" "-version" "[17.0,18.0)" "-requires" "Microsoft.Component.MSBuild" "-find" "MSBuild\\**\\**\\Bin\\MSBuild.exe"
     OUTPUT_VARIABLE VS_MSBUILD
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
-string(REPLACE "\\" "/" VS_MSBUILD ${VS_MSBUILD})
+string(REPLACE "\\" "/" VS_MSBUILD "${VS_MSBUILD}")
+if(NOT VS_MSBUILD)
+    set(VS_MSBUILD "${VS_INSTALLPATH}/MSBuild/Current/Bin/MSBuild.exe")
+endif()
 
 ################################################################################
 
@@ -59,7 +71,8 @@ endif()
 include(FetchContent)
 include(ExternalProject)
 
-if(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
+if(CMAKE_GENERATOR_PLATFORM STREQUAL "x64" OR
+   (NOT CMAKE_GENERATOR_PLATFORM AND CMAKE_SIZEOF_VOID_P EQUAL 8))
 
 #
 # Setup "corrosion" for including Rust code in our projects:
@@ -126,7 +139,8 @@ if(CMAKE_GENERATOR_PLATFORM STREQUAL "Win32")
     add_custom_target(advancedfx ALL
 	    DEPENDS hlae
     )
-elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
+elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "x64" OR
+       (NOT CMAKE_GENERATOR_PLATFORM AND CMAKE_SIZEOF_VOID_P EQUAL 8))
 
     FetchContent_Declare(
 	    nasm
@@ -209,7 +223,8 @@ if(CMAKE_GENERATOR_PLATFORM STREQUAL "Win32")
             "${injector_BINARY_DIR}/x64/injector.pdb"
         DESTINATION "pdb/x64"
     )
-elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
+elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "x64" OR
+       (NOT CMAKE_GENERATOR_PLATFORM AND CMAKE_SIZEOF_VOID_P EQUAL 8))
     install(
         PROGRAMS
             ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}

@@ -246,8 +246,16 @@ target_sources(${PROJECT_NAME} PRIVATE
 	MirvFix.cpp
 	MirvFix.h
 
-	MirvTime.cpp
-	MirvTime.h
+	    MirvTime.cpp
+	    MirvTime.h
+
+	    MirvPov.cpp
+	    MirvPov.h
+	    MirvPovContext.cpp
+	    MirvPovContext.h
+
+	    MirvPovEventCompensation.cpp
+	    MirvPovEventCompensation.h
 
     ReplaceName.cpp
     ReplaceName.h
@@ -272,8 +280,17 @@ target_sources(${PROJECT_NAME} PRIVATE
 
     StreamSettings.h
 
-    WrpConsole.cpp
-    WrpConsole.h
+	    WrpConsole.cpp
+	    WrpConsole.h
+)
+
+set(MIRV_POV_RELEASE_DIR "${CMAKE_BINARY_DIR}/mirv_pov_release")
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${MIRV_POV_RELEASE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:${PROJECT_NAME}>"
+        "${MIRV_POV_RELEASE_DIR}/AfxHookSource2_mirv_pov.dll"
+    VERBATIM
 )
 
 # This is far form proper, but it will do for now:

@@ -21,6 +21,7 @@
 #include "MirvColors.h"
 #include "MirvFix.h"
 #include "MirvTime.h"
+#include "MirvPov.h"
 
 #include "../deps/release/prop/AfxHookSource/SourceSdkShared.h"
 #include "../deps/release/prop/AfxHookSource/SourceInterfaces.h"
@@ -1335,6 +1336,7 @@ int new_CCS2_Client_Init(void* This) {
 	g_ReShadeAdvancedfx.Connect();
 
 	WrpRegisterCommands();
+	MirvPov::OnClientInit();
 
 	AfxHookSource2Rs_Engine_Init();
 
@@ -1366,6 +1368,7 @@ CON_COMMAND(__mirv_print_search_paths, "")
 typedef void(* CCS2_Client_Shutdown_t)(void* This);
 CCS2_Client_Shutdown_t old_CCS2_Client_Shutdown;
 void new_CCS2_Client_Shutdown(void* This) {
+	MirvPov::OnClientShutdown();
 	AfxHookSource2Rs_Engine_Shutdown();
 
 	old_CCS2_Client_Shutdown(This);
@@ -1505,6 +1508,8 @@ void  new_CS2_Client_FrameStageNotify(void* This, SOURCESDK::CS2::ClientFrameSta
 	}
 
 	AfxHookSource2Rs_Engine_OnClientFrameStageNotify(curStage, true);
+
+	MirvPov::OnFrameStage(curStage);
 
 	old_CS2_Client_FrameStageNotify(This, curStage);
 
@@ -2137,6 +2142,7 @@ void LibraryHooksW(HMODULE hModule, LPCWSTR lpLibFileName)
 		bFirstClient = false;
 
 		g_H_ClientDll = hModule;
+		MirvPov::OnClientLoaded(hModule);
 
 		Addresses_InitClientDll((AfxAddr)hModule);
 
