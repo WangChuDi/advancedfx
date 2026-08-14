@@ -288,6 +288,7 @@ using VoiceUpdateSpeakerStatusFn = std::int64_t(__fastcall*)(
 
 std::atomic<bool> g_requested{false};
 std::atomic<bool> g_installed{false};
+std::atomic<bool> g_install_failed{false};
 HMODULE g_client = nullptr;
 bool g_client_initialized = false;
 std::atomic<bool> g_build_mismatch_logged{false};
@@ -3140,47 +3141,86 @@ bool prepare_damage_direction() {
     return true;
 }
 
+bool validate_prologue(HMODULE module, std::uint32_t rva,
+                       const std::uint8_t* expected, std::size_t size,
+                       const char* tag) {
+    if (!module || !expected || size < 4) {
+        return false;
+    }
+    const auto* actual = module_base(module) + rva;
+    if (std::memcmp(actual, expected, size) == 0) {
+        return true;
+    }
+    advancedfx::Warning(
+        "[mirv_pov] %s validation mismatch rva=0x%X size=%zu "
+        "actual=%02X %02X %02X %02X expected=%02X %02X %02X %02X\n",
+        tag, rva, size, static_cast<unsigned>(actual[0]),
+        static_cast<unsigned>(actual[1]), static_cast<unsigned>(actual[2]),
+        static_cast<unsigned>(actual[3]), static_cast<unsigned>(expected[0]),
+        static_cast<unsigned>(expected[1]), static_cast<unsigned>(expected[2]),
+        static_cast<unsigned>(expected[3]));
+    return false;
+}
+
 bool validate_event_helpers() {
     if (!g_client) {
         return false;
     }
-    auto* base = module_base(g_client);
-    return std::memcmp(base + kEventFieldHashRva, kEventFieldHashPrologue,
-                       sizeof(kEventFieldHashPrologue)) == 0 &&
-           std::memcmp(base + kFilterPlayerEntityRva,
-                       kFilterPlayerEntityPrologue,
-                       sizeof(kFilterPlayerEntityPrologue)) == 0 &&
-           std::memcmp(base + kPawnGetPlayerSlotRva, kPawnSlotPrologue,
-                       sizeof(kPawnSlotPrologue)) == 0;
+    bool ok = true;
+    ok &= validate_prologue(g_client, kEventFieldHashRva,
+                            kEventFieldHashPrologue,
+                            sizeof(kEventFieldHashPrologue),
+                            "event_field_hash");
+    ok &= validate_prologue(g_client, kFilterPlayerEntityRva,
+                            kFilterPlayerEntityPrologue,
+                            sizeof(kFilterPlayerEntityPrologue),
+                            "filter_player_entity");
+    ok &= validate_prologue(g_client, kPawnGetPlayerSlotRva,
+                            kPawnSlotPrologue, sizeof(kPawnSlotPrologue),
+                            "pawn_get_player_slot");
+    return ok;
 }
 
 bool validate_native_compensation_helpers() {
     if (!g_client) {
         return false;
     }
-    auto* base = module_base(g_client);
-    return std::memcmp(base + kEntityPlayerIdRva, kEntityPlayerIdPrologue,
-                       sizeof(kEntityPlayerIdPrologue)) == 0 &&
-           std::memcmp(base + kEmitHurtFeedbackRva,
-                       kEmitHurtFeedbackPrologue,
-                       sizeof(kEmitHurtFeedbackPrologue)) == 0 &&
-           std::memcmp(base + kEntityAbsOriginRva, kEntityAbsOriginPrologue,
-                       sizeof(kEntityAbsOriginPrologue)) == 0 &&
-           std::memcmp(base + kDamageIndicatorVisibleRva,
-                       kDamageIndicatorVisiblePrologue,
-                       sizeof(kDamageIndicatorVisiblePrologue)) == 0 &&
-           std::memcmp(base + kFindHudElementRva, kFindHudElementPrologue,
-                       sizeof(kFindHudElementPrologue)) == 0 &&
-           std::memcmp(base + kPushNoticeRva, kPushNoticePrologue,
-                       sizeof(kPushNoticePrologue)) == 0 &&
-           std::memcmp(base + kGameEventDispatchRva,
-                       kGameEventDispatchPrologue,
-                       sizeof(kGameEventDispatchPrologue)) == 0 &&
-           std::memcmp(base + kRadarSoundSubmitRva,
-                       kRadarSoundSubmitPrologue,
-                       sizeof(kRadarSoundSubmitPrologue)) == 0 &&
-           std::memcmp(base + kVoiceActivityRva, kVoiceActivityPrologue,
-                       sizeof(kVoiceActivityPrologue)) == 0;
+    bool ok = true;
+    ok &= validate_prologue(g_client, kEntityPlayerIdRva,
+                            kEntityPlayerIdPrologue,
+                            sizeof(kEntityPlayerIdPrologue),
+                            "entity_player_id");
+    ok &= validate_prologue(g_client, kEmitHurtFeedbackRva,
+                            kEmitHurtFeedbackPrologue,
+                            sizeof(kEmitHurtFeedbackPrologue),
+                            "emit_hurt_feedback");
+    ok &= validate_prologue(g_client, kEntityAbsOriginRva,
+                            kEntityAbsOriginPrologue,
+                            sizeof(kEntityAbsOriginPrologue),
+                            "entity_abs_origin");
+    ok &= validate_prologue(g_client, kDamageIndicatorVisibleRva,
+                            kDamageIndicatorVisiblePrologue,
+                            sizeof(kDamageIndicatorVisiblePrologue),
+                            "damage_indicator_visible");
+    ok &= validate_prologue(g_client, kFindHudElementRva,
+                            kFindHudElementPrologue,
+                            sizeof(kFindHudElementPrologue),
+                            "find_hud_element");
+    ok &= validate_prologue(g_client, kPushNoticeRva, kPushNoticePrologue,
+                            sizeof(kPushNoticePrologue), "push_notice");
+    ok &= validate_prologue(g_client, kGameEventDispatchRva,
+                            kGameEventDispatchPrologue,
+                            sizeof(kGameEventDispatchPrologue),
+                            "game_event_dispatch");
+    ok &= validate_prologue(g_client, kRadarSoundSubmitRva,
+                            kRadarSoundSubmitPrologue,
+                            sizeof(kRadarSoundSubmitPrologue),
+                            "radar_sound_submit");
+    ok &= validate_prologue(g_client, kVoiceActivityRva,
+                            kVoiceActivityPrologue,
+                            sizeof(kVoiceActivityPrologue),
+                            "voice_activity");
+    return ok;
 }
 
 bool install_identity() {
@@ -3370,13 +3410,18 @@ void restore_identity() noexcept {
 }
 
 bool install_all() {
-    if (g_installed || !g_client_initialized || !g_client ||
-        !supported_build(g_client, g_h_engine2Dll)) {
+    if (g_installed || g_install_failed || !g_client_initialized ||
+        !g_client || !g_h_engine2Dll) {
+        return false;
+    }
+    if (!supported_build(g_client, g_h_engine2Dll)) {
+        g_install_failed = true;
         return false;
     }
     const bool identity_ok = install_identity();
     const bool pipeline_ok = install_pipeline();
     if (!identity_ok || !pipeline_ok) {
+        g_install_failed = true;
         log_message("install failed; all hooks rolled back");
         restore_pipeline();
         restore_identity();
@@ -3411,6 +3456,7 @@ CON_COMMAND(mirv_pov, "Use the followed demo player for native HUD transactions.
     if (_stricmp(args->ArgV(1), "1") == 0 ||
         _stricmp(args->ArgV(1), "on") == 0) {
         g_requested = true;
+        g_install_failed = false;
         if (!install_all()) {
             advancedfx::Warning(
                 "[mirv_pov] enable pending or refused; see console output\n");
@@ -3421,6 +3467,7 @@ CON_COMMAND(mirv_pov, "Use the followed demo player for native HUD transactions.
     if (_stricmp(args->ArgV(1), "0") == 0 ||
         _stricmp(args->ArgV(1), "off") == 0) {
         g_requested = false;
+        g_install_failed = false;
         RemoveHooks();
         print_status();
         return;
@@ -3432,6 +3479,7 @@ CON_COMMAND(mirv_pov, "Use the followed demo player for native HUD transactions.
 
 void OnClientLoaded(HMODULE client) {
     g_client = client;
+    g_install_failed = false;
     g_build_cache_valid.store(false, std::memory_order_release);
     g_build_cache_result.store(false, std::memory_order_relaxed);
     g_build_mismatch_logged.store(false, std::memory_order_relaxed);
@@ -3443,6 +3491,7 @@ void OnClientLoaded(HMODULE client) {
 
 void OnClientInit() {
     g_client_initialized = true;
+    g_install_failed = false;
     g_pending_logged = false;
     if (g_requested) {
         install_all();
@@ -3451,6 +3500,7 @@ void OnClientInit() {
 
 void OnClientShutdown() {
     RemoveHooks();
+    g_install_failed = false;
     g_client_initialized = false;
     g_client = nullptr;
     g_build_cache_valid.store(false, std::memory_order_release);
