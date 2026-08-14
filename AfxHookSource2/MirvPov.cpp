@@ -296,6 +296,83 @@ std::atomic<bool> g_build_cache_valid{false};
 std::atomic<bool> g_build_cache_result{false};
 bool g_pending_logged = false;
 
+enum class RuntimePoint : std::size_t {
+    slot_pawn,
+    slot_controller,
+    is_observer,
+    radar_sound_submit,
+    radar_sound_create,
+    radar_sound_snippet_update,
+    game_event_dispatch,
+    radar_transaction,
+    radar_mode,
+    radar_update,
+    radar_local_transform,
+    player_overhead,
+    team_counter,
+    voice,
+    voice_should_draw,
+    server_voice,
+    money,
+    gameplay,
+    death_postprocess,
+    damage_message,
+    damage_direction,
+    death_panel_event,
+    last_killer,
+    death_panel_summary,
+    death_panel_show,
+    death_panel_hide,
+    radio,
+    say_text2,
+    hud_root,
+    spec_player,
+    live_flash,
+    render_graph,
+    spectator_tools,
+    player_pawn_event,
+    get_hud_player,
+    get_hud_alive,
+    team_relationship,
+    buy_zone,
+    is_playing_demo,
+    broadcast_mode,
+    count
+};
+
+constexpr const char* kRuntimePointNames[] = {
+    "slot_pawn", "slot_controller", "is_observer", "radar_sound_submit",
+    "radar_sound_create", "radar_sound_snippet_update",
+    "game_event_dispatch", "radar_transaction", "radar_mode",
+    "radar_update", "radar_local_transform", "player_overhead",
+    "team_counter", "voice", "voice_should_draw", "server_voice", "money",
+    "gameplay", "death_postprocess", "damage_message", "damage_direction",
+    "death_panel_event", "last_killer", "death_panel_summary",
+    "death_panel_show", "death_panel_hide", "radio", "say_text2", "hud_root",
+    "spec_player", "live_flash", "render_graph", "spectator_tools",
+    "player_pawn_event", "get_hud_player", "get_hud_alive",
+    "team_relationship", "buy_zone", "is_playing_demo", "broadcast_mode"};
+
+std::array<std::atomic<std::uint64_t>,
+           static_cast<std::size_t>(RuntimePoint::count)>
+    g_runtime_point_calls{};
+std::atomic<std::uint64_t> g_identity_frame_calls{0};
+std::atomic<std::uint64_t> g_identity_valid_frames{0};
+std::atomic<std::uint64_t> g_identity_no_target_frames{0};
+std::atomic<std::uint64_t> g_identity_controller_fallbacks{0};
+std::atomic<int> g_last_hltv_primary_index{-1};
+std::atomic<void*> g_last_logged_followed{nullptr};
+
+void note_runtime_point(RuntimePoint point) noexcept {
+    const auto index = static_cast<std::size_t>(point);
+    const auto calls =
+        g_runtime_point_calls[index].fetch_add(1, std::memory_order_relaxed) + 1;
+    if (calls == 1) {
+        advancedfx::Message("[mirv_pov] runtime hook hit=%s\n",
+                            kRuntimePointNames[index]);
+    }
+}
+
 EntryHook g_slot_pawn{};
 EntryHook g_slot_controller{};
 EntryHook g_is_observer{};
@@ -634,6 +711,8 @@ bool install_entry(HMODULE module, std::uint32_t rva,
     hook.stub = stub;
     hook.trampoline = allocation;
     hook.stolen = stolen;
+    advancedfx::Message("[mirv_pov] hook installed tag=%s rva=0x%X stolen=%zu\n",
+                        tag, rva, stolen);
     return true;
 }
 
@@ -691,6 +770,8 @@ bool install_rel_call(HMODULE module, std::uint32_t rva,
     FlushInstructionCache(GetCurrentProcess(), call, 5);
     FlushInstructionCache(GetCurrentProcess(), stub, sizeof(AbsJump));
     VirtualProtect(call, 5, old_protect, &old_protect);
+    advancedfx::Message("[mirv_pov] call hook installed tag=%s rva=0x%X\n",
+                        tag, rva);
     return true;
 }
 
@@ -800,6 +881,7 @@ void* hltv_primary_entity() {
         const int index =
             *reinterpret_cast<const std::int32_t*>(
                 camera + kHltvPrimaryTargetOffset);
+        g_last_hltv_primary_index.store(index, std::memory_order_relaxed);
         return entity_from_entry_index(index);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return nullptr;
@@ -808,20 +890,38 @@ void* hltv_primary_entity() {
 
 void* followed_pawn() {
     void* entity = hltv_primary_entity();
-    if (!entity) {
-        return nullptr;
+    if (entity) {
+        __try {
+            CEntityInstance* instance = reinterpret_cast<CEntityInstance*>(entity);
+            if (instance->IsPlayerController()) {
+                if (void* pawn = pawn_from_controller(entity)) {
+                    return pawn;
+                }
+            }
+            if (instance->IsPlayerPawn()) {
+                return entity;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
     }
-    __try {
-        CEntityInstance* instance = reinterpret_cast<CEntityInstance*>(entity);
-        if (instance->IsPlayerController()) {
-            if (void* pawn = pawn_from_controller(entity)) {
-                return pawn;
+
+    // HLTV playback can leave the primary target at -1 while the observer
+    // controller still carries the active or observer pawn handle. The
+    // reference resolves this fallback before declaring identity unavailable.
+    const auto original =
+        reinterpret_cast<SlotFn>(g_slot_controller.trampoline);
+    if (original) {
+        for (const int slot : {0, -1}) {
+            if (void* controller = original(slot)) {
+                if (void* pawn = pawn_from_controller(controller)) {
+                    g_identity_controller_fallbacks.fetch_add(
+                        1, std::memory_order_relaxed);
+                    return pawn;
+                }
             }
         }
-        return instance->IsPlayerPawn() ? entity : nullptr;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return nullptr;
     }
+    return nullptr;
 }
 
 bool same_player(void* left, void* right) {
@@ -1922,6 +2022,7 @@ void flush_pending_death_banner() {
 
 void __fastcall radar_sound_submit_scope(void* source_pawn, int radius,
                                          float duration, bool is_footstep) {
+    note_runtime_point(RuntimePoint::radar_sound_submit);
     const auto original = g_radar_sound_submit_original;
     if (!original) {
         return;
@@ -1955,6 +2056,7 @@ void __fastcall radar_sound_submit_scope(void* source_pawn, int radius,
 
 void* __fastcall radar_sound_create_scope(void* hud, int player_id, int radius,
                                           float duration, bool is_footstep) {
+    note_runtime_point(RuntimePoint::radar_sound_create);
     const auto original = g_radar_sound_create_original;
     void* snippet = original
                         ? original(hud, player_id, radius, duration, is_footstep)
@@ -1973,6 +2075,7 @@ void* __fastcall radar_sound_create_scope(void* hud, int player_id, int radius,
 }
 
 void __fastcall radar_sound_snippet_update_scope(void* hud, void* snippet) {
+    note_runtime_point(RuntimePoint::radar_sound_snippet_update);
     const auto original = g_radar_sound_snippet_update_original;
     if (original) {
         original(hud, snippet);
@@ -2043,6 +2146,7 @@ void flush_pending_radar_sounds() {
 }
 
 bool __fastcall game_event_dispatch_scope(void* manager, void* event) {
+    note_runtime_point(RuntimePoint::game_event_dispatch);
     queue_radar_sound_event(event);
     queue_damage_feedback_event(reinterpret_cast<std::uintptr_t>(event));
     return g_game_event_dispatch_original
@@ -2118,6 +2222,7 @@ void release_expired_death_pov() {
 }
 
 void publish_followed_identity() {
+    g_identity_frame_calls.fetch_add(1, std::memory_order_relaxed);
     if (!g_requested || !g_client_initialized || !g_client ||
         !supported_build(g_client, g_h_engine2Dll) || demo_is_skipping()) {
         if (demo_is_skipping()) {
@@ -2127,15 +2232,36 @@ void publish_followed_identity() {
     }
     void* pawn = followed_pawn();
     if (!pawn) {
+        const auto no_target = g_identity_no_target_frames.fetch_add(
+                                   1, std::memory_order_relaxed) +
+                               1;
+        if (no_target == 1) {
+            advancedfx::Warning(
+                "[mirv_pov] followed identity unavailable hltv_index=%d\n",
+                g_last_hltv_primary_index.load(std::memory_order_relaxed));
+        }
+        if (g_last_logged_followed.exchange(nullptr,
+                                             std::memory_order_acq_rel)) {
+            advancedfx::Message("[mirv_pov] followed identity cleared\n");
+        }
         pov::invalidate();
         return;
     }
     void* controller = controller_from_pawn(pawn);
     if (!controller) {
+        const auto no_target = g_identity_no_target_frames.fetch_add(
+                                   1, std::memory_order_relaxed) +
+                               1;
+        if (no_target == 1) {
+            advancedfx::Warning(
+                "[mirv_pov] followed pawn has no controller hltv_index=%d\n",
+                g_last_hltv_primary_index.load(std::memory_order_relaxed));
+        }
         pov::invalidate();
         return;
     }
 
+    g_identity_valid_frames.fetch_add(1, std::memory_order_relaxed);
     pov::Snapshot next{};
     next.pawn = pawn;
     next.controller = controller;
@@ -2157,9 +2283,18 @@ void publish_followed_identity() {
         old.slot != next.slot || old.team != next.team) {
         pov::publish(next);
     }
+    if (g_last_logged_followed.exchange(next.pawn,
+                                        std::memory_order_acq_rel) != next.pawn) {
+        advancedfx::Message(
+            "[mirv_pov] followed identity pawn=%p controller=%p slot=%d "
+            "team=%d hltv_index=%d\n",
+            next.pawn, next.controller, next.slot, next.team,
+            g_last_hltv_primary_index.load(std::memory_order_relaxed));
+    }
 }
 
 void* __fastcall slot_pawn_hook(int slot) {
+    note_runtime_point(RuntimePoint::slot_pawn);
     const auto original = reinterpret_cast<SlotFn>(g_slot_pawn.trampoline);
     void* native = original ? original(slot) : nullptr;
     if ((slot != 0 && slot != -1) || !pov::active() || demo_is_skipping()) {
@@ -2170,6 +2305,7 @@ void* __fastcall slot_pawn_hook(int slot) {
 }
 
 void* __fastcall slot_controller_hook(int slot) {
+    note_runtime_point(RuntimePoint::slot_controller);
     const auto original =
         reinterpret_cast<SlotFn>(g_slot_controller.trampoline);
     void* native = original ? original(slot) : nullptr;
@@ -2181,6 +2317,7 @@ void* __fastcall slot_controller_hook(int slot) {
 }
 
 bool __fastcall is_observer_hook(void* pawn) {
+    note_runtime_point(RuntimePoint::is_observer);
     const auto original =
         reinterpret_cast<IsObserverFn>(g_is_observer.trampoline);
     const bool native = original ? original(pawn) : false;
@@ -2198,6 +2335,7 @@ std::uint64_t call_one_arg(EntryHook& hook, std::uintptr_t value) {
 
 void __fastcall radar_transaction_scope(std::uintptr_t hud,
                                         std::uint8_t active) {
+    note_runtime_point(RuntimePoint::radar_transaction);
     const auto original = g_radar_transaction_original;
     if (!original) {
         return;
@@ -2247,6 +2385,7 @@ void __fastcall radar_transaction_scope(std::uintptr_t hud,
 }
 
 std::uint64_t __fastcall radar_mode_scope(std::uintptr_t hud) {
+    note_runtime_point(RuntimePoint::radar_mode);
     if (demo_is_skipping()) {
         return call_one_arg(g_radar_mode, hud);
     }
@@ -2255,6 +2394,7 @@ std::uint64_t __fastcall radar_mode_scope(std::uintptr_t hud) {
 }
 
 std::uint64_t __fastcall radar_update_scope(std::uintptr_t hud) {
+    note_runtime_point(RuntimePoint::radar_update);
     if (demo_is_skipping()) {
         return call_one_arg(g_radar_update, hud);
     }
@@ -2263,6 +2403,7 @@ std::uint64_t __fastcall radar_update_scope(std::uintptr_t hud) {
 }
 
 std::uint64_t __fastcall radar_local_transform_scope(std::uintptr_t hud) {
+    note_runtime_point(RuntimePoint::radar_local_transform);
     if (demo_is_skipping()) {
         return call_one_arg(g_radar_local_transform, hud);
     }
@@ -2271,6 +2412,7 @@ std::uint64_t __fastcall radar_local_transform_scope(std::uintptr_t hud) {
 }
 
 std::uint64_t __fastcall overhead_scope(std::uintptr_t hud) {
+    note_runtime_point(RuntimePoint::player_overhead);
     if (demo_is_skipping()) {
         return call_one_arg(g_overhead, hud);
     }
@@ -2279,6 +2421,7 @@ std::uint64_t __fastcall overhead_scope(std::uintptr_t hud) {
 }
 
 std::uint64_t __fastcall team_counter_scope(std::uintptr_t hud) {
+    note_runtime_point(RuntimePoint::team_counter);
     if (demo_is_skipping()) {
         return call_one_arg(g_team_counter, hud);
     }
@@ -2287,6 +2430,7 @@ std::uint64_t __fastcall team_counter_scope(std::uintptr_t hud) {
 }
 
 std::uint64_t __fastcall voice_scope(std::uintptr_t hud) {
+    note_runtime_point(RuntimePoint::voice);
     if (demo_is_skipping()) {
         return call_one_arg(g_voice, hud);
     }
@@ -2297,6 +2441,7 @@ std::uint64_t __fastcall voice_scope(std::uintptr_t hud) {
 }
 
 bool __fastcall voice_should_draw_scope(void* hud) {
+    note_runtime_point(RuntimePoint::voice_should_draw);
     const auto original =
         reinterpret_cast<BoolOneArgFn>(g_voice_should_draw.trampoline);
     if (demo_is_skipping()) {
@@ -2313,6 +2458,7 @@ bool __fastcall voice_should_draw_scope(void* hud) {
 
 std::uint64_t __fastcall server_voice_scope(std::uintptr_t decoder,
                                             std::uintptr_t message) {
+    note_runtime_point(RuntimePoint::server_voice);
     const auto original = reinterpret_cast<TwoArgFn>(g_server_voice.trampoline);
     if (demo_is_skipping()) {
         return original ? original(decoder, message) : 0;
@@ -2329,6 +2475,7 @@ std::uint64_t __fastcall server_voice_scope(std::uintptr_t decoder,
 
 std::uint64_t __fastcall money_scope(std::uintptr_t hud,
                                      std::uintptr_t visible) {
+    note_runtime_point(RuntimePoint::money);
     const auto original = reinterpret_cast<TwoArgFn>(g_money.trampoline);
     if (demo_is_skipping()) {
         return original ? original(hud, visible) : 0;
@@ -2339,6 +2486,7 @@ std::uint64_t __fastcall money_scope(std::uintptr_t hud,
 
 void __fastcall gameplay_scope(std::uintptr_t listener,
                                std::uintptr_t event) {
+    note_runtime_point(RuntimePoint::gameplay);
     const auto original = reinterpret_cast<TwoArgVoidFn>(g_gameplay.trampoline);
     if (demo_is_skipping()) {
         if (original) {
@@ -2371,6 +2519,7 @@ void __fastcall gameplay_scope(std::uintptr_t listener,
 }
 
 void __fastcall death_postprocess_scope(std::uintptr_t client_mode) {
+    note_runtime_point(RuntimePoint::death_postprocess);
     release_expired_death_pov();
     const auto original =
         reinterpret_cast<OneArgVoidFn>(g_death_postprocess.trampoline);
@@ -2389,6 +2538,7 @@ void __fastcall death_postprocess_scope(std::uintptr_t client_mode) {
 
 std::uint64_t __fastcall damage_message_scope(std::uintptr_t hud,
                                               std::uintptr_t message) {
+    note_runtime_point(RuntimePoint::damage_message);
     const auto original =
         reinterpret_cast<TwoArgFn>(g_damage_message.trampoline);
     if (demo_is_skipping()) {
@@ -2408,6 +2558,7 @@ std::uint64_t __fastcall damage_message_scope(std::uintptr_t hud,
 
 void __fastcall damage_direction_scope(std::uintptr_t hud, const float* source,
                                        void* pawn) {
+    note_runtime_point(RuntimePoint::damage_direction);
     const auto original = g_damage_direction_original;
     if (!original) {
         return;
@@ -2420,6 +2571,7 @@ void __fastcall damage_direction_scope(std::uintptr_t hud, const float* source,
 
 std::uint64_t __fastcall death_panel_event_scope(std::uintptr_t hud,
                                                  std::uintptr_t event) {
+    note_runtime_point(RuntimePoint::death_panel_event);
     const auto original =
         reinterpret_cast<TwoArgFn>(g_death_panel_event.trampoline);
     if (demo_is_skipping()) {
@@ -2460,6 +2612,7 @@ std::uint64_t __fastcall death_panel_event_scope(std::uintptr_t hud,
 }
 
 std::uint64_t __fastcall last_killer_scope(std::uintptr_t message) {
+    note_runtime_point(RuntimePoint::last_killer);
     const auto original = reinterpret_cast<OneArgFn>(g_last_killer.trampoline);
     if (!original || !message || demo_is_skipping()) {
         return original ? original(message) : 0;
@@ -2512,6 +2665,7 @@ std::uint64_t __fastcall last_killer_scope(std::uintptr_t message) {
 std::uint64_t __fastcall death_panel_summary_scope(std::uintptr_t hud, int a2,
                                                   int a3, int a4, int a5,
                                                   int a6, int a7) {
+    note_runtime_point(RuntimePoint::death_panel_summary);
     const auto original =
         reinterpret_cast<DeathPanelSummaryFn>(g_death_panel_summary.trampoline);
     if (demo_is_skipping()) {
@@ -2525,6 +2679,7 @@ std::uint64_t __fastcall death_panel_summary_scope(std::uintptr_t hud, int a2,
 }
 
 void __fastcall death_panel_show_scope(std::uintptr_t hud) {
+    note_runtime_point(RuntimePoint::death_panel_show);
     const auto original =
         reinterpret_cast<OneArgVoidFn>(g_death_panel_show.trampoline);
     if (demo_is_skipping()) {
@@ -2546,6 +2701,7 @@ void __fastcall death_panel_show_scope(std::uintptr_t hud) {
 }
 
 void __fastcall death_panel_hide_scope(std::uintptr_t hud) {
+    note_runtime_point(RuntimePoint::death_panel_hide);
     const auto original =
         reinterpret_cast<OneArgVoidFn>(g_death_panel_hide.trampoline);
     if (demo_is_skipping()) {
@@ -2567,6 +2723,7 @@ void __fastcall death_panel_hide_scope(std::uintptr_t hud) {
 }
 
 void __fastcall radio_scope(std::uintptr_t slot, std::uintptr_t message) {
+    note_runtime_point(RuntimePoint::radio);
     const auto original = reinterpret_cast<TwoArgVoidFn>(g_radio.trampoline);
     if (demo_is_skipping()) {
         if (original) {
@@ -2582,6 +2739,7 @@ void __fastcall radio_scope(std::uintptr_t slot, std::uintptr_t message) {
 
 void __fastcall say_text2_scope(std::uintptr_t slot,
                                 std::uintptr_t message) {
+    note_runtime_point(RuntimePoint::say_text2);
     const auto original = reinterpret_cast<TwoArgVoidFn>(g_say_text2.trampoline);
     if (demo_is_skipping()) {
         if (original) {
@@ -2596,6 +2754,7 @@ void __fastcall say_text2_scope(std::uintptr_t slot,
 }
 
 std::uint64_t __fastcall hud_root_scope(std::uintptr_t hud) {
+    note_runtime_point(RuntimePoint::hud_root);
     if (demo_is_skipping()) {
         return call_one_arg(g_hud_root, hud);
     }
@@ -2604,6 +2763,7 @@ std::uint64_t __fastcall hud_root_scope(std::uintptr_t hud) {
 }
 
 std::uint64_t __fastcall spec_player_scope(std::uintptr_t hud) {
+    note_runtime_point(RuntimePoint::spec_player);
     if (demo_is_skipping()) {
         return call_one_arg(g_spec_player, hud);
     }
@@ -2614,6 +2774,7 @@ std::uint64_t __fastcall spec_player_scope(std::uintptr_t hud) {
 void __fastcall live_flash_scope(std::uintptr_t a1, std::uintptr_t a2,
                                  std::uintptr_t a3, std::uintptr_t a4,
                                  std::uintptr_t a5) {
+    note_runtime_point(RuntimePoint::live_flash);
     const auto original =
         reinterpret_cast<FiveArgVoidFn>(g_live_flash.trampoline);
     if (demo_is_skipping()) {
@@ -2631,6 +2792,7 @@ void __fastcall live_flash_scope(std::uintptr_t a1, std::uintptr_t a2,
 void __fastcall render_graph_scope(std::uintptr_t a1, std::uintptr_t a2,
                                    std::uintptr_t a3, std::uintptr_t a4,
                                    std::uintptr_t a5) {
+    note_runtime_point(RuntimePoint::render_graph);
     const auto original =
         reinterpret_cast<FiveArgVoidFn>(g_render_graph.trampoline);
     if (demo_is_skipping()) {
@@ -2646,6 +2808,7 @@ void __fastcall render_graph_scope(std::uintptr_t a1, std::uintptr_t a2,
 }
 
 bool __fastcall spectator_tools_scope() {
+    note_runtime_point(RuntimePoint::spectator_tools);
     if (pov::active(pov::Domain::view_effects |
                     pov::Domain::player_overhead |
                     pov::Domain::combat_feedback)) {
@@ -2659,13 +2822,15 @@ bool __fastcall spectator_tools_scope() {
 void* hud_getter(EntryHook& hook) {
     const auto original = reinterpret_cast<HudGetterFn>(hook.trampoline);
     const auto native = original ? original() : nullptr;
-    if (native || !pov::active() || demo_is_skipping()) {
+    if (!pov::active() || demo_is_skipping()) {
         return native;
     }
-    return pov::snapshot().pawn;
+    const auto followed = pov::snapshot().pawn;
+    return followed ? followed : native;
 }
 
 void __fastcall player_pawn_event_scope(void* listener, void* event) {
+    note_runtime_point(RuntimePoint::player_pawn_event);
     const auto original = g_player_pawn_event_original;
     if (!original) {
         return;
@@ -2702,10 +2867,12 @@ void __fastcall player_pawn_event_scope(void* listener, void* event) {
 }
 
 void* __fastcall get_hud_player_scope() {
+    note_runtime_point(RuntimePoint::get_hud_player);
     return hud_getter(g_get_hud_player);
 }
 
 void* __fastcall get_hud_alive_scope() {
+    note_runtime_point(RuntimePoint::get_hud_alive);
     if (!demo_is_skipping() &&
         pov::active(pov::Domain::radar | pov::Domain::player_sound)) {
         const auto current = pov::snapshot();
@@ -2718,6 +2885,7 @@ void* __fastcall get_hud_alive_scope() {
 
 bool __fastcall relationship_scope(void* local_pawn,
                                    unsigned int target_handle) {
+    note_runtime_point(RuntimePoint::team_relationship);
     const auto original =
         reinterpret_cast<HudTeamRelationshipFn>(g_relationship.trampoline);
     const bool native = original ? original(local_pawn, target_handle) : false;
@@ -2744,6 +2912,7 @@ bool __fastcall relationship_scope(void* local_pawn,
 }
 
 bool __fastcall buy_zone_scope(void* pawn, bool strict) {
+    note_runtime_point(RuntimePoint::buy_zone);
     const auto original =
         reinterpret_cast<BuyZonePredicateFn>(g_buy_zone.trampoline);
     const bool native = original ? original(pawn, strict) : false;
@@ -2764,6 +2933,7 @@ bool __fastcall buy_zone_scope(void* pawn, bool strict) {
 }
 
 bool __fastcall is_playing_demo_scope(void* engine) {
+    note_runtime_point(RuntimePoint::is_playing_demo);
     if (pov::active(pov::Domain::communications |
                     pov::Domain::voice |
                     pov::Domain::combat_feedback)) {
@@ -2775,6 +2945,7 @@ bool __fastcall is_playing_demo_scope(void* engine) {
 }
 
 unsigned int __fastcall broadcast_mode_scope(void* mode_provider) {
+    note_runtime_point(RuntimePoint::broadcast_mode);
     if (pov::active(pov::Domain::team_counter)) {
         return 0;
     }
@@ -3444,6 +3615,32 @@ void print_status() {
         "[mirv_pov] requested=%d installed=%d client_initialized=%d client=%p\n",
         g_requested.load() ? 1 : 0, g_installed.load() ? 1 : 0,
         g_client_initialized ? 1 : 0, g_client);
+    const auto followed = pov::snapshot();
+    advancedfx::Message(
+        "[mirv_pov] identity pawn=%p controller=%p slot=%d team=%d "
+        "generation=%llu hltv_index=%d frames=%llu valid=%llu no_target=%llu "
+        "controller_fallback=%llu\n",
+        followed.pawn, followed.controller, followed.slot, followed.team,
+        static_cast<unsigned long long>(followed.generation),
+        g_last_hltv_primary_index.load(std::memory_order_relaxed),
+        static_cast<unsigned long long>(
+            g_identity_frame_calls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(
+            g_identity_valid_frames.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(
+            g_identity_no_target_frames.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(
+            g_identity_controller_fallbacks.load(std::memory_order_relaxed)));
+    for (std::size_t index = 0;
+         index < static_cast<std::size_t>(RuntimePoint::count); ++index) {
+        const auto calls =
+            g_runtime_point_calls[index].load(std::memory_order_relaxed);
+        if (calls != 0) {
+            advancedfx::Message("[mirv_pov] runtime %s calls=%llu\n",
+                                kRuntimePointNames[index],
+                                static_cast<unsigned long long>(calls));
+        }
+    }
 }
 
 CON_COMMAND(mirv_pov, "Use the followed demo player for native HUD transactions.")
@@ -3468,6 +3665,7 @@ CON_COMMAND(mirv_pov, "Use the followed demo player for native HUD transactions.
         _stricmp(args->ArgV(1), "off") == 0) {
         g_requested = false;
         g_install_failed = false;
+        g_last_logged_followed = nullptr;
         RemoveHooks();
         print_status();
         return;
@@ -3480,6 +3678,7 @@ CON_COMMAND(mirv_pov, "Use the followed demo player for native HUD transactions.
 void OnClientLoaded(HMODULE client) {
     g_client = client;
     g_install_failed = false;
+    g_last_logged_followed = nullptr;
     g_build_cache_valid.store(false, std::memory_order_release);
     g_build_cache_result.store(false, std::memory_order_relaxed);
     g_build_mismatch_logged.store(false, std::memory_order_relaxed);
@@ -3501,6 +3700,7 @@ void OnClientInit() {
 void OnClientShutdown() {
     RemoveHooks();
     g_install_failed = false;
+    g_last_logged_followed = nullptr;
     g_client_initialized = false;
     g_client = nullptr;
     g_build_cache_valid.store(false, std::memory_order_release);
