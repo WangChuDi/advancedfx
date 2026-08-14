@@ -4484,6 +4484,14 @@ bool install_local_identity_remap() {
 
 void restore_local_identity_remap() {
   restore_pipeline_code_patches();
+
+  // HLAE can toggle mirv_pov without unloading this DLL. Clear the watcher
+  // one-shot state before any early return so the next enable can reinstall
+  // the identity and native transactions.
+  g_remap_done = false;
+  g_early_radar_done = false;
+  g_remap_pending_logged = false;
+
   if (g_flash_hud_tramp_mem) {
     // Call sites restored only on process exit; stub free is enough for unload.
     VirtualFree(g_flash_hud_tramp_mem, 0, MEM_RELEASE);
