@@ -526,11 +526,6 @@ void RenderSystemDX11_DeathFade_UpdateObserverState() {
         g_DeathFadeObserverMode.store(observerMode, std::memory_order_release);
         g_DeathFadeObserverTarget.store(observerTarget, std::memory_order_release);
         RenderSystemDX11_DeathFade_ClearOwned("observer-change", true);
-        // The native observer transition can invalidate DeathPanel's +0x1C0
-        // state-valid flag after player_death has shown the banner. Re-enter
-        // the native state setter + Show path on this post-FrameStage boundary.
-        const bool deathPanelReapplied = MirvPovDeathPanel_Reapply(
-            "engine-thread-after-observer-change");
     }
 }
 

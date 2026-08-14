@@ -65,6 +65,15 @@ struct MirvPovDeathPanelState {
     bool reapplyArmed = false;
 };
 
+enum DeathPanelActionBits : unsigned int {
+    DeathPanelAction_Listener = 1u << 0,
+    DeathPanelAction_FullShow = 1u << 1,
+    DeathPanelAction_RemoveHiddenClass = 1u << 2,
+    DeathPanelAction_MainVisible = 1u << 3,
+    DeathPanelAction_NativeVisibilityFallback = 1u << 4,
+    DeathPanelAction_SecondaryVisible = 1u << 5
+};
+
 extern MirvPovDeathPanelState g_MirvPovDeathPanelState;
 extern thread_local CEntityInstance * g_MirvPovDeathPanelLocalPawnOverride;
 extern MirvPovHashString_t g_MirvPovHashString;
@@ -74,13 +83,11 @@ int MirvPovDeathPanel_TryGetHeadshot(SOURCESDK::CS2::IGameEvent * gameEvent);
 void MirvPovDeathPanel_ResolveAddresses(HMODULE clientDll);
 size_t MirvPovDeathPanel_ResolveEntityTokenAddress(HMODULE clientDll);
 
-// DeathMsg.cpp owns the native hook implementation. These functions are kept
-// private to the split implementation and reached through the public façade
-// below so callers do not depend on DeathMsg.cpp internals.
-void MirvPovDeathPanelImpl_Clear();
-bool MirvPovDeathPanelImpl_Reapply(const char * source);
-void MirvPovDeathPanelImpl_Update();
-
 void MirvPovDeathPanel_Clear();
 bool MirvPovDeathPanel_Reapply(const char * source);
 void MirvPovDeathPanel_Update();
+__int64 __fastcall MirvPovDeathPanel_HideWhileAlive(unsigned char * deathPanel);
+bool DeathPanel_ForceVisibility(
+    unsigned char * deathPanel,
+    unsigned int & actionMask,
+    unsigned long & exceptionCode);

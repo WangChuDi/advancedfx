@@ -607,6 +607,13 @@ struct myPanoramaWrapper {
 
 } g_myPanoramaWrapper;
 
+void * MirvPanorama_FindChildInLayoutFile(void * parentPanel, const char * panelId)
+{
+	return g_myPanoramaWrapper.findChildInLayoutFile(
+		reinterpret_cast<u_char *>(parentPanel),
+		panelId);
+}
+
 CON_COMMAND(__mirv_panorama_print_children, "") {
 	const auto arg0 = args->ArgV(0);
 	int argc = args->ArgC();
@@ -992,41 +999,6 @@ static u_char * __fastcall handleDeathnotice(
 	u_char * hudDeathNotice,
 	SOURCESDK::CS2::IGameEvent * gameEvent);
 
-// The observer target is the lifecycle boundary. This is only a corruption or
-// lost-observer failsafe; normal playback ends the panel on a target change.
-static constexpr int kPovDeathPanelReapplyFrameWindow = 1024;
-
-// The native hide routine clears both Panorama classes and the game's global
-// DeathPanel-active flag. In POV playback it can run after player_death has
-// populated the panel, so keep it from invalidating the current banner until
-// the observer target changes and the normal cleanup path disarms the state.
-static __int64 __fastcall DeathPanel_HideWhilePovDeathPanelAlive(u_char * deathPanel)
-{
-	const bool suppress = MirvPov_IsEnabled()
-		&& g_MirvPovDeathPanelState.reapplyArmed
-		&& nullptr != deathPanel
-		&& deathPanel == g_MirvPovDeathPanelState.reapplyPanel;
-	if (suppress) {
-		const int currentFrame = g_MirvTime.framecount_get();
-		if (false
-			&& (g_MirvPovDeathPanelState.lastSuppressedHideFrame < 0
-				|| currentFrame - g_MirvPovDeathPanelState.lastSuppressedHideFrame >= 64)) {
-			advancedfx::Message(
-				"[mirv_pov_feedback] DeathPanel native hide suppressed panel=%p "
-				"frame=%d curtime=%.3f\n",
-				deathPanel,
-				currentFrame,
-				g_MirvTime.curtime_get());
-		}
-		g_MirvPovDeathPanelState.lastSuppressedHideFrame = currentFrame;
-		return 1;
-	}
-
-	return nullptr != g_MirvPovDeathPanelState.hide
-		? g_MirvPovDeathPanelState.hide(deathPanel)
-		: 0;
-}
-
 // Mode 1 preserves the game's listener -> player_death handler -> UI chain,
 // substitutes the POV context, and completes the native DeathPanel show stage.
 // The latter is required because the listener fills the death data but does
@@ -1158,15 +1130,6 @@ private:
 	DeathPanelReplayGateState m_State;
 };
 
-enum DeathPanelActionBits : unsigned int {
-	DeathPanelAction_Listener = 1u << 0,
-	DeathPanelAction_FullShow = 1u << 1,
-	DeathPanelAction_RemoveHiddenClass = 1u << 2,
-	DeathPanelAction_MainVisible = 1u << 3,
-	DeathPanelAction_NativeVisibilityFallback = 1u << 4,
-	DeathPanelAction_SecondaryVisible = 1u << 5
-};
-
 struct DeathPanelModeResult {
 	u_char * handlerResult = nullptr;
 	unsigned int actionMask = 0;
@@ -1178,14 +1141,6 @@ struct DeathPanelModeResult {
 static u_char * DeathPanel_GetPanel(u_char * listenerSubobject)
 {
 	return nullptr != listenerSubobject ? listenerSubobject - 0x20 : nullptr;
-}
-
-static u_char * DeathPanel_FindChildById(void * parentPanel, const char * panelId)
-{
-	if(nullptr == parentPanel || nullptr == panelId) return nullptr;
-	return g_myPanoramaWrapper.findChildInLayoutFile(
-		reinterpret_cast<u_char *>(parentPanel),
-		panelId);
 }
 
 static bool DeathPanel_InvokeFullShow(
@@ -1206,85 +1161,11 @@ static bool DeathPanel_InvokeFullShow(
 		succeeded = true;
 	} __except(EXCEPTION_EXECUTE_HANDLER) {
 		exceptionCode = GetExceptionCode();
-		}		
+		}
 	g_MirvPovDeathPanelLocalPawnOverride = previousLocalPawnOverride;
 	return succeeded;
 }
 
-static bool DeathPanel_ForceVisibility(
-	u_char * deathPanel,
-	unsigned int & actionMask,
-	unsigned long & exceptionCode)
-{
-	exceptionCode = 0;
-	if(nullptr == deathPanel) return false;
-
-	bool invoked = false;
-	bool rootHiddenBefore = false;
-	bool mainHiddenBefore = false;
-	bool mainNativeVisibleBefore = false;
-	bool secondaryHiddenBefore = false;
-	__try {
-		void * rootPanel = *reinterpret_cast<void **>(deathPanel + 0x08);
-		void * mainPanel = DeathPanel_FindChildById(rootPanel, "DeathPanel");
-		void * secondaryPanel = DeathPanel_FindChildById(rootPanel, "DeathPanelSS");
-
-		rootHiddenBefore = Panorama_HasPanelClass(rootPanel, "DeathPanelRoot--Hidden");
-		mainHiddenBefore = Panorama_HasPanelClass(mainPanel, "DeathPanel--Hidden");
-		secondaryHiddenBefore = Panorama_HasPanelClass(secondaryPanel, "DeathPanelSS--Hidden");
-		mainNativeVisibleBefore = *reinterpret_cast<unsigned char *>(deathPanel + 0x1A1) != 0;
-
-			if(nullptr != rootPanel
-				&& rootHiddenBefore
-				&& Panorama_SetPanelClass(rootPanel, "DeathPanelRoot--Hidden", false)) {
-			actionMask |= DeathPanelAction_RemoveHiddenClass;
-					invoked = true;
-		}		
-
-			// The root class only controls the outer layer. The reference image is
-			// the ordinary #DeathPanel child, which has its own Hidden/FadeIn state.
-			if(nullptr != mainPanel) {
-				if(mainHiddenBefore && Panorama_SetPanelClass(mainPanel, "DeathPanel--Hidden", false)) {
-					actionMask |= DeathPanelAction_RemoveHiddenClass;
-					invoked = true;
-		}		
-			}
-
-		// #DeathPanelSS is the screenshot/replay variant, not the banner in the
-		// reference image. Keep that alternate panel collapsed.
-			if(nullptr != secondaryPanel
-				&& !secondaryHiddenBefore
-				&& Panorama_SetPanelClass(secondaryPanel, "DeathPanelSS--Hidden", true)) {
-			invoked = true;
-		}
-
-			// sub_180E08700 is the game's authoritative main-panel transition. It
-			// adds DeathPanel--FadeIn and updates +0x1A1. Calling it every frame
-			// restarts the CSS transition and leaves the banner nearly transparent,
-			// so only repair a state that is actually hidden or inactive.
-			if(nullptr != g_MirvPovDeathPanelState.setMainVisible
-				&& (mainHiddenBefore || !mainNativeVisibleBefore)) {
-					g_MirvPovDeathPanelState.setMainVisible(deathPanel, true);
-				actionMask |= DeathPanelAction_MainVisible;
-				invoked = true;
-			}
-
-			if(nullptr != g_MirvPovDeathPanelState.setSecondaryVisible && !secondaryHiddenBefore) {
-				// Native Show calls sub_180E08820(panel, 0): keep the
-				// screenshot container hidden and clear its flash class.
-				g_MirvPovDeathPanelState.setSecondaryVisible(deathPanel, false);
-			actionMask |= DeathPanelAction_SecondaryVisible;
-			invoked = true;
-		}
-
-		if(invoked) actionMask |= DeathPanelAction_NativeVisibilityFallback;
-			} __except(EXCEPTION_EXECUTE_HANDLER) {
-				exceptionCode = GetExceptionCode();
-				return false;
-			}
-			return invoked;
-}
-	
 static void DeathPanel_MarkTouched(u_char * deathPanel)
 {
 	if(nullptr == deathPanel) return;
@@ -1313,168 +1194,6 @@ static void DeathPanel_MarkTouched(u_char * deathPanel)
 	}
 }
 
-static void DeathPanel_DisarmPovReapply()
-{
-	g_MirvPovDeathPanelState.reapplyPanel = nullptr;
-	g_MirvPovDeathPanelState.reapplyPawn = nullptr;
-	g_MirvPovDeathPanelState.reapplyPawnHandle = 0xFFFFFFFFu;
-	g_MirvPovDeathPanelState.reapplyFrame = -1;
-	g_MirvPovDeathPanelState.lastRefreshFrame = -1;
-	g_MirvPovDeathPanelState.lastSuppressedHideFrame = -1;
-	g_MirvPovDeathPanelState.reapplyArmed = false;
-}
-
-static bool DeathPanel_TryGetObserverTarget(uint32_t & targetHandle)
-{
-	targetHandle = 0xFFFFFFFFu;
-	__try {
-		uint8_t observerMode = 0;
-		return MirvPov_GetObserverState(observerMode, targetHandle);
-	} __except(EXCEPTION_EXECUTE_HANDLER) {
-		targetHandle = 0xFFFFFFFFu;
-		return false;
-	}
-}
-
-bool MirvPovDeathPanelImpl_Reapply(const char * source)
-{
-	if(!g_MirvPovDeathPanelState.reapplyArmed
-		|| !MirvPov_IsEnabled()
-		|| nullptr == g_MirvPovDeathPanelState.reapplyPanel
-		|| nullptr == g_MirvPovDeathPanelState.show) {
-		if(false) {
-			advancedfx::Message(
-				"[mirv_pov_feedback] DeathPanel post-dispatch reapply skipped source=%s "
-				"armed=%d enabled=%d panel=%p show=%p\n",
-				source ? source : "[unknown]",
-				g_MirvPovDeathPanelState.reapplyArmed ? 1 : 0,
-				MirvPov_IsEnabled() ? 1 : 0,
-				g_MirvPovDeathPanelState.reapplyPanel,
-				reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(g_MirvPovDeathPanelState.show)));
-		}
-		return false;
-	}
-
-	const int currentFrame = g_MirvTime.framecount_get();
-	const int age = g_MirvPovDeathPanelState.reapplyFrame >= 0 && currentFrame >= g_MirvPovDeathPanelState.reapplyFrame
-		? currentFrame - g_MirvPovDeathPanelState.reapplyFrame
-		: 0;
-	if(kPovDeathPanelReapplyFrameWindow < age) {
-		if(false) {
-			advancedfx::Message(
-				"[mirv_pov_feedback] DeathPanel lifetime failsafe expired frame=%d age=%d; clearing.\n",
-				currentFrame,
-				age);
-		}
-		MirvPovDeathPanelImpl_Clear();
-		return false;
-	}
-	u_char * panel = g_MirvPovDeathPanelState.reapplyPanel;
-	CEntityInstance * pawn = g_MirvPovDeathPanelState.reapplyPawn;
-	CEntityInstance * previousOverride = g_MirvPovDeathPanelLocalPawnOverride;
-	if(nullptr != pawn) g_MirvPovDeathPanelLocalPawnOverride = pawn;
-
-		bool needsNativeShow = true;
-		bool rootHidden = false;
-		bool mainHidden = false;
-		bool nativeVisible = false;
-		__try {
-			void * rootPanel = *reinterpret_cast<void **>(panel + 0x08);
-			void * mainPanel = DeathPanel_FindChildById(rootPanel, "DeathPanel");
-			rootHidden = Panorama_HasPanelClass(rootPanel, "DeathPanelRoot--Hidden");
-			mainHidden = Panorama_HasPanelClass(mainPanel, "DeathPanel--Hidden");
-			nativeVisible = *reinterpret_cast<unsigned char *>(panel + 0x1A1) != 0;
-			needsNativeShow = rootHidden || mainHidden || !nativeVisible;
-		} __except(EXCEPTION_EXECUTE_HANDLER) {
-			needsNativeShow = true;
-		}
-
-		bool showSucceeded = false;
-		unsigned int visibilityActions = 0;
-		unsigned long visibilityException = 0;
-		if(needsNativeShow) {
-				__try {
-					g_MirvPovDeathPanelState.show(panel);
-				showSucceeded = true;
-			} __except(EXCEPTION_EXECUTE_HANDLER) {
-				showSucceeded = false;
-			}
-		}
-		g_MirvPovDeathPanelLocalPawnOverride = previousOverride;
-
-	// The native Show routine is authoritative for content and transition state;
-	// complete only its native visibility helpers if an observer update left one
-	// of the Panorama hidden classes behind.
-		if(showSucceeded) {
-			DeathPanel_ForceVisibility(panel, visibilityActions, visibilityException);
-		}
-
-			return showSucceeded || 0 != visibilityActions;
-	}
-
-void MirvPovDeathPanelImpl_Update()
-	{
-		if(!g_MirvPovDeathPanelState.reapplyArmed || !MirvPov_IsEnabled()
-			|| nullptr == g_MirvPovDeathPanelState.reapplyPanel) return;
-
-		const int currentFrame = g_MirvTime.framecount_get();
-		const int age = g_MirvPovDeathPanelState.reapplyFrame >= 0 && currentFrame >= g_MirvPovDeathPanelState.reapplyFrame
-			? currentFrame - g_MirvPovDeathPanelState.reapplyFrame
-			: 0;
-		if(kPovDeathPanelReapplyFrameWindow < age) {
-			if(false) {
-				advancedfx::Message(
-					"[mirv_pov_feedback] DeathPanel lifetime failsafe expired during frame update "
-					"frame=%d age=%d; clearing.\n",
-					currentFrame,
-					age);
-			}
-			MirvPovDeathPanelImpl_Clear();
-			return;
-		}
-
-			uint32_t currentTargetHandle = 0xFFFFFFFFu;
-			if(DeathPanel_TryGetObserverTarget(currentTargetHandle)
-				&& currentTargetHandle != 0xFFFFFFFFu
-				&& g_MirvPovDeathPanelState.reapplyPawnHandle != 0xFFFFFFFFu
-				&& currentTargetHandle != g_MirvPovDeathPanelState.reapplyPawnHandle) {
-					if(false) {
-						advancedfx::Message(
-							"[mirv_pov_feedback] DeathPanel lifetime ended on observer target change "
-							"frame=%d age=%d expectedPawn=%p expectedHandle=0x%08x "
-							"currentTarget=0x%08x curtime=%.3f; clearing.\n",
-							currentFrame,
-							age,
-							g_MirvPovDeathPanelState.reapplyPawn,
-							static_cast<unsigned int>(g_MirvPovDeathPanelState.reapplyPawnHandle),
-							static_cast<unsigned int>(currentTargetHandle),
-							g_MirvTime.curtime_get());
-					}
-					MirvPovDeathPanelImpl_Clear();
-					return;
-			}
-
-			unsigned int actionMask = 0;
-			unsigned long exceptionCode = 0;
-			DeathPanel_ForceVisibility(
-				g_MirvPovDeathPanelState.reapplyPanel,
-					actionMask,
-				exceptionCode);
-		g_MirvPovDeathPanelState.lastRefreshFrame = currentFrame;
-	}
-
-void MirvPovDeathPanelImpl_Clear()
-{
-	DeathPanel_DisarmPovReapply();
-	u_char * panel = g_MirvPovDeathPanelState.lastPanel;
-	if(nullptr != panel && nullptr != g_MirvPovDeathPanelState.hide) {
-		__try {
-			g_MirvPovDeathPanelState.hide(panel);
-		} __except(EXCEPTION_EXECUTE_HANDLER) {
-		}
-	}
-	g_MirvPovDeathPanelState.lastPanel = nullptr;
-}
 
 static u_char * InvokeDeathNoticeHandler(
 	u_char * hudDeathNotice,
@@ -2556,7 +2275,7 @@ void HookDeathMsg(HMODULE clientDll) {
 		if (NO_ERROR == tokenAttachResult && NO_ERROR == localPawnAttachResult && attachDeathPanelHide) {
 			deathPanelHideAttachResult = DetourAttach(
 				&(PVOID&)g_MirvPovDeathPanelState.hide,
-				DeathPanel_HideWhilePovDeathPanelAlive);
+				MirvPovDeathPanel_HideWhileAlive);
 		}
 
         const bool allAttachSucceeded =

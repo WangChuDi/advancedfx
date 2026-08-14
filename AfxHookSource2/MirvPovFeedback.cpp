@@ -16,6 +16,7 @@
 #include <Windows.h>
 #include <cmath>
 #include <limits.h>
+#include <mutex>
 #include <stdint.h>
 
 namespace {
@@ -37,6 +38,46 @@ bool g_DamageIndicatorConstructorHooked = false;
 uint32_t g_LastPovControllerHandle = 0xFFFFFFFFu;
 uint32_t g_PreviousPovControllerHandle = 0xFFFFFFFFu;
 int g_PreviousPovControllerFrame = INT_MIN;
+
+struct DamageDirectionClaim {
+    int frame = INT_MIN;
+    int victimEntityIndex = -1;
+    int amount = -1;
+    float sourcePosition[3] = {};
+    bool valid = false;
+};
+
+std::mutex g_DamageDirectionClaimMutex;
+DamageDirectionClaim g_LastDamageDirectionClaim;
+
+bool ClaimDamageDirection(
+    int victimEntityIndex,
+    int amount,
+    const float sourcePosition[3])
+{
+    const int frame = g_MirvTime.framecount_get();
+    std::lock_guard<std::mutex> lock(g_DamageDirectionClaimMutex);
+
+    if(g_LastDamageDirectionClaim.valid
+        && g_LastDamageDirectionClaim.frame == frame
+        && g_LastDamageDirectionClaim.victimEntityIndex == victimEntityIndex
+        && (amount < 0 || g_LastDamageDirectionClaim.amount < 0
+            || amount == g_LastDamageDirectionClaim.amount)) {
+        const float dx = sourcePosition[0] - g_LastDamageDirectionClaim.sourcePosition[0];
+        const float dy = sourcePosition[1] - g_LastDamageDirectionClaim.sourcePosition[1];
+        const float dz = sourcePosition[2] - g_LastDamageDirectionClaim.sourcePosition[2];
+        if(dx * dx + dy * dy + dz * dz <= 4096.0f) return false;
+    }
+
+    g_LastDamageDirectionClaim.frame = frame;
+    g_LastDamageDirectionClaim.victimEntityIndex = victimEntityIndex;
+    g_LastDamageDirectionClaim.amount = amount;
+    g_LastDamageDirectionClaim.sourcePosition[0] = sourcePosition[0];
+    g_LastDamageDirectionClaim.sourcePosition[1] = sourcePosition[1];
+    g_LastDamageDirectionClaim.sourcePosition[2] = sourcePosition[2];
+    g_LastDamageDirectionClaim.valid = true;
+    return true;
+}
 
 void * __fastcall New_DamageIndicatorConstructor(void * hudDamageIndicator)
 {
@@ -124,7 +165,9 @@ __int64 __fastcall New_DamageMessage(void * hudDamageIndicator, void * damageMes
             *reinterpret_cast<float *>(sourceMessage + 0x1C),
             *reinterpret_cast<float *>(sourceMessage + 0x20)
         };
-        g_AddDamageDirection(hudDamageIndicator, sourcePosition, povPawn);
+        if(ClaimDamageDirection(victimEntityIndex, amount, sourcePosition)) {
+            g_AddDamageDirection(hudDamageIndicator, sourcePosition, povPawn);
+        }
     } __except(EXCEPTION_EXECUTE_HANDLER) {
     }
     return result;
@@ -173,7 +216,12 @@ void HandleVictimDamageDirection(SOURCESDK::CS2::IGameEvent * event)
         return;
     }
 
-    g_AddDamageDirection(g_DamageIndicator, sourcePosition, victimPawn);
+    const int victimEntityIndex = victimPawn->GetHandle().GetEntryIndex();
+    const auto damageKey = MakeKey("dmg_health");
+    const int amount = event->HasKey(damageKey) ? event->GetInt(damageKey) : -1;
+    if(ClaimDamageDirection(victimEntityIndex, amount, sourcePosition)) {
+        g_AddDamageDirection(g_DamageIndicator, sourcePosition, victimPawn);
+    }
 }
 
 void HandleHurt(SOURCESDK::CS2::IGameEvent * event)
@@ -320,6 +368,9 @@ void MirvPovFeedback_ResetPovSelection()
     g_LastPovControllerHandle = 0xFFFFFFFFu;
     g_PreviousPovControllerHandle = 0xFFFFFFFFu;
     g_PreviousPovControllerFrame = INT_MIN;
+
+    std::lock_guard<std::mutex> lock(g_DamageDirectionClaimMutex);
+    g_LastDamageDirectionClaim = DamageDirectionClaim();
 }
 
 bool MirvPovFeedback_IsCurrentPovVictim(
