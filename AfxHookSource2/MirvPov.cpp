@@ -158,6 +158,8 @@ constexpr std::uint8_t kMoneyPrologue[] = {
     0x40, 0x57, 0x48, 0x83, 0xEC, 0x20};
 constexpr std::uint8_t kSavedRdxPrologue[] = {
     0x48, 0x89, 0x5C, 0x24, 0x08};
+constexpr std::uint8_t kDeathPanelHidePrologue[] = {
+    0x48, 0x89, 0x5C, 0x24, 0x08};
 constexpr std::uint8_t kFiveArgPrologue[] = {
     0x48, 0x89, 0x5C, 0x24, 0x18, 0x48, 0x89, 0x4C, 0x24, 0x08};
 constexpr std::uint8_t kOneArgPrologue[] = {
@@ -580,7 +582,16 @@ bool install_entry(HMODULE module, std::uint32_t rva,
     }
     auto* entry = module_base(module) + rva;
     if (std::memcmp(entry, expected, stolen) != 0) {
-        advancedfx::Warning("[mirv_pov] %s prologue mismatch\n", tag);
+        advancedfx::Warning(
+            "[mirv_pov] %s prologue mismatch rva=0x%X actual=%02X %02X %02X %02X %02X expected=%02X %02X %02X %02X %02X\n",
+            tag, rva, static_cast<unsigned>(entry[0]),
+            static_cast<unsigned>(entry[1]), static_cast<unsigned>(entry[2]),
+            static_cast<unsigned>(entry[3]), static_cast<unsigned>(entry[4]),
+            static_cast<unsigned>(expected[0]),
+            static_cast<unsigned>(expected[1]),
+            static_cast<unsigned>(expected[2]),
+            static_cast<unsigned>(expected[3]),
+            static_cast<unsigned>(expected[4]));
         return false;
     }
 
@@ -3260,7 +3271,8 @@ bool install_pipeline() {
                   "death_panel_summary");
     INSTALL_ENTRY(kDeathPanelShowRva, kShowPrologue, death_panel_show_scope,
                   g_death_panel_show, "death_panel_show");
-    INSTALL_ENTRY(kDeathPanelHideRva, kOneArgPrologue, death_panel_hide_scope,
+    INSTALL_ENTRY(kDeathPanelHideRva, kDeathPanelHidePrologue,
+                  death_panel_hide_scope,
                   g_death_panel_hide, "death_panel_hide");
     INSTALL_ENTRY(kRadioRva, kSavedRdxPrologue, radio_scope, g_radio, "radio");
     INSTALL_ENTRY(kSayText2Rva, kOneArgPrologue, say_text2_scope, g_say_text2,
