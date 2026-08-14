@@ -360,6 +360,7 @@ std::atomic<std::uint64_t> g_identity_frame_calls{0};
 std::atomic<std::uint64_t> g_identity_valid_frames{0};
 std::atomic<std::uint64_t> g_identity_no_target_frames{0};
 std::atomic<std::uint64_t> g_identity_controller_fallbacks{0};
+std::atomic<std::uint64_t> g_identity_invalid_team_frames{0};
 std::atomic<int> g_last_hltv_primary_index{-1};
 std::atomic<void*> g_last_logged_followed{nullptr};
 
@@ -2247,6 +2248,27 @@ void publish_followed_identity() {
         pov::invalidate();
         return;
     }
+    const int team = entity_team(pawn);
+    // The reference rejects spectator/observer entities (team 1). Publishing
+    // one as the followed player makes HUD callers consume an observer pawn.
+    if (team != 2 && team != 3) {
+        const auto invalid_team_frames =
+            g_identity_invalid_team_frames.fetch_add(
+                1, std::memory_order_relaxed) +
+            1;
+        if (g_last_logged_followed.exchange(nullptr,
+                                            std::memory_order_acq_rel)) {
+            advancedfx::Message("[mirv_pov] followed identity cleared\n");
+        }
+        if (invalid_team_frames == 1) {
+            advancedfx::Warning(
+                "[mirv_pov] followed identity rejected team=%d hltv_index=%d\n",
+                team,
+                g_last_hltv_primary_index.load(std::memory_order_relaxed));
+        }
+        pov::invalidate();
+        return;
+    }
     void* controller = controller_from_pawn(pawn);
     if (!controller) {
         const auto no_target = g_identity_no_target_frames.fetch_add(
@@ -2265,10 +2287,9 @@ void publish_followed_identity() {
     pov::Snapshot next{};
     next.pawn = pawn;
     next.controller = controller;
-    next.team = 0;
+    next.team = team;
     next.slot = -1;
     __try {
-        next.team = reinterpret_cast<CEntityInstance*>(pawn)->GetTeam();
         auto get_slot = reinterpret_cast<PawnSlotFn>(
             module_base(g_client) + kPawnGetPlayerSlotRva);
         if (get_slot) {
@@ -2822,11 +2843,13 @@ bool __fastcall spectator_tools_scope() {
 void* hud_getter(EntryHook& hook) {
     const auto original = reinterpret_cast<HudGetterFn>(hook.trampoline);
     const auto native = original ? original() : nullptr;
-    if (!pov::active() || demo_is_skipping()) {
+    if (!pov::active() || demo_is_skipping() || native) {
         return native;
     }
-    const auto followed = pov::snapshot().pawn;
-    return followed ? followed : native;
+    // Match the reference adapter: only provide the followed pawn when the
+    // native getter rejected the target. Replacing a valid native result can
+    // turn a HUD object/context into a pawn and crash downstream callers.
+    return pov::snapshot().pawn;
 }
 
 void __fastcall player_pawn_event_scope(void* listener, void* event) {
@@ -3619,7 +3642,7 @@ void print_status() {
     advancedfx::Message(
         "[mirv_pov] identity pawn=%p controller=%p slot=%d team=%d "
         "generation=%llu hltv_index=%d frames=%llu valid=%llu no_target=%llu "
-        "controller_fallback=%llu\n",
+        "invalid_team=%llu controller_fallback=%llu\n",
         followed.pawn, followed.controller, followed.slot, followed.team,
         static_cast<unsigned long long>(followed.generation),
         g_last_hltv_primary_index.load(std::memory_order_relaxed),
@@ -3629,6 +3652,8 @@ void print_status() {
             g_identity_valid_frames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(
             g_identity_no_target_frames.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(
+            g_identity_invalid_team_frames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(
             g_identity_controller_fallbacks.load(std::memory_order_relaxed)));
     for (std::size_t index = 0;
