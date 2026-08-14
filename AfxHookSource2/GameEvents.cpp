@@ -62,10 +62,15 @@ void SendGameEvent(SOURCESDK::CS2::CGameEvent *event) {
 		}        
     }
 
-    SOURCESDK::CS2::CUtlString error;
-    SOURCESDK::CS2::CUtlString output;
+	    SOURCESDK::CS2::CUtlString error;
+	    SOURCESDK::CS2::CUtlString output;
 
-    if(g_SaveKV3AsJSON(event->GetDataKeys(),&error,&output) && nullptr != output) AfxHookSourceRs_Engine_OnGameEvent(event->GetName(), event->GetID(), output.Get());
+	    if (!g_SaveKV3AsJSON) {
+		advancedfx::Warning("Event: \"%s\" (%i): SaveKV3AsJSON is unavailable\n", event->GetName(), event->GetID());
+		return;
+	    }
+
+	    if(g_SaveKV3AsJSON(event->GetDataKeys(),&error,&output) && nullptr != output) AfxHookSourceRs_Engine_OnGameEvent(event->GetName(), event->GetID(), output.Get());
     else advancedfx::Warning("Event: \"%s\" (%i): SaveKV3AsJSON failed: \"%s\"\n", event->GetName(), event->GetID(),error.Get() ? error.Get() : "[nullptr]");
 }
 

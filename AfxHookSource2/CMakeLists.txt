@@ -257,6 +257,19 @@ target_sources(${PROJECT_NAME} PRIVATE
 	    MirvPovEventCompensation.cpp
 	    MirvPovEventCompensation.h
 
+	    MirvPovReference/MirvPovReferenceCompat.h
+	    MirvPovReference/MirvPovReferenceDetour.cpp
+	    MirvPovReference/MirvPovReferenceDetour.h
+	    MirvPovReference/MirvPovReferenceEventCompensation.h
+	    MirvPovReference/MirvPovReferenceHooks.cpp
+	    MirvPovReference/MirvPovReferenceHooks.h
+	    MirvPovReference/MirvPovReferenceIdentity.cpp
+	    MirvPovReference/MirvPovReferenceIdentity.h
+	    MirvPovReference/MirvPovReferenceNativePipeline.cpp
+	    MirvPovReference/MirvPovReferenceNativePipeline.h
+	    MirvPovReference/MirvPovReferenceOffsets.h
+	    MirvPovReference/MirvPovReferencePov.h
+
     ReplaceName.cpp
     ReplaceName.h
 
