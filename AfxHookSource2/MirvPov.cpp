@@ -3208,10 +3208,10 @@ bool validate_native_compensation_helpers() {
                             "find_hud_element");
     ok &= validate_prologue(g_client, kPushNoticeRva, kPushNoticePrologue,
                             sizeof(kPushNoticePrologue), "push_notice");
-    ok &= validate_prologue(g_client, kGameEventDispatchRva,
-                            kGameEventDispatchPrologue,
-                            sizeof(kGameEventDispatchPrologue),
-                            "game_event_dispatch");
+    // HLAE's legacy GameEvents.cpp already detours FireEventClientSide at
+    // this entry before the native POV pipeline is initialized. The vtable
+    // adapter below validates ownership and keeps that detour in the call
+    // chain, so a raw prologue check here would reject a valid HLAE state.
     ok &= validate_prologue(g_client, kRadarSoundSubmitRva,
                             kRadarSoundSubmitPrologue,
                             sizeof(kRadarSoundSubmitPrologue),
