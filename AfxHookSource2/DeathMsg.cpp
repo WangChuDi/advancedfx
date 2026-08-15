@@ -347,7 +347,7 @@ struct myPanoramaWrapper {
 			{
 				use = false;
 				value = defaultValue;
-				return true;
+			return true;
 			}
 
 			for (auto it = afxBasicColors.begin(); it != afxBasicColors.end(); ++it)
@@ -1359,9 +1359,7 @@ static bool DeathPanel_TryResolvePovVictim(
 		victimPawn = nullptr;
 	}
 	return povVictim;
-}
-		
-static bool DeathPanel_TryGetEventUserId(
+}\n\nstatic bool DeathPanel_TryGetEventUserId(
 	SOURCESDK::CS2::IGameEvent * gameEvent,
 	int & userId)
 {
@@ -1378,9 +1376,7 @@ static bool DeathPanel_TryGetEventUserId(
 				static_cast<unsigned int>(userIdLength) ^ 0x31415926)),
 			-1,
 			userIdName);
-		userId = gameEvent->GetInt(userIdKey);
-			return true;	
-	} __except(EXCEPTION_EXECUTE_HANDLER) {
+		userId = gameEvent->GetInt(userIdKey);\n\t\t\treturn true;\n	} __except(EXCEPTION_EXECUTE_HANDLER) {
 		userId = -1;
 		return false;
 	}
