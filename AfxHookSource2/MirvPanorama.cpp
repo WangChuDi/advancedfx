@@ -159,6 +159,14 @@ void** MirvPanorama_GetUIEngine() {
 	return g_PanoramaUIEngine;
 }
 
+void** DeathMsg_GetPanoramaHudPanel() {
+	return MirvPanorama_GetHudPanel();
+}
+
+void** DeathMsg_GetPanoramaUIEngine() {
+	return MirvPanorama_GetUIEngine();
+}
+
 static bool Panorama_MakeSymbol(const char* name, short& value) {
 	if(!name || !g_PanoramaUIEngine || !*g_PanoramaUIEngine || !CS2::PanoramaUIEngine::makeSymbol) return false;
 

@@ -20,7 +20,7 @@
 #include "Globals.h"
 #include "ClientEntitySystem.h"
 #include "SchemaSystem.h"
-#include "MirvColors.h"
+#include "MirvColors.h" 
 #include "MirvPanorama.h"
 #include "MirvPovHud.h"
 #include "MirvPovFeedback.h"
@@ -180,7 +180,7 @@ PlayerInfo getPlayerInfoFromControllerIndex(int entindex)
 				slot = 1 + slotCT;
 				if (swapPlayerSide) slot += 5;
 				++slotCT;
-			}
+			} 
 			else if (2 == teamNumber) // T
 			{
 				slot = 1 + slotT;
@@ -222,13 +222,13 @@ void DeathMsgId::operator=(char const * consoleValue) {
 	else if (StringBeginsWith(consoleValue, "x"))
 	{
 		uintptr_t val;
-
+		
 		if (0 == _stricmp("xTrace", consoleValue))
 		{
 			auto player = getSpectatedPlayer();
 			if (-1 != player.userId)
 				val = player.xuid;
-			else
+			else 
 				val = 0;
 		}
 		else
@@ -248,7 +248,7 @@ void DeathMsgId::operator=(char const * consoleValue) {
 			else 
 				val = 0;
 		}
-			else 
+		else
 			val = atoi(consoleValue);
 
 		this->operator=(val);
@@ -272,7 +272,7 @@ bool DeathMsgId::EqualsUserId(int userId)
 		case Id_Xuid:
 			return getPlayerInfoFromControllerIndex(userId + 1).xuid == Id.xuid;
 			break;
-			} 
+	}
 
 	return false;
 };
@@ -307,10 +307,10 @@ int DeathMsgId::ResolveToUserId()
 					if (player.xuid == Id.xuid) return i - 1;
 				}
 			}
-		}
+		}			
 		return 0;
 	}
-		
+
 	return Id.userId;
 };
 
@@ -339,7 +339,7 @@ struct myPanoramaWrapper {
 
 			*outColor = afxUtils::hexStrToInt(hexStr);
 			return true;
-		};
+		}; 
 
 		bool setColor(const char* arg) {
 			if (nullptr == arg) return false;
@@ -386,7 +386,7 @@ struct myPanoramaWrapper {
 					value = color;
 					return true;
 				}
-		}			
+			}
 
 			return false;
 		};
@@ -429,7 +429,7 @@ struct myPanoramaWrapper {
 		auto deathnotices = visibleNotices + CS2::PanoramaUIPanel::children;
 
 		return deathnotices;
-		}; 
+	};
 
 	bool clearDeathnotices(){
 		initSymbols();
@@ -476,7 +476,7 @@ struct myPanoramaWrapper {
 				auto r2 = findChildrenInLayoutFileByClassName(parentPanel, parentId);
 				if (!r2.empty()) parentPanel = r2[0]; // could be multiple there
 			}
-		}
+		} 
 
 		auto parentPanelId = *(char**)(parentPanel + CS2::PanoramaUIPanel::panelId);
 		auto parentPanel2D = *(CPanel2D**)(parentPanel + 0x8);
@@ -484,7 +484,7 @@ struct myPanoramaWrapper {
 		advancedfx::Message("ClientClass / PanelId:\n");
 		if (0 != parentPanel2D)
 			advancedfx::Message("%s / %s\n", parentPanel2D->getClassName(), parentPanelId);
-			else 
+		else 
 			advancedfx::Message("%s / %s\n", "null", parentPanelId);
 
 		const auto children = parentPanel + CS2::PanoramaUIPanel::children;
@@ -502,7 +502,7 @@ struct myPanoramaWrapper {
 
 			if (0 != panel2D)
 				advancedfx::Message("\t%s / %s\n", panel2D->getClassName(), panelId);
-		else 
+			else 
 				advancedfx::Message("\t%s / %s\n", "null", panelId);
 		}
 
@@ -564,7 +564,7 @@ struct myPanoramaWrapper {
 			if ((panelFlags & CS2::PanoramaUIPanel::k_EPanelFlag_HasOwnLayoutFile) == 0) {
 				if (const auto found = findChildInLayoutFile(panel, idToFind)) {
 					return found;
-		} 
+				}
 			}
 		}
 
@@ -580,10 +580,10 @@ struct myPanoramaWrapper {
 		}
 		if (nullptr != LocalBackgroundColor.pointer) {
 			*(uint32_t*)(LocalBackgroundColor.pointer +0x20) = LocalBackgroundColor.use ? LocalBackgroundColor.value : LocalBackgroundColor.defaultValue;
-		}
+		}	
 		if (nullptr != BackgroundColor.pointer) {
 			*(uint32_t*)(BackgroundColor.pointer +0x20) = BackgroundColor.use ? BackgroundColor.value : BackgroundColor.defaultValue;
-		}
+		}	
 		if (nullptr != CTcolor.pointer) {
 			*(uint32_t*)(CTcolor.pointer + 0x20) = CTcolor.use ? CTcolor.value : CTcolor.defaultValue;
 		}
@@ -673,11 +673,11 @@ public:
 		size_t len = strlen(string);
 		unsigned int hash = g_MirvPovHashString(string, (unsigned int)len, (unsigned int)len ^ 0x31415926);
 		return SOURCESDK::CS2::CKV3MemberName((int)hash, -1, string);
-		}	
+	}
 
 		bool IsHashStringEqual(const char * a, const SOURCESDK::CS2::CKV3MemberName & b) const {
-			return IsHashEqual(hashString(a),b);
-		}	
+		return IsHashEqual(hashString(a),b);
+	}
 
 		bool IsNativeVictimPawnKey(const SOURCESDK::CS2::GameEventKeySymbol_t & keySymbol) const {
 			return nativeLocalVictimRemap
@@ -730,18 +730,18 @@ public:
 			return nativeLocalVictimUserId;
 		}
 		if (m_AllowDeathMsgOverrides) {
-			if (assistedflash.use && IsHashStringEqual("assistedflash", keySymbol)) return assistedflash.value;
-			if (headshot.use && IsHashStringEqual("headshot", keySymbol)) return headshot.value;
-			if (penetrated.use && IsHashStringEqual("penetrated", keySymbol)) return penetrated.value;
-			if (dominated.use && IsHashStringEqual("dominated", keySymbol)) return dominated.value;
-			if (revenge.use && IsHashStringEqual("revenge", keySymbol)) return revenge.value;
-			if (wipe.use && IsHashStringEqual("wipe", keySymbol)) return wipe.value;
-			if (noscope.use && IsHashStringEqual("noscope", keySymbol)) return noscope.value;
-			if (thrusmoke.use && IsHashStringEqual("thrusmoke", keySymbol)) return thrusmoke.value;
-			if (attackerblind.use && IsHashStringEqual("attackerblind", keySymbol)) return attackerblind.value;
-			if (attackerinair.use && IsHashStringEqual("attackerinair", keySymbol)) return attackerinair.value;
+		if (assistedflash.use && IsHashStringEqual("assistedflash", keySymbol)) return assistedflash.value;
+		if (headshot.use && IsHashStringEqual("headshot", keySymbol)) return headshot.value;
+		if (penetrated.use && IsHashStringEqual("penetrated", keySymbol)) return penetrated.value;
+		if (dominated.use && IsHashStringEqual("dominated", keySymbol)) return dominated.value;
+		if (revenge.use && IsHashStringEqual("revenge", keySymbol)) return revenge.value;
+		if (wipe.use && IsHashStringEqual("wipe", keySymbol)) return wipe.value;
+		if (noscope.use && IsHashStringEqual("noscope", keySymbol)) return noscope.value;
+		if (thrusmoke.use && IsHashStringEqual("thrusmoke", keySymbol)) return thrusmoke.value;
+		if (attackerblind.use && IsHashStringEqual("attackerblind", keySymbol)) return attackerblind.value;
+		if (attackerinair.use && IsHashStringEqual("attackerinair", keySymbol)) return attackerinair.value;
 		}
-
+		
 		return m_Event->GetInt(keySymbol);
 	}
 	virtual uint64_t GetUint64( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol) {
@@ -754,59 +754,59 @@ public:
 			if (m_AllowDeathMsgOverrides && weapon.use && IsHashStringEqual("weapon", keySymbol)) return weapon.value;
 		return m_Event->GetString(keySymbol);
 	}
-		virtual void *GetPtr( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
-			return m_Event->GetPtr(keySymbol);
-		}
-		virtual SOURCESDK::CS2::CEntityHandle GetEHandle( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
+	virtual void *GetPtr( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
+		return m_Event->GetPtr(keySymbol);
+	}
+	virtual SOURCESDK::CS2::CEntityHandle GetEHandle( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
 			if (IsNativeVictimKey(keySymbol) && nullptr != nativeLocalVictimController) {
 				return reinterpret_cast<::CEntityInstance *>(nativeLocalVictimController)->GetHandle();
 			}
-			return m_Event->GetEHandle(keySymbol);
-		}
-		virtual SOURCESDK::CS2::CEntityInstance *GetEntity( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol) {
+		return m_Event->GetEHandle(keySymbol);
+	}
+	virtual SOURCESDK::CS2::CEntityInstance *GetEntity( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol) {
 			if (IsNativeVictimPawnKey(keySymbol)) {
 				return nativeLocalVictimPawn;
 			}
-			return m_Event->GetEntity(keySymbol);
-		}
+		return m_Event->GetEntity(keySymbol);
+	}
 	virtual void* GetEntityIndex( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
 		return m_Event->GetEntityIndex(keySymbol);
 	}
-		virtual SOURCESDK::CS2::CPlayerSlot GetPlayerSlot( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
+	virtual SOURCESDK::CS2::CPlayerSlot GetPlayerSlot( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
 			if (nativeLocalVictimRemap && nativeLocalVictimUserId >= 0
 				&& IsHashStringEqual("userid", keySymbol)) {
 				return SOURCESDK::CS2::CPlayerSlot(nativeLocalVictimUserId);
 			}
 			if (m_AllowDeathMsgOverrides) {
-				if (attacker.newId.use && IsHashStringEqual("attacker", keySymbol)) return SOURCESDK::CS2::CPlayerSlot(attacker.newId.value.ResolveToUserId());
-				if (victim.newId.use && IsHashStringEqual("userid", keySymbol)) return SOURCESDK::CS2::CPlayerSlot(victim.newId.value.ResolveToUserId());
-				if (assister.newId.use && IsHashStringEqual("assister", keySymbol)) return SOURCESDK::CS2::CPlayerSlot(assister.newId.value.ResolveToUserId());
+		if (attacker.newId.use && IsHashStringEqual("attacker", keySymbol)) return SOURCESDK::CS2::CPlayerSlot(attacker.newId.value.ResolveToUserId());
+		if (victim.newId.use && IsHashStringEqual("userid", keySymbol)) return SOURCESDK::CS2::CPlayerSlot(victim.newId.value.ResolveToUserId());
+		if (assister.newId.use && IsHashStringEqual("assister", keySymbol)) return SOURCESDK::CS2::CPlayerSlot(assister.newId.value.ResolveToUserId());
 			}
 
-			return m_Event->GetPlayerSlot(keySymbol);
-		}
-		virtual SOURCESDK::CS2::CEntityInstance *GetPlayerController( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
+		return m_Event->GetPlayerSlot(keySymbol);
+	}
+	virtual SOURCESDK::CS2::CEntityInstance *GetPlayerController( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
 			if (nativeLocalVictimRemap && nullptr != nativeLocalVictimController
 				&& IsHashStringEqual("userid", keySymbol)) {
 				return nativeLocalVictimController;
 			}
-			return m_Event->GetPlayerController(keySymbol);
-		}
+		return m_Event->GetPlayerController(keySymbol);
+	}
 	virtual SOURCESDK::CS2::CEntityInstance *GetPlayerPawn( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
 			if (IsNativeVictimPawnKey(keySymbol)) {
 				return nativeLocalVictimPawn;
 			}
 		return m_Event->GetPlayerPawn(keySymbol);
 	}
-		virtual SOURCESDK::CS2::CEntityHandle GetPawnEHandle( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
+	virtual SOURCESDK::CS2::CEntityHandle GetPawnEHandle( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
 			if (IsNativeVictimPawnKey(keySymbol)) {
 				return reinterpret_cast<::CEntityInstance *>(nativeLocalVictimPawn)->GetHandle();
 			}
-			return m_Event->GetPawnEHandle(keySymbol);
-			}
-		virtual void* GetPawnEntityIndex( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
-			return m_Event->GetPawnEntityIndex(keySymbol);
-		}
+		return m_Event->GetPawnEHandle(keySymbol);
+	}
+	virtual void* GetPawnEntityIndex( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol ) {
+		return m_Event->GetPawnEntityIndex(keySymbol);
+	}
 	virtual void SetBool( const SOURCESDK::CS2::GameEventKeySymbol_t &keySymbol, bool value ) {
 		m_Event->SetBool(keySymbol,value);
 	}
@@ -850,17 +850,17 @@ public:
 		return m_Event->GetDataKeys();
 	}
 
-		private:
-			SOURCESDK::CS2::IGameEvent * m_Event;
+private:
+	SOURCESDK::CS2::IGameEvent * m_Event;
 			SOURCESDK::CS2::CEntityInstance * nativeLocalVictimController = nullptr;
 			SOURCESDK::CS2::CEntityInstance * nativeLocalVictimPawn = nullptr;
 			int nativeLocalVictimUserId = -1;
 			bool nativeLocalVictimRemap = false;
 			bool m_AllowDeathMsgOverrides = true;
-		};
+};
 
 struct CS2_MirvDeathMsgGlobals : MirvDeathMsgGlobals {
-	bool hooked = false;
+	bool hooked = false; 
 	bool deathNoticeHooked = false;
 	bool localTokenHooked = false;
 } g_MirvDeathMsgGlobals;
@@ -917,7 +917,7 @@ static bool DeathMsg_ShouldProcessPanoramaPath() {
 // the old name, it does not return a SteamID/XUID: the caller compares its
 // zero-extended result with the entity index returned by GetEntityIndex.
 	typedef uint32_t (__fastcall *g_Original_getLocalSteamId_t)(void* param_1);
-	g_Original_getLocalSteamId_t g_Original_getLocalSteamId = nullptr;
+g_Original_getLocalSteamId_t g_Original_getLocalSteamId = nullptr;
 
 static int ResolveDeathMsgEntityIndex(const DeathMsgId & id) {
 	switch (id.Mode) {
@@ -973,7 +973,7 @@ uint32_t __fastcall getLocalSteamId(void* param_1) {
 		}
 			else if (wrapper.assister.isLocal.use && wrapper.assister.isLocal.value) {
 				entry = wrapper.assister;
-			}
+		}
 				overrideLocal = true;
 	}
 
@@ -1040,7 +1040,7 @@ static CEntityInstance * DeathPanel_ResolveEventVictimPawn(
 }
 
 static CEntityInstance * __fastcall DeathPanel_GetLocalPawn(int slot)
-{
+		{
 	if(nullptr != g_MirvPovDeathPanelLocalPawnOverride && (0 == slot || -1 == slot)) {
 			if(false) {
 			advancedfx::Message(
@@ -1059,12 +1059,12 @@ class DeathPanelLocalPawnOverrideGuard {
 public:
 	explicit DeathPanelLocalPawnOverrideGuard(CEntityInstance * pawn)
 			: m_Previous(g_MirvPovDeathPanelLocalPawnOverride)
-		{
+			{
 			g_MirvPovDeathPanelLocalPawnOverride = pawn;
 		}
 
 	~DeathPanelLocalPawnOverrideGuard()
-	{
+				{
 		g_MirvPovDeathPanelLocalPawnOverride = m_Previous;
 	}
 
@@ -1079,7 +1079,7 @@ struct DeathPanelReplayGateState {
 };
 
 static DeathPanelReplayGateState DeathPanel_EnableReplayOthersGate()
-{
+					{
 	DeathPanelReplayGateState state;
 	if(nullptr == g_MirvPovDeathPanelState.resolveReplayValue || nullptr == g_MirvPovDeathPanelState.replayObject) return state;
 
@@ -1100,35 +1100,35 @@ static DeathPanelReplayGateState DeathPanel_EnableReplayOthersGate()
 		state = DeathPanelReplayGateState();
 	}
 	return state;
-}
-
+					}
+					
 static void DeathPanel_RestoreReplayOthersGate(const DeathPanelReplayGateState & state)
 {
 	if(!state.changed || nullptr == state.value) return;
 	__try {
 		*state.value = state.previous;
 	} __except(EXCEPTION_EXECUTE_HANDLER) {
-	}
-}
+				}
+			}
 
 class DeathPanelReplayGateGuard {
 public:
 	explicit DeathPanelReplayGateGuard(bool enable)
 		: m_State(enable ? DeathPanel_EnableReplayOthersGate() : DeathPanelReplayGateState())
 	{
-	}
+		}
 
 	~DeathPanelReplayGateGuard()
-	{
+		{
 		DeathPanel_RestoreReplayOthersGate(m_State);
-	}
+		}
 
 	bool Changed() const { return m_State.changed; }
 	unsigned char Previous() const { return m_State.previous; }
 
 private:
 	DeathPanelReplayGateState m_State;
-};
+	};
 
 struct DeathPanelModeResult {
 	u_char * handlerResult = nullptr;
@@ -1192,7 +1192,7 @@ static void DeathPanel_MarkTouched(u_char * deathPanel)
 				g_MirvTime.curtime_get());
 		}
 	}
-}
+	}
 
 
 static u_char * InvokeDeathNoticeHandler(
@@ -1624,9 +1624,9 @@ u_char * __fastcall handleDeathnotice(
 	myWrapper.victim.newId.value.Id.userId = uidVictim;
 	myWrapper.assister.newId.value.Id.userId = uidAssister;
 
-		auto attackerController = gameEvent->GetPlayerController(myWrapper.hashString("attacker"));
-		auto victimController = gameEvent->GetPlayerController(myWrapper.hashString("userid"));
-		auto assisterController = gameEvent->GetPlayerController(myWrapper.hashString("assister"));
+	auto attackerController = gameEvent->GetPlayerController(myWrapper.hashString("attacker"));
+	auto victimController = gameEvent->GetPlayerController(myWrapper.hashString("userid"));
+	auto assisterController = gameEvent->GetPlayerController(myWrapper.hashString("assister"));
 			const auto userIdKey = myWrapper.hashString("userid");
 			auto victimPawn = DeathPanel_ResolveEventVictimPawn(
 				gameEvent,
@@ -1751,7 +1751,7 @@ u_char * __fastcall handleDeathnotice(
 			myWrapper.assister.isLocal.use = true;
 			myWrapper.assister.isLocal.value = reinterpret_cast<void *>(assisterController) == reinterpret_cast<void *>(povController);
 			}
-		}
+	}
 
 	if (g_MirvDeathMsgGlobals.useHighlightId)
 	{
@@ -1840,8 +1840,8 @@ u_char * __fastcall handleDeathnotice(
 		*pDeathNoticeLocalPlayerLifetimeMod = orgDeathNoticeLocalPlayerLifetimeMod;
 	}
 		if (lifetimeOffsetsReady && nullptr != pDeathNoticeLifetime && myWrapper.lifetime.use) {
-			*pDeathNoticeLifetime = orgDeathNoticeLifetime;
-		}
+		*pDeathNoticeLifetime = orgDeathNoticeLifetime;
+	}
 
 		return result;
 };
@@ -1885,7 +1885,7 @@ int __fastcall My_Panorama_CLayoutFile_LoadFromFile(void * This, const char * pF
 		return g_Org_Panorama_CLayoutFile_LoadFromFile(This,pFilePath,_unk02);
 	}
 
-	if(0 == strcmp("panorama\\layout\\hud\\huddeathnotice.xml",pFilePath)) {
+	if(0 == strcmp("panorama\\layout\\hud\\huddeathnotice.xml",pFilePath)) {		
 		g_b_In_Panorama_CLayoutFile_LoadFromFile = true;
 		int result = g_Org_Panorama_CLayoutFile_LoadFromFile(This,pFilePath,_unk02);
 		g_b_In_Panorama_CLayoutFile_LoadFromFile = false;
@@ -1919,7 +1919,7 @@ unsigned char __fastcall My_Panorama_CStylePropertyForegroundColor_Parse(void * 
 		}
 		else if(0 == strcmp(pValueStr,"#eabe54")) {
 			g_myPanoramaWrapper.Tcolor.pointer = (u_char*)This;
-		}
+		}		
 	}
 	return result;
 }
@@ -1932,7 +1932,7 @@ unsigned char __fastcall My_Panorama_CStylePropertyBackgroundColor_Parse(void * 
 		}
 		else if(0 == strcmp(pValueStr,"#000000e7")) {
 			g_myPanoramaWrapper.LocalBackgroundColor.pointer = (u_char*)This;
-		}
+		}		
 	}
 	return result;
 }
@@ -1956,7 +1956,7 @@ unsigned char __fastcall My_Panorama_CStylePropertyWashColor_Parse(void * This, 
 		}
 		else if(0 == strcmp(pValueStr,"#eabe54")) {
 			g_pHudReticle_WashColor_T.emplace((u_char*)This);
-		}
+		}		
 	}
 	return result;
 }
@@ -1977,7 +1977,7 @@ void __fastcall My_Panorama_CStylePropertyWashColor_Clone(void * This, void * pT
 
 bool getPanoramaAddrsFromClient(HMODULE clientDll) {
 	// credit https://github.com/danielkrupinski/Osiris
-
+	
 /* In the middle of big function with MULTIPLE (3+) references to "Attempted to cast panel '%s' to type '%s'" and multiple to "file://{images}/%s.png":
         }
 LAB_1809a7daf:
@@ -2103,7 +2103,7 @@ bool getPanoramaAddrs(HMODULE panoramaDll) {
 		}
 		g_Org_Panorama_CStylePropertyWashColor_Clone = (Panorama_CStyleProperty_Clone_t)vtable[1];
 		g_Org_Panorama_CStylePropertyWashColor_Parse = (Panorama_CStyleProperty_Parse_t)vtable[6];
-	}
+	}		
 
 		// Style-property discovery is optional. MirvPanorama_InitStyleProperties
 		// uses ErrorBox on unsupported builds, so defer it until a POV/deathmsg
@@ -2205,7 +2205,7 @@ void HookPanorama(HMODULE panoramaDll)
 };
 
 void HookDeathMsg(HMODULE clientDll) {
-    if (g_MirvDeathMsgGlobals.hooked) return;
+	if (g_MirvDeathMsgGlobals.hooked) return;
 
     MirvPovDeathPanel_ResolveAddresses(clientDll);
     g_Original_getLocalSteamId = reinterpret_cast<g_Original_getLocalSteamId_t>(
@@ -2317,8 +2317,8 @@ void HookDeathMsg(HMODULE clientDll) {
                 deathPanelDestructorAttachResult,
                 deathMsgTransactionResult);
         }
-        return;
-    }
+		return;
+	}
 
     g_MirvDeathMsgGlobals.deathNoticeHooked = true;
     g_MirvDeathMsgGlobals.localTokenHooked = attachToken;
@@ -2326,7 +2326,7 @@ void HookDeathMsg(HMODULE clientDll) {
 	g_MirvPovDeathPanelState.hideHooked = attachDeathPanelHide;
 	g_MirvPovDeathPanelState.constructorHooked = attachDeathPanelConstructor;
 	g_MirvPovDeathPanelState.destructorHooked = attachDeathPanelDestructor;
-    g_MirvDeathMsgGlobals.hooked = true;
+	g_MirvDeathMsgGlobals.hooked = true;
     if (false) {
         advancedfx::Message(
 					"[mirv_pov_feedback] DeathMsg hooks installed notice=%d token=%d localPawn=%d hide=%d "
@@ -2425,11 +2425,11 @@ struct CS2_MirvDeathMsg : MirvDeathMsg {
 				"%s\n"
 				, arg0, arg0, arg0, arg0, arg0, options, colors.c_str()
 			);
-			return true;
+			return true;	
 		}
 
 		const char* arg2 = args->ArgV(2);
-
+		
 		if (0 == _stricmp("ct", arg2))
 		{
 			if (3 == argc)
