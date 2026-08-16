@@ -77,7 +77,36 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  publish:
+  publish_prerelease:
+    name: Publish DLL prerelease
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download DLL assets
+        uses: actions/download-artifact@v4
+        with:
+          name: AfxHookSource2-${{ github.sha }}
+          path: release
+
+      - name: Create GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: prerelease-${{ github.run_number }}-${{ github.sha }}
+          RELEASE_TITLE: AfxHookSource2 prerelease ${{ github.sha }}
+        run: |
+          gh release create "$RELEASE_TAG" release/AfxHookSource2.dll \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$RELEASE_TITLE" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --latest=false \
+            --generate-notes
+
+  publish_release:
     name: Publish DLL release
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     needs: build
@@ -99,9 +128,12 @@ jobs:
         run: |
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" release/AfxHookSource2.dll --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest=true
           else
             gh release create "$RELEASE_TAG" release/AfxHookSource2.dll \
               --repo "$GITHUB_REPOSITORY" \
               --title "AfxHookSource2 $RELEASE_TAG" \
+              --verify-tag \
+              --latest=true \
               --generate-notes
           fi
