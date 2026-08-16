@@ -3,9 +3,14 @@ name: Build Release
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   merge_group:
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -32,3 +37,84 @@ jobs:
       - name: CMake - Build Staging
         working-directory: "${{github.workspace}}"
         run: cmake -DAFX_MULTIBUILD_STAGING=ON -P cmake/MultiBuild.cmake
+
+      - name: Prepare DLL release assets
+        shell: pwsh
+        run: |
+          $staging = Join-Path $env:GITHUB_WORKSPACE "build/staging-release"
+          $release = Join-Path $env:GITHUB_WORKSPACE "release"
+          New-Item -ItemType Directory -Force -Path $release | Out-Null
+
+          function Copy-RequiredAsset {
+            param(
+              [string]$Name,
+              [string[]]$Candidates
+            )
+
+            foreach ($candidate in $Candidates) {
+              $source = Join-Path $staging $candidate
+              if (Test-Path -LiteralPath $source -PathType Leaf) {
+                Copy-Item -LiteralPath $source -Destination (Join-Path $release $Name)
+                return
+              }
+            }
+
+            throw "Could not find $Name in $staging. Checked: $($Candidates -join ', ')"
+          }
+
+          Copy-RequiredAsset -Name "AfxHookGoldSrc-win32.dll" -Candidates @(
+            "bin/AfxHookGoldSrc.dll"
+          )
+          Copy-RequiredAsset -Name "AfxHookSource-win32.dll" -Candidates @(
+            "bin/AfxHookSource.dll"
+          )
+          Copy-RequiredAsset -Name "AfxHookSource-x64.dll" -Candidates @(
+            "bin/x64/AfxHookSource.dll",
+            "x64/AfxHookSource.dll"
+          )
+          Copy-RequiredAsset -Name "AfxHookSource2-x64.dll" -Candidates @(
+            "bin/x64/AfxHookSource2.dll",
+            "x64/AfxHookSource2.dll"
+          )
+
+          Compress-Archive `
+            -Path (Join-Path $staging "*") `
+            -DestinationPath (Join-Path $release "advancedfx-staging-$env:GITHUB_SHA.zip") `
+            -CompressionLevel Optimal
+
+      - name: Upload DLL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: advancedfx-dlls-${{ github.sha }}
+          path: release
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish DLL release
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download DLL assets
+        uses: actions/download-artifact@v4
+        with:
+          name: advancedfx-dlls-${{ github.sha }}
+          path: release
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" release/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "DLL $RELEASE_TAG" \
+              --generate-notes
+          fi
