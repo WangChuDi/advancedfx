@@ -150,9 +150,9 @@ __int64 __fastcall MirvPovDeathPanel_HideWhileAlive(u_char * deathPanel)
 static u_char * DeathPanel_FindChildById(void * parentPanel, const char * panelId)
 {
 	if(nullptr == parentPanel || nullptr == panelId) return nullptr;
-	return MirvPanorama_FindChildInLayoutFile(
+	return reinterpret_cast<u_char *>(MirvPanorama_FindChildInLayoutFile(
 		reinterpret_cast<u_char *>(parentPanel),
-		panelId);
+		panelId));
 }
 
 bool DeathPanel_ForceVisibility(

@@ -101,6 +101,7 @@ using CViewEffects_AddFade_t = uint32_t * (__fastcall *)(
     uint32_t * outEffectId,
     uint16_t * payload,
     int effectId);
+using CViewEffects_ClearFade_t = void (__fastcall *)(void * effects);
 
 struct NativeFadeTemplate {
     uint16_t duration = 0;
