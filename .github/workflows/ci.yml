@@ -1,4 +1,4 @@
-name: Build Release
+name: Build and Publish AfxHookSource2
 
 on:
   push:
@@ -30,62 +30,49 @@ jobs:
       - name: Install gettext
         run: scoop install gettext
 
-      # Not needed since we only build Staging
-      #- name: Install WiX Toolset
-      #  run: scoop install wixtoolset
-
-      - name: CMake - Build Staging
+      - name: CMake - Configure Source2
         working-directory: "${{github.workspace}}"
-        run: cmake -DAFX_MULTIBUILD_STAGING=ON -P cmake/MultiBuild.cmake
+        run: cmake --preset x64-release
 
-      - name: Prepare DLL release assets
+      - name: CMake - Build Source2
+        working-directory: "${{github.workspace}}"
+        run: cmake --build --preset x64-release --target AfxHookSource2
+
+      - name: CMake - Install Source2
+        working-directory: "${{github.workspace}}"
+        run: |
+          cmake --install build/x64-release --config Release --prefix build/staging-release --component x64-runtime
+          cmake --install build/x64-release --config Release --prefix build/staging-release --component x64-source2
+
+      - name: Prepare AfxHookSource2.dll
         shell: pwsh
         run: |
           $staging = Join-Path $env:GITHUB_WORKSPACE "build/staging-release"
           $release = Join-Path $env:GITHUB_WORKSPACE "release"
           New-Item -ItemType Directory -Force -Path $release | Out-Null
 
-          function Copy-RequiredAsset {
-            param(
-              [string]$Name,
-              [string[]]$Candidates
-            )
-
-            foreach ($candidate in $Candidates) {
-              $source = Join-Path $staging $candidate
-              if (Test-Path -LiteralPath $source -PathType Leaf) {
-                Copy-Item -LiteralPath $source -Destination (Join-Path $release $Name)
-                return
-              }
-            }
-
-            throw "Could not find $Name in $staging. Checked: $($Candidates -join ', ')"
-          }
-
-          Copy-RequiredAsset -Name "AfxHookGoldSrc-win32.dll" -Candidates @(
-            "bin/AfxHookGoldSrc.dll"
-          )
-          Copy-RequiredAsset -Name "AfxHookSource-win32.dll" -Candidates @(
-            "bin/AfxHookSource.dll"
-          )
-          Copy-RequiredAsset -Name "AfxHookSource-x64.dll" -Candidates @(
-            "bin/x64/AfxHookSource.dll",
-            "x64/AfxHookSource.dll"
-          )
-          Copy-RequiredAsset -Name "AfxHookSource2-x64.dll" -Candidates @(
+          $source = $null
+          $candidates = @(
             "bin/x64/AfxHookSource2.dll",
             "x64/AfxHookSource2.dll"
           )
+          foreach ($candidate in $candidates) {
+            $candidatePath = Join-Path $staging $candidate
+            if (Test-Path -LiteralPath $candidatePath -PathType Leaf) {
+              $source = $candidatePath
+              break
+            }
+          }
 
-          Compress-Archive `
-            -Path (Join-Path $staging "*") `
-            -DestinationPath (Join-Path $release "advancedfx-staging-$env:GITHUB_SHA.zip") `
-            -CompressionLevel Optimal
+          if ($null -eq $source) {
+            throw "Could not find AfxHookSource2.dll in $staging. Checked: $($candidates -join ', ')"
+          }
+          Copy-Item -LiteralPath $source -Destination (Join-Path $release "AfxHookSource2.dll")
 
       - name: Upload DLL artifact
         uses: actions/upload-artifact@v4
         with:
-          name: advancedfx-dlls-${{ github.sha }}
+          name: AfxHookSource2-${{ github.sha }}
           path: release
           if-no-files-found: error
           retention-days: 30
@@ -102,7 +89,7 @@ jobs:
       - name: Download DLL assets
         uses: actions/download-artifact@v4
         with:
-          name: advancedfx-dlls-${{ github.sha }}
+          name: AfxHookSource2-${{ github.sha }}
           path: release
 
       - name: Create or update GitHub Release
@@ -111,10 +98,10 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$RELEASE_TAG" release/AfxHookSource2.dll --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$RELEASE_TAG" release/* \
+            gh release create "$RELEASE_TAG" release/AfxHookSource2.dll \
               --repo "$GITHUB_REPOSITORY" \
-              --title "DLL $RELEASE_TAG" \
+              --title "AfxHookSource2 $RELEASE_TAG" \
               --generate-notes
           fi
