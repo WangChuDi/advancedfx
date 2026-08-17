@@ -614,6 +614,8 @@ void * MirvPanorama_FindChildInLayoutFile(void * parentPanel, const char * panel
 		panelId);
 }
 
+#if AFX_MIRV_POV_DIAGNOSTICS
+
 CON_COMMAND(__mirv_panorama_print_children, "") {
 	const auto arg0 = args->ArgV(0);
 	int argc = args->ArgC();
@@ -626,6 +628,8 @@ CON_COMMAND(__mirv_panorama_print_children, "") {
 		g_myPanoramaWrapper.printChildren("");
 	}
 }
+
+#endif
 
 static int DeathMsg_ResolveEntityUserId(CEntityInstance * controller)
 {
@@ -2202,6 +2206,9 @@ void HookPanorama(HMODULE panoramaDll)
 	}
 
 	g_myPanoramaWrapper.hooked = true;
+
+	// Initialize POV-specific Panorama helpers after the DLL addresses are ready.
+	MirvPov_OnPanoramaDllLoaded(panoramaDll);
 };
 
 void HookDeathMsg(HMODULE clientDll) {

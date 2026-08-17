@@ -178,7 +178,7 @@ void MirvPovTeamHealth_Initialize(HMODULE clientDll)
     Afx::BinUtils::ImageSectionsReader sections(clientDll);
     if(!sections.Eof()) textRange = sections.GetMemRange();
     if(textRange.IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_team_health] client.dll text section was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_team_health] client.dll text section was not found.\n");
         return;
     }
 
@@ -186,12 +186,12 @@ void MirvPovTeamHealth_Initialize(HMODULE clientDll)
         "4D 85 C0 0F 84 ?? ?? ?? ?? 48 8B C4 48 89 48 08 53 57 48 83 EC 58";
     auto builderSequence = Afx::BinUtils::FindPatternString(textRange, builderPattern);
     if(builderSequence.IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_team_health] TeamCounter player-data builder was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_team_health] TeamCounter player-data builder was not found.\n");
         return;
     }
     auto builderRemaining = Afx::BinUtils::MemRange(builderSequence.Start + 1, textRange.End);
     if(!Afx::BinUtils::FindPatternString(builderRemaining, builderPattern).IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_team_health] TeamCounter player-data pattern is not unique.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_team_health] TeamCounter player-data pattern is not unique.\n");
         return;
     }
 
@@ -199,12 +199,12 @@ void MirvPovTeamHealth_Initialize(HMODULE clientDll)
         "48 85 D2 0F 84 ?? ?? ?? ?? 48 8B C4 4C 89 40 18 55 56 41 55 41 57 48 8D A8 08 FE FF FF";
     auto presentationSequence = Afx::BinUtils::FindPatternString(textRange, presentationPattern);
     if(presentationSequence.IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_team_health] TeamCounter presentation function was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_team_health] TeamCounter presentation function was not found.\n");
         return;
     }
     auto presentationRemaining = Afx::BinUtils::MemRange(presentationSequence.Start + 1, textRange.End);
     if(!Afx::BinUtils::FindPatternString(presentationRemaining, presentationPattern).IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_team_health] TeamCounter presentation pattern is not unique.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_team_health] TeamCounter presentation pattern is not unique.\n");
         return;
     }
 
@@ -229,7 +229,7 @@ void MirvPovTeamHealth_Initialize(HMODULE clientDll)
         if(!ResolveCallTarget(callSites[i], textRange, target)
             || (nullptr != getterTarget && getterTarget != target)) {
             memset(g_ContextReturnAddresses, 0, sizeof(g_ContextReturnAddresses));
-            advancedfx::Warning("[mirv_pov_team_health] TeamCounter context call set is invalid.\n");
+            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_team_health] TeamCounter context call set is invalid.\n");
             return;
         }
 
@@ -243,7 +243,7 @@ void MirvPovTeamHealth_Initialize(HMODULE clientDll)
         || !ResolveCallTarget(presentation + 0x107, textRange, presentationSlotResolverTarget)
         || slotResolverTarget != presentationSlotResolverTarget) {
         memset(g_ContextReturnAddresses, 0, sizeof(g_ContextReturnAddresses));
-        advancedfx::Warning("[mirv_pov_team_health] TeamCounter player-slot resolver is invalid.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_team_health] TeamCounter player-slot resolver is invalid.\n");
         return;
     }
 
@@ -261,7 +261,7 @@ void MirvPovTeamHealth_Initialize(HMODULE clientDll)
             || (nullptr != builderVisibilityTarget && builderVisibilityTarget != target)) {
             memset(g_ContextReturnAddresses, 0, sizeof(g_ContextReturnAddresses));
             memset(g_BuilderVisibilityReturnAddresses, 0, sizeof(g_BuilderVisibilityReturnAddresses));
-            advancedfx::Warning("[mirv_pov_team_health] TeamCounter builder visibility call set is invalid.\n");
+            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_team_health] TeamCounter builder visibility call set is invalid.\n");
             return;
         }
         builderVisibilityTarget = target;
@@ -281,7 +281,7 @@ void MirvPovTeamHealth_Initialize(HMODULE clientDll)
             memset(g_ContextReturnAddresses, 0, sizeof(g_ContextReturnAddresses));
             memset(g_BuilderVisibilityReturnAddresses, 0, sizeof(g_BuilderVisibilityReturnAddresses));
             memset(g_ObserverGateReturnAddresses, 0, sizeof(g_ObserverGateReturnAddresses));
-            advancedfx::Warning("[mirv_pov_team_health] TeamCounter observer visibility call set is invalid.\n");
+            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_team_health] TeamCounter observer visibility call set is invalid.\n");
             return;
         }
         observerGateTarget = target;
@@ -314,7 +314,7 @@ void MirvPovTeamHealth_Initialize(HMODULE clientDll)
         memset(g_ContextReturnAddresses, 0, sizeof(g_ContextReturnAddresses));
         memset(g_BuilderVisibilityReturnAddresses, 0, sizeof(g_BuilderVisibilityReturnAddresses));
         memset(g_ObserverGateReturnAddresses, 0, sizeof(g_ObserverGateReturnAddresses));
-        advancedfx::Warning("[mirv_pov_team_health] TeamCounter context detour failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_team_health] TeamCounter context detour failed.\n");
         return;
     }
 

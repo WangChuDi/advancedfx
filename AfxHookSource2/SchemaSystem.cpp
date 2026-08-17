@@ -147,10 +147,14 @@ void initSchemaSystemOffsets()
 	if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_ArmorValue, "client.dll", "C_CSPlayerPawn", "m_ArmorValue")) {
 		advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_ArmorValue\n");
 	}
-		if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bPrevHelmet, "client.dll", "C_CSPlayerPawn", "m_bPrevHelmet")) {
-			advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_bPrevHelmet\n");
-		}
-		if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_szLastPlaceName, "client.dll", "C_CSPlayerPawn", "m_szLastPlaceName")) {
+			if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bPrevHelmet, "client.dll", "C_CSPlayerPawn", "m_bPrevHelmet")) {
+				advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_bPrevHelmet\n");
+			}
+			getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bInBuyZone,
+				"client.dll", "C_CSPlayerPawn", "m_bInBuyZone")
+				|| getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bInBuyZone,
+					"client.dll", "C_CSPlayerPawnBase", "m_bInBuyZone");
+			if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_szLastPlaceName, "client.dll", "C_CSPlayerPawn", "m_szLastPlaceName")) {
 			advancedfx::Warning("SchemaSystem optional offset lookup failed: C_CSPlayerPawn.m_szLastPlaceName\n");
 		}
 		if (!getOffset(&g_clientDllOffsets.C_BasePlayerPawn.m_flDeathTime,

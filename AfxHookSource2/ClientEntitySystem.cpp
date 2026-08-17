@@ -134,6 +134,20 @@ unsigned int CEntityInstance::GetHealth() {
 	return *(unsigned int *)((unsigned char *)this + g_clientDllOffsets.C_BaseEntity.m_iHealth);
 }
 
+bool CEntityInstance::GetInBuyZone(bool & available) {
+	available = false;
+	if (!IsPlayerPawn() || g_clientDllOffsets.C_CSPlayerPawn.m_bInBuyZone < 0)
+		return false;
+	__try {
+		available = true;
+		return 0 != *(unsigned char *)((unsigned char *)this
+			+ g_clientDllOffsets.C_CSPlayerPawn.m_bInBuyZone);
+	} __except(EXCEPTION_EXECUTE_HANDLER) {
+		available = false;
+		return false;
+	}
+}
+
 int CEntityInstance::GetTeam() {
     return *(int*)((u_char*)(this) + g_clientDllOffsets.C_BaseEntity.m_iTeamNum);
 }

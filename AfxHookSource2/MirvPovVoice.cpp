@@ -257,7 +257,7 @@ static bool MirvPov_EnsureVoiceHudHook(HMODULE clientDll) {
 
 void MirvPov_HookVoiceHud(HMODULE clientDll) {
     if(!MirvPov_EnsureVoiceHudHook(clientDll)) {
-        advancedfx::Warning("[mirv_pov_voice_hud] voice HUD patterns or hooks not available\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_voice_hud] voice HUD patterns or hooks not available\n");
     }
 }
 

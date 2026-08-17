@@ -38,6 +38,8 @@ public:
 
     unsigned int GetHealth();
 
+    bool GetInBuyZone(bool & available);
+
     int GetTeam();
 	
     /**

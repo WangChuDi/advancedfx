@@ -131,7 +131,7 @@ __int64 __fastcall MirvPovDeathPanel_HideWhileAlive(u_char * deathPanel)
 		if (false
 			&& (g_MirvPovDeathPanelState.lastSuppressedHideFrame < 0
 				|| currentFrame - g_MirvPovDeathPanelState.lastSuppressedHideFrame >= 64)) {
-			advancedfx::Message(
+			MIRV_POV_DIAGNOSTIC_MESSAGE(
 				"[mirv_pov_feedback] DeathPanel native hide suppressed panel=%p "
 				"frame=%d curtime=%.3f\n",
 				deathPanel,
@@ -259,7 +259,7 @@ bool MirvPovDeathPanel_Reapply(const char * source)
 		|| nullptr == g_MirvPovDeathPanelState.reapplyPanel
 		|| nullptr == g_MirvPovDeathPanelState.show) {
 		if(false) {
-			advancedfx::Message(
+			MIRV_POV_DIAGNOSTIC_MESSAGE(
 				"[mirv_pov_feedback] DeathPanel post-dispatch reapply skipped source=%s "
 				"armed=%d enabled=%d panel=%p show=%p\n",
 				source ? source : "[unknown]",
@@ -277,7 +277,7 @@ bool MirvPovDeathPanel_Reapply(const char * source)
 		: 0;
 	if(kPovDeathPanelReapplyFrameWindow < age) {
 		if(false) {
-			advancedfx::Message(
+			MIRV_POV_DIAGNOSTIC_MESSAGE(
 				"[mirv_pov_feedback] DeathPanel lifetime failsafe expired frame=%d age=%d; clearing.\n",
 				currentFrame,
 				age);
@@ -339,7 +339,7 @@ void MirvPovDeathPanel_Update()
 			: 0;
 		if(kPovDeathPanelReapplyFrameWindow < age) {
 			if(false) {
-				advancedfx::Message(
+				MIRV_POV_DIAGNOSTIC_MESSAGE(
 					"[mirv_pov_feedback] DeathPanel lifetime failsafe expired during frame update "
 					"frame=%d age=%d; clearing.\n",
 					currentFrame,
@@ -355,7 +355,7 @@ void MirvPovDeathPanel_Update()
 				&& g_MirvPovDeathPanelState.reapplyPawnHandle != 0xFFFFFFFFu
 				&& currentTargetHandle != g_MirvPovDeathPanelState.reapplyPawnHandle) {
 					if(false) {
-						advancedfx::Message(
+						MIRV_POV_DIAGNOSTIC_MESSAGE(
 							"[mirv_pov_feedback] DeathPanel lifetime ended on observer target change "
 							"frame=%d age=%d expectedPawn=%p expectedHandle=0x%08x "
 							"currentTarget=0x%08x curtime=%.3f; clearing.\n",

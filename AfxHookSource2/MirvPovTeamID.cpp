@@ -62,7 +62,7 @@ void MirvPovTeamID_ApplyPatches(HMODULE clientDll)
 {
     if(g_TeamIdPatched) return;
     if(nullptr == clientDll) {
-        advancedfx::Warning("[mirv_pov_teamid] client.dll is not loaded.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_teamid] client.dll is not loaded.\n");
         return;
     }
 
@@ -75,13 +75,13 @@ void MirvPovTeamID_ApplyPatches(HMODULE clientDll)
         textRange,
         "E8 ?? ?? ?? ?? 4C 8B F0 48 89 45 ?? E8 ?? ?? ?? ?? 48 8B F0 48 89 45 ?? E8");
     if(sequence.IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_teamid] TeamID context call-site was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_teamid] TeamID context call-site was not found.\n");
         return;
     }
 
     uint8_t * callSite = reinterpret_cast<uint8_t *>(sequence.Start) + 12;
     if(0xE8 != callSite[0]) {
-        advancedfx::Warning("[mirv_pov_teamid] TeamID context call-site has an unexpected opcode.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_teamid] TeamID context call-site has an unexpected opcode.\n");
         return;
     }
 
@@ -92,7 +92,7 @@ void MirvPovTeamID_ApplyPatches(HMODULE clientDll)
 
     uint8_t * thunk = MirvPovHookUtils::AllocateNear(callSite, 16);
     if(nullptr == thunk) {
-        advancedfx::Warning("[mirv_pov_teamid] Could not allocate the TeamID context thunk.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_teamid] Could not allocate the TeamID context thunk.\n");
         g_GetNativeTeamIdContextPlayer = nullptr;
         return;
     }
@@ -108,7 +108,7 @@ void MirvPovTeamID_ApplyPatches(HMODULE clientDll)
 
     int32_t thunkRelative = 0;
     if(!MirvPovHookUtils::CalcRel32(callSite + 5, thunk, thunkRelative)) {
-        advancedfx::Warning("[mirv_pov_teamid] TeamID context thunk is out of range.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_teamid] TeamID context thunk is out of range.\n");
         VirtualFree(thunk, 0, MEM_RELEASE);
         g_GetNativeTeamIdContextPlayer = nullptr;
         return;
@@ -142,7 +142,7 @@ void MirvPovTeamID_RemovePatches()
             GetCurrentProcess(), g_TeamIdCallSite, sizeof(g_TeamIdOriginalCall));
     MdtMemAccessEnd(&memory);
     if(!restored) {
-        advancedfx::Warning("[mirv_pov_teamid] Could not confirm restoration; keeping the thunk allocated.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_teamid] Could not confirm restoration; keeping the thunk allocated.\n");
         return;
     }
 

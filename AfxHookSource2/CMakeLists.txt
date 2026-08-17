@@ -69,6 +69,15 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
     _CRT_SECURE_NO_WARNINGS
 )
 
+option(AFX_MIRV_POV_DIAGNOSTICS
+    "Include mirv_pov diagnostic logs and debug commands"
+    OFF)
+if(AFX_MIRV_POV_DIAGNOSTICS)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE AFX_MIRV_POV_DIAGNOSTICS=1)
+else()
+    target_compile_definitions(${PROJECT_NAME} PRIVATE AFX_MIRV_POV_DIAGNOSTICS=0)
+endif()
+
 # - generate PDB in Release too
 # - enable Hot Reload in Debug
 target_compile_options(${PROJECT_NAME} PRIVATE

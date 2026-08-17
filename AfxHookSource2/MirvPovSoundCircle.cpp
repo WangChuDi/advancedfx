@@ -320,7 +320,7 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
         clientDll,
         "48 8B D9 E8 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? 00 00 48 89 6C 24 ?? 48 8D 54 24 ?? 48 89 74 24 ?? 48 8B C8");
     if(0 == playerSoundProducer || 0 == queueRadarSound || 0 == positionUpdaterBody) {
-        advancedfx::Warning("[mirv_pov_sound_circle] Native radar sound path was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_sound_circle] Native radar sound path was not found.\n");
         return;
     }
     uint8_t * callSites[3] = {
@@ -329,7 +329,7 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
         reinterpret_cast<uint8_t *>(positionUpdaterBody) + 3
     };
     if(0xe8 != callSites[0][0] || 0xe8 != callSites[1][0] || 0xe8 != callSites[2][0]) {
-        advancedfx::Warning("[mirv_pov_sound_circle] Native local-Pawn calls changed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_sound_circle] Native local-Pawn calls changed.\n");
         return;
     }
 
@@ -340,18 +340,18 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
     }
     if(localPawnTargets[0] != localPawnTargets[1]
         || localPawnTargets[0] != localPawnTargets[2]) {
-        advancedfx::Warning("[mirv_pov_sound_circle] Native local-Pawn target validation failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_sound_circle] Native local-Pawn target validation failed.\n");
         return;
     }
     if(!IsExecutableAddress(localPawnTargets[0])) {
-        advancedfx::Warning("[mirv_pov_sound_circle] Native local-Pawn target is not executable.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_sound_circle] Native local-Pawn target is not executable.\n");
         return;
     }
     size_t doStartSoundEvent = getAddress(
         clientDll,
         "48 89 5C 24 10 48 89 6C 24 18 56 57 41 56 48 81 EC 90 00 00 00 8B 42 40");
     if(0 == doStartSoundEvent) {
-        advancedfx::Warning("[mirv_pov_sound_circle] Native SOS start-sound handler was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_sound_circle] Native SOS start-sound handler was not found.\n");
         return;
     }
 
@@ -369,7 +369,7 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
         : 0;
     uint8_t * createSoundEventCall = reinterpret_cast<uint8_t *>(doStartSoundEvent) + 0xec;
     if(0xe8 != createSoundEventCall[0]) {
-        advancedfx::Warning("[mirv_pov_sound_circle] Native SOS create-sound call validation failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_sound_circle] Native SOS create-sound call validation failed.\n");
         return;
     }
     int32_t createSoundEventRelative = *reinterpret_cast<int32_t *>(createSoundEventCall + 1);
@@ -383,7 +383,7 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
             soundEventGlobalLoad + 7,
             expectedGlobalLoadTail,
             sizeof(expectedGlobalLoadTail))) {
-        advancedfx::Warning("[mirv_pov_sound_circle] Native sound-event interface validation failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_sound_circle] Native sound-event interface validation failed.\n");
         return;
     }
     int32_t soundEventGlobalRelative = *reinterpret_cast<int32_t *>(soundEventGlobalLoad + 3);
@@ -394,7 +394,7 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
         clientDll,
         "48 89 5C 24 08 44 0F B6 09 44 8B DA 4C 8B C1 41 8D 41 BF 3C 19 77 04 41 80 C1 20");
     if(0 == hashSoundField) {
-        advancedfx::Warning("[mirv_pov_sound_circle] Native sound-field hash helper was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_sound_circle] Native sound-field hash helper was not found.\n");
         return;
     }
     auto hashField = reinterpret_cast<HashSoundField_t>(hashSoundField);
@@ -403,7 +403,7 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
     curveHash = hashField(distanceCurvePath + 24, curveHash);
     uint32_t distanceCurveKey = FinalizeSoundFieldHash(curveHash);
     if(0xd7da5bc8 != distanceCurveKey) {
-        advancedfx::Warning("[mirv_pov_sound_circle] Native distance-curve key validation failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_sound_circle] Native distance-curve key validation failed.\n");
         return;
     }
 
@@ -429,7 +429,7 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
         g_SoundGateReturnAddresses[0] = nullptr;
         g_SoundGateReturnAddresses[1] = nullptr;
         g_SoundGateReturnAddresses[2] = nullptr;
-        advancedfx::Warning("[mirv_pov_sound_circle] Native sound-circle detour failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_sound_circle] Native sound-circle detour failed.\n");
         return;
     }
 

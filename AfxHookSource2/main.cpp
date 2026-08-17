@@ -185,6 +185,8 @@ SOURCESDK::CS2::ISource2EngineToClient * g_pEngineToClient = nullptr;
 typedef void * Cs2Gloabls_t;
 Cs2Gloabls_t g_pGlobals = nullptr;
 
+#if AFX_MIRV_POV_DIAGNOSTICS
+
 CON_COMMAND(__mirv_info,"") {
 	PrintInfo();
 }
@@ -214,6 +216,8 @@ CON_COMMAND(__mirv_find_vtable,"") {
 	advancedfx::Message("Result: 0x%016llx (Offset: 0x%08x)\n",addr,offset);
 }
 
+#endif
+
 /*CON_COMMAND(mirv_exec,"") {
     std::ostringstream oss;
 
@@ -229,6 +233,8 @@ CON_COMMAND(__mirv_find_vtable,"") {
 
     if(g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, oss.str().c_str(), false);	
 }*/
+
+#if AFX_MIRV_POV_DIAGNOSTICS
 
 CON_COMMAND(mirv_loadlibrary, "Load a DLL.")
 {
@@ -263,6 +269,8 @@ CON_COMMAND(mirv_loadlibrary, "Load a DLL.")
 		"mirv_loadlibrary <sDllFilePath> - Load DLL at given path.\n"
 	);
 }
+
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -1243,6 +1251,8 @@ int new_CCS2_Client_Connect(void* This, SOURCESDK::CreateInterfaceFn appSystemFa
 	return old_CCS2_Client_Connect(This, appSystemFactory);
 }
 
+#if AFX_MIRV_POV_DIAGNOSTICS
+
 CON_COMMAND(mirv_cvar_unhide_all, "Unlocks cmds and cvars.") {
 	int total = 0;
 	int nUnhidden = 0;
@@ -1326,6 +1336,8 @@ CON_COMMAND(mirv_cvar_unlock_sv_cheats, "Unlocks sv_cheats on client (as much as
 	advancedfx::Message("==== Cvars total: %i (Cvars unlocked: %i) ====\n",total,nUnhidden);
 }
 
+#endif
+
 typedef int(* CCS2_Client_Init_t)(void* This);
 CCS2_Client_Init_t old_CCS2_Client_Init;
 int new_CCS2_Client_Init(void* This) {
@@ -1360,10 +1372,14 @@ int new_CCS2_Client_Init(void* This) {
 	return result;
 }
 
+#if AFX_MIRV_POV_DIAGNOSTICS
+
 CON_COMMAND(__mirv_print_search_paths, "")
 {
 	g_pFileSystem->PrintSearchPaths();
 }
+
+#endif
 
 typedef void(* CCS2_Client_Shutdown_t)(void* This);
 CCS2_Client_Shutdown_t old_CCS2_Client_Shutdown;
@@ -1438,6 +1454,7 @@ CS2_Client_LevelInitPreEntity_t old_CS2_Client_LevelInitPreEntity;
 void * new_CS2_Client_LevelInitPreEntity(void* This, void * pUnk1, void * pUnk2) {
 	resetDefaultCloudColors();
 	resetCachedMaterials();
+	MirvPov_OnLevelInitPreEntity();
 	void * result = old_CS2_Client_LevelInitPreEntity(This, pUnk1, pUnk2);
 	g_CommandSystem.OnLevelInitPreEntity();
 	return result;

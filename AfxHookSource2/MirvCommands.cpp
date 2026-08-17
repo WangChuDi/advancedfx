@@ -208,15 +208,17 @@ CON_COMMAND(mirv_pov, "POV HUD with radar, feedback, and native pickup prompts. 
 			MirvPov_LoadVoiceScript();
 			MirvPov_ApplyCvarSettings();
 			MirvPovTeamID_ApplyPatches(hClient);
-				MirvPov_Enable(hClient);
-				advancedfx::Message("mirv_pov enabled. Use mp_forcecamera 0 for cross-team switching.\n");
-				advancedfx::Message(
+					MirvPov_Enable(hClient);
+					advancedfx::Message("mirv_pov enabled. Use mp_forcecamera 0 for cross-team switching.\n");
+					#if AFX_MIRV_POV_DIAGNOSTICS
+					advancedfx::Message(
 					"Current fix: killreward (HudChat: %s); radio / grenade-radio (HudChat: %s).\n"
 					"Radio mode: %d (%s). Switch: mirv_pov_radio_mode 0..6\n",
 					MirvPovKillReward_IsAvailable() ? "available" : "unavailable",
 					MirvPovRadio_IsAvailable() ? "available" : "unavailable",
-					MirvPovRadio_GetMode(),
-					MirvPovRadio_GetModeDescription(MirvPovRadio_GetMode()));
+						MirvPovRadio_GetMode(),
+						MirvPovRadio_GetModeDescription(MirvPovRadio_GetMode()));
+					#endif
 			return;
 		}
 		if(0 == _stricmp(arg1, "false") || 0 == _stricmp(arg1, "0") || 0 == _stricmp(arg1, "off")) {

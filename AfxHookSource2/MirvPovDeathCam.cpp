@@ -213,31 +213,31 @@ __int64 __fastcall New_NativeDeathCam(void * This)
 bool ResolveNativeDeathCam(HMODULE clientDll, NativeDeathCam_t & target)
 {
     if(nullptr == clientDll) {
-        advancedfx::Warning("[mirv_pov_deathcam] client.dll is not loaded.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_deathcam] client.dll is not loaded.\n");
         return false;
     }
 
     Afx::BinUtils::ImageSectionsReader sections(clientDll);
     if(sections.Eof()) {
-        advancedfx::Warning("[mirv_pov_deathcam] client.dll code section was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_deathcam] client.dll code section was not found.\n");
         return false;
     }
 
     const Afx::BinUtils::MemRange textRange = sections.GetMemRange();
     auto match = Afx::BinUtils::FindPatternString(textRange, kNativeDeathCamPattern);
     if(match.IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_deathcam] native death-camera updater was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_deathcam] native death-camera updater was not found.\n");
         return false;
     }
 
     auto remaining = Afx::BinUtils::MemRange(match.Start + 1, textRange.End);
     if(!Afx::BinUtils::FindPatternString(remaining, kNativeDeathCamPattern).IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_deathcam] native death-camera signature is not unique.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_deathcam] native death-camera signature is not unique.\n");
         return false;
     }
 
     if(!IsExecutableAddress(reinterpret_cast<void *>(match.Start))) {
-        advancedfx::Warning("[mirv_pov_deathcam] native death-camera target is not executable.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_deathcam] native death-camera target is not executable.\n");
         return false;
     }
 
@@ -253,7 +253,7 @@ void MirvPovDeathCam_Initialize(HMODULE clientDll)
 
     if(g_clientDllOffsets.C_BasePlayerPawn.m_flDeathTime < 0
         || g_clientDllOffsets.C_CSPlayerPawn.m_bKilledByHeadshot < 0) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_deathcam] required death Pawn schema fields are unavailable; "
             "native path disabled.\n");
         return;
@@ -270,7 +270,7 @@ void MirvPovDeathCam_Initialize(HMODULE clientDll)
     LONG commitResult = DetourTransactionCommit();
     if(NO_ERROR != attachResult || NO_ERROR != commitResult) {
         g_OrgNativeDeathCam = nullptr;
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_deathcam] native death-camera detour failed (attach=%ld commit=%ld).\n",
             attachResult,
             commitResult);

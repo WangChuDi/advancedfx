@@ -234,7 +234,7 @@ void HookHltvParser(HMODULE clientDll)
     if(g_HltvHooked || nullptr == clientDll) return;
     size_t address = getAddress(clientDll, "48 89 5C 24 18 48 89 6C 24 20 56 41 56 41 57 48 81 EC 80 00 00 00 49 8B E8 48 89 BC 24 A8 00 00 00 48 8B DA 4C 8D 3D ?? ?? ?? ?? 48 8B F1 45 33 F6 48 3B 5D 00 72 32 8B C3 2B 45 08 3B 45 1C 0F 84 A2 03 00 00 44 8B 4D 5C");
     if(0 == address) {
-        advancedfx::Warning("[mirv_pov_scoreboard] HLTV parser pattern not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_scoreboard] HLTV parser pattern not found.\n");
         return;
     }
 
@@ -246,7 +246,7 @@ void HookHltvParser(HMODULE clientDll)
         g_HltvHooked = true;
     } else {
         g_OrgHltvParse = nullptr;
-        advancedfx::Warning("[mirv_pov_scoreboard] HLTV parser detour failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_scoreboard] HLTV parser detour failed.\n");
     }
 }
 
@@ -255,7 +255,7 @@ void HookUserCommands(HMODULE clientDll)
     if(g_UserCommandsHooked || nullptr == clientDll) return;
     size_t address = getAddress(clientDll, "4C 8B DC 49 89 53 10 49 89 4B 08 55 53 57 49 8D AB 38 FF FF FF 48 81 EC B0 01 00 00 48 63 42 48");
     if(0 == address) {
-        advancedfx::Warning("[mirv_pov_scoreboard] UserCommands handler pattern not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_scoreboard] UserCommands handler pattern not found.\n");
         return;
     }
 
@@ -267,7 +267,7 @@ void HookUserCommands(HMODULE clientDll)
         g_UserCommandsHooked = true;
     } else {
         g_OrgUserCommandsHandler = nullptr;
-        advancedfx::Warning("[mirv_pov_scoreboard] UserCommands handler detour failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_scoreboard] UserCommands handler detour failed.\n");
     }
 }
 

@@ -5216,6 +5216,8 @@ CON_COMMAND(mirv_reshade, "Control ReShade_advancedfx ReShade addon.")
     }
 }*/
 
+#if AFX_MIRV_POV_DIAGNOSTICS
+
 CON_COMMAND(__mirv_debug_scenesystem_rendercontexts, "")
 {
     int argc = args->ArgC();
@@ -5226,8 +5228,10 @@ CON_COMMAND(__mirv_debug_scenesystem_rendercontexts, "")
         return;
     }
 
-    advancedfx::Message(
+	    advancedfx::Message(
         "%s 0|1\n"
         "Current value: %i\n"
         , cmd0, g_iRenderContextDebug);
 }
+
+#endif

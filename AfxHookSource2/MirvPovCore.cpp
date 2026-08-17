@@ -31,6 +31,7 @@ namespace {
 int g_FakePovRadarControllerIndex = 0;
 bool g_MirvPovAutoSync = false;
 bool g_MirvPovEnabled = false;
+bool g_MirvPovHadDemoFile = false;
 thread_local void * g_MirvPovHookReturnAddress = nullptr;
 
 CEntityInstance * GetPawnFromController(CEntityInstance * controller)
@@ -195,9 +196,21 @@ void MirvPov_PopHookReturnAddress(void * previous)
 
 void MirvPov_UpdateSeekDetection()
 {
-    if(!MirvPov_IsEnabled() || !g_pEngineToClient) return;
+    if(!MirvPov_IsEnabled()) return;
+    if(!g_pEngineToClient) return;
     SOURCESDK::CS2::IDemoFile * demoFile = g_pEngineToClient->GetDemoFile();
-    if(!demoFile) return;
+    if(!demoFile) {
+        // A disconnect can leave mirv_pov enabled while the next demo has not
+        // created its Panorama tree yet. Keep the HUD state pending so the
+        // first render pass of the next demo reapplies it.
+        if(g_MirvPovHadDemoFile) {
+            MirvPovHud_OnLevelInitPreEntity();
+            g_MirvPovHadDemoFile = false;
+        }
+        return;
+    }
+    g_MirvPovHadDemoFile = true;
+    MirvPovHud_ReapplyPanelState();
     const int demoTick = demoFile->GetDemoTick();
     MirvPovDeathCam_UpdateDemoTick(demoTick);
     MirvPovHud_UpdateSeekDetection(demoTick);
@@ -244,6 +257,12 @@ void MirvPov_OnPanoramaLayoutFileLoaded(const char * filePath)
     MirvPovHud_OnPanoramaLayoutFileLoaded(filePath);
 }
 
+void MirvPov_OnLevelInitPreEntity()
+{
+    g_MirvPovHadDemoFile = false;
+    MirvPovHud_OnLevelInitPreEntity();
+}
+
 void MirvPov_Enable(HMODULE clientDll)
 {
     if(g_MirvPovEnabled) return;
@@ -286,5 +305,6 @@ void MirvPov_Disable()
     MirvPovKillReward_ApplyHudChatDemoBypass(false);
     MirvPovKillReward_Reset("mirv_pov disabled");
     MirvPovRadio_Reset("mirv_pov disabled");
+    g_MirvPovHadDemoFile = false;
     g_MirvPovEnabled = false;
 }

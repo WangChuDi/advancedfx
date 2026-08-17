@@ -39,3 +39,4 @@ void MirvPov_OnFrameStageAfter(int frameStage);
 void MirvPov_OnGameEvent(SOURCESDK::CS2::IGameEvent * event);
 void MirvPov_OnPanoramaDllLoaded(HMODULE panoramaDll);
 void MirvPov_OnPanoramaLayoutFileLoaded(const char * filePath);
+void MirvPov_OnLevelInitPreEntity();

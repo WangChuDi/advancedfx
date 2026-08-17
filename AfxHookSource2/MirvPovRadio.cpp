@@ -3237,7 +3237,7 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
     sections.Next(IMAGE_SCN_MEM_EXECUTE);
     if(!sections.Eof()) textRange = sections.GetMemRange();
     if(textRange.IsEmpty()) {
-            advancedfx::Warning("[mirv_pov_radio] client.dll text section was not found.\n");
+            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] client.dll text section was not found.\n");
         return;
     }
 
@@ -3272,10 +3272,10 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
             g_RadioTextDispatchHooked = true;
         } else {
             g_OrgRadioTextDispatch = nullptr;
-            advancedfx::Warning("[mirv_pov_radio] RadioText Dispatch detour failed.\n");
+            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] RadioText Dispatch detour failed.\n");
         }
     } else {
-        advancedfx::Warning("[mirv_pov_radio] RadioText Dispatch vtable slot was not resolved.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] RadioText Dispatch vtable slot was not resolved.\n");
     }
     bool radioTextPatternFound = FindUniquePattern(
         textRange,
@@ -3307,10 +3307,10 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
             g_RadioTextHooked = true;
         } else {
             g_OrgRadioTextHandler = nullptr;
-            advancedfx::Warning("[mirv_pov_radio] RadioText detour failed.\n");
+            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] RadioText detour failed.\n");
         }
     } else {
-        advancedfx::Warning("[mirv_pov_radio] RadioText handler pattern was not found uniquely.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] RadioText handler pattern was not found uniquely.\n");
     }
     // Prefer the IDA-confirmed RVA. The current getter is only seven bytes
     // (`48 8D 05 ?? ?? ?? ?? C3`) and therefore does not match the legacy
@@ -3325,7 +3325,7 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
         } else if(demoControllerPatternFound) {
         g_GetDemoController = reinterpret_cast<GetDemoController_t>(getDemoControllerAddress);
     } else {
-        advancedfx::Warning("[mirv_pov_radio] Demo controller getter was not resolved.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] Demo controller getter was not resolved.\n");
     }
 
     // IDA Pro (client.dll 2026-08-11): the SendAudio delegate's vtable is
@@ -3367,10 +3367,10 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
             g_SendAudioHooked = true;
         } else {
             g_OrgSendAudioDispatch = nullptr;
-            advancedfx::Warning("[mirv_pov_radio] SendAudio formatter detour failed.\n");
+            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] SendAudio formatter detour failed.\n");
         }
     } else {
-        advancedfx::Warning("[mirv_pov_radio] SendAudio Dispatch pattern was not found uniquely.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] SendAudio Dispatch pattern was not found uniquely.\n");
     }
 
     // The user-message reader first enters a small per-message emitter and
@@ -3392,10 +3392,10 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
             g_SendAudioEmitterHooked = true;
         } else {
             g_OrgSendAudioEmitter = nullptr;
-            advancedfx::Warning("[mirv_pov_radio] SendAudio emitter detour failed.\n");
+            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] SendAudio emitter detour failed.\n");
         }
     } else {
-        advancedfx::Warning("[mirv_pov_radio] SendAudio emitter pattern was not found uniquely.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] SendAudio emitter pattern was not found uniquely.\n");
     }
 
     // IDA Pro (client.dll 2026-08-11): this is the concrete SendAudio
@@ -3430,10 +3430,10 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
             g_SendAudioParserHooked = true;
         } else {
             g_OrgSendAudioParser = nullptr;
-            advancedfx::Warning("[mirv_pov_radio] SendAudio parser detour failed.\n");
+            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] SendAudio parser detour failed.\n");
         }
     } else {
-        advancedfx::Warning("[mirv_pov_radio] SendAudio parser pattern was not found uniquely.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] SendAudio parser pattern was not found uniquely.\n");
     }
 
     // RawAudio has the same cloned delegate shape.  IDA identifies the
@@ -3459,10 +3459,10 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
             g_RawAudioHooked = true;
         } else {
             g_OrgRawAudioHandler = nullptr;
-            advancedfx::Warning("[mirv_pov_radio] RawAudio formatter detour failed.\n");
+            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] RawAudio formatter detour failed.\n");
         }
     } else {
-        advancedfx::Warning("[mirv_pov_radio] RawAudio formatter pattern was not found uniquely.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] RawAudio formatter pattern was not found uniquely.\n");
     }
 
     // Hook the typed RawAudio formatter as well as the generic delegate.  The
@@ -3481,10 +3481,10 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
             g_RawAudioFormatterHooked = true;
         } else {
             g_OrgRawAudioFormatter = nullptr;
-            advancedfx::Warning("[mirv_pov_radio] RawAudio typed formatter detour failed.\n");
+            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] RawAudio typed formatter detour failed.\n");
         }
     } else {
-        advancedfx::Warning("[mirv_pov_radio] RawAudio typed formatter RVA is outside the executable image.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] RawAudio typed formatter RVA is outside the executable image.\n");
     }
 
     g_Hooked = g_RadioTextDispatchHooked || g_RadioTextHooked || g_SendAudioHooked || g_SendAudioEmitterHooked
@@ -3787,6 +3787,8 @@ const char * MirvPovRadio_GetModeDescription(int mode)
     return GetRadioModeDescription(mode);
 }
 
+#if AFX_MIRV_POV_DIAGNOSTICS
+
 CON_COMMAND(mirv_pov_radio_mode, "Select mirv_pov Radio implementation: 0..6.")
 {
     int argc = args->ArgC();
@@ -3797,12 +3799,12 @@ CON_COMMAND(mirv_pov_radio_mode, "Select mirv_pov Radio implementation: 0..6.")
         if(nullptr != end && end != value && '\0' == *end && 0 <= mode && mode <= 6) {
             InterlockedExchange(&g_RadioMode, static_cast<LONG>(mode));
             MirvPovRadio_Reset("radio mode changed");
-            advancedfx::Message("mirv_pov_radio_mode %ld: %s.\n", mode, GetRadioModeDescription(static_cast<int>(mode)));
+            MIRV_POV_DIAGNOSTIC_MESSAGE("mirv_pov_radio_mode %ld: %s.\n", mode, GetRadioModeDescription(static_cast<int>(mode)));
             return;
         }
     }
 
-    advancedfx::Message(
+    MIRV_POV_DIAGNOSTIC_MESSAGE(
         "Usage: mirv_pov_radio_mode 0|1|2|3|4|5|6\n"
         "  0 - off: suppress native and event Radio\n"
         "  1 - native RadioText only (highest fidelity)\n"
@@ -3824,17 +3826,17 @@ CON_COMMAND(mirv_pov_radio_projectile_scan, "Toggle emergency grenade projectile
         if(0 == strcmp(value, "1") || 0 == _stricmp(value, "on") || 0 == _stricmp(value, "true")) {
             InterlockedExchange(&g_ProjectileScanFallback, 1);
             MirvPovRadio_Reset("projectile scan fallback enabled");
-            advancedfx::Message("mirv_pov_radio_projectile_scan 1: emergency entity fallback enabled.\n");
+            MIRV_POV_DIAGNOSTIC_MESSAGE("mirv_pov_radio_projectile_scan 1: emergency entity fallback enabled.\n");
             return;
         }
         if(0 == strcmp(value, "0") || 0 == _stricmp(value, "off") || 0 == _stricmp(value, "false")) {
             InterlockedExchange(&g_ProjectileScanFallback, 0);
             MirvPovRadio_Reset("projectile scan fallback disabled");
-            advancedfx::Message("mirv_pov_radio_projectile_scan 0: event path only (default).\n");
+            MIRV_POV_DIAGNOSTIC_MESSAGE("mirv_pov_radio_projectile_scan 0: event path only (default).\n");
             return;
         }
     }
-    advancedfx::Message(
+    MIRV_POV_DIAGNOSTIC_MESSAGE(
         "Usage: mirv_pov_radio_projectile_scan 0|1\n"
         "Current: %d (%s)\n",
         IsProjectileScanFallbackEnabled() ? 1 : 0,
@@ -3848,7 +3850,7 @@ CON_COMMAND(mirv_pov_radio_audio, "Toggle delayed synthetic radio audio fallback
         const char * value = args->ArgV(1);
         if(0 == strcmp(value, "1") || 0 == _stricmp(value, "on") || 0 == _stricmp(value, "true")) {
             InterlockedExchange(&g_SyntheticAudioEnabled, 1);
-            advancedfx::Message("mirv_pov_radio_audio 1: synthetic audio is enabled only when native SendAudio/RawAudio is absent.\n");
+            MIRV_POV_DIAGNOSTIC_MESSAGE("mirv_pov_radio_audio 1: synthetic audio is enabled only when native SendAudio/RawAudio is absent.\n");
             return;
         }
         if(0 == strcmp(value, "0") || 0 == _stricmp(value, "off") || 0 == _stricmp(value, "false")) {
@@ -3856,11 +3858,11 @@ CON_COMMAND(mirv_pov_radio_audio, "Toggle delayed synthetic radio audio fallback
             AcquireSRWLockExclusive(&g_StateLock);
             g_PendingSyntheticAudios.clear();
             ReleaseSRWLockExclusive(&g_StateLock);
-            advancedfx::Message("mirv_pov_radio_audio 0: synthetic audio disabled and pending cues cleared.\n");
+            MIRV_POV_DIAGNOSTIC_MESSAGE("mirv_pov_radio_audio 0: synthetic audio disabled and pending cues cleared.\n");
             return;
         }
     }
-    advancedfx::Message(
+    MIRV_POV_DIAGNOSTIC_MESSAGE(
         "Usage: mirv_pov_radio_audio 0|1\n"
         "Current: %d (%s)\n",
         IsSyntheticAudioEnabled() ? 1 : 0,
@@ -3876,18 +3878,20 @@ CON_COMMAND(mirv_pov_radio_audio_spatial, "Select synthetic radio audio origin: 
         const char * value = args->ArgV(1);
         if(0 == strcmp(value, "1") || 0 == _stricmp(value, "on") || 0 == _stricmp(value, "true")) {
             InterlockedExchange(&g_SyntheticAudioSpatialized, 1);
-            advancedfx::Message("mirv_pov_radio_audio_spatial 1: fallback audio uses the thrower's pawn position.\n");
+            MIRV_POV_DIAGNOSTIC_MESSAGE("mirv_pov_radio_audio_spatial 1: fallback audio uses the thrower's pawn position.\n");
             return;
         }
         if(0 == strcmp(value, "0") || 0 == _stricmp(value, "off") || 0 == _stricmp(value, "false")) {
             InterlockedExchange(&g_SyntheticAudioSpatialized, 0);
-            advancedfx::Message("mirv_pov_radio_audio_spatial 0: fallback audio matches native global entidx=-1 playback.\n");
+            MIRV_POV_DIAGNOSTIC_MESSAGE("mirv_pov_radio_audio_spatial 0: fallback audio matches native global entidx=-1 playback.\n");
             return;
         }
     }
-    advancedfx::Message(
+    MIRV_POV_DIAGNOSTIC_MESSAGE(
         "Usage: mirv_pov_radio_audio_spatial 0|1\n"
         "Current: %d (%s)\n",
         IsSyntheticAudioSpatialized() ? 1 : 0,
-        IsSyntheticAudioSpatialized() ? "player-pawn spatialized" : "native-style global entidx=-1");
+	        IsSyntheticAudioSpatialized() ? "player-pawn spatialized" : "native-style global entidx=-1");
 }
+
+#endif

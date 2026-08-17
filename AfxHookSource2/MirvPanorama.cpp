@@ -46,6 +46,8 @@ struct StylePropertySymbolMap {
 	SOURCESDK::CS2::CUtlMap<SOURCESDK::CS2::CUtlString, uint8_t>* symbols = nullptr;
 } g_PanoramaStylePropertySymbols;
 
+#if AFX_MIRV_POV_DIAGNOSTICS
+
 CON_COMMAND(__mirv_panorama_dump_style_symbols, "") {
 	auto symbols = g_PanoramaStylePropertySymbols.symbols;
 	if(!symbols) {
@@ -58,6 +60,8 @@ CON_COMMAND(__mirv_panorama_dump_style_symbols, "") {
 		advancedfx::Message("%i: %s\n", node.value, node.key.Get());
 	}
 }
+
+#endif
 
 struct StylePropertyOpacity {
 	void* vtable;

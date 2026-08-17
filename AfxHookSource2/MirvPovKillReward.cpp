@@ -205,7 +205,7 @@ void InitializeMoneyHook(HMODULE clientDll)
     sections.Next(IMAGE_SCN_MEM_EXECUTE);
     if(!sections.Eof()) textRange = sections.GetMemRange();
     if(textRange.IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_killreward] client.dll text section was not found for money hook.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] client.dll text section was not found for money hook.\n");
         return;
     }
 
@@ -219,12 +219,12 @@ void InitializeMoneyHook(HMODULE clientDll)
         "BD FF 7F 00 00";
     auto updateSequence = Afx::BinUtils::FindPatternString(textRange, moneyPanelUpdatePattern);
     if(updateSequence.IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_killreward] CSGOMoneyPanel update function was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] CSGOMoneyPanel update function was not found.\n");
         return;
     }
     auto updateRemaining = Afx::BinUtils::MemRange(updateSequence.Start + 1, textRange.End);
     if(!Afx::BinUtils::FindPatternString(updateRemaining, moneyPanelUpdatePattern).IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_killreward] CSGOMoneyPanel update pattern is not unique.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] CSGOMoneyPanel update pattern is not unique.\n");
         return;
     }
 
@@ -236,7 +236,7 @@ void InitializeMoneyHook(HMODULE clientDll)
         if(!ResolveCallTarget(callSites[i], textRange, target)
             || (nullptr != getterTarget && getterTarget != target)) {
             memset(g_MoneyPanelReturnAddresses, 0, sizeof(g_MoneyPanelReturnAddresses));
-            advancedfx::Warning("[mirv_pov_killreward] HUD-pawn call set is invalid.\n");
+            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] HUD-pawn call set is invalid.\n");
             return;
         }
         getterTarget = target;
@@ -255,7 +255,7 @@ void InitializeMoneyHook(HMODULE clientDll)
         g_MoneyOrgPanelUpdate = nullptr;
         memset(g_MoneyPanelReturnAddresses, 0, sizeof(g_MoneyPanelReturnAddresses));
         MirvPovKillReward_SetMoneyHookAvailable(false);
-        advancedfx::Warning("[mirv_pov_killreward] HUD-pawn / account observer detour failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] HUD-pawn / account observer detour failed.\n");
         return;
     }
 
@@ -933,7 +933,7 @@ bool UpdateHudChatDemoBypass(bool enabled)
             g_HudChatDemoBypassPatch,
             expectedCurrent,
             sizeof(g_HudChatDemoBypassOriginal))) {
-                    advancedfx::Warning(
+                    MIRV_POV_DIAGNOSTIC_WARNING(
                 "[mirv_pov_killreward] Common HudChat guard bytes changed unexpectedly; refusing to patch.\n");
             __leave;
         }
@@ -944,7 +944,7 @@ bool UpdateHudChatDemoBypass(bool enabled)
             sizeof(g_HudChatDemoBypassOriginal),
             PAGE_EXECUTE_READWRITE,
             &oldProtect)) {
-                    advancedfx::Warning(
+                    MIRV_POV_DIAGNOSTIC_WARNING(
                 "[mirv_pov_killreward] VirtualProtect failed for common HudChat guard (error %lu).\n",
                 GetLastError());
             __leave;
@@ -980,7 +980,7 @@ bool UpdateHudChatDemoBypass(bool enabled)
             sizeof(g_HudChatDemoBypassOriginal),
             oldProtect,
             &unused)) {
-            advancedfx::Warning(
+            MIRV_POV_DIAGNOSTIC_WARNING(
                 "[mirv_pov_killreward] Failed to restore protection for common HudChat guard (error %lu).\n",
                 GetLastError());
         }
@@ -1181,16 +1181,16 @@ void MirvPovKillReward_Initialize(HMODULE clientDll)
     }
 
     if(nullptr == g_HashString) {
-        advancedfx::Warning("[mirv_pov_killreward] Game-event hash function was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] Game-event hash function was not found.\n");
     }
     if(nullptr == g_PrintHudNotice || nullptr == g_FindHudElement || nullptr == g_PushHudNotice) {
-        advancedfx::Warning("[mirv_pov_killreward] Native HudChat PushNotice path was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] Native HudChat PushNotice path was not found.\n");
     }
     if(!g_TextMsgHooked) {
-        advancedfx::Warning("[mirv_pov_killreward] Native kill-reward TextMsg hook was not installed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] Native kill-reward TextMsg hook was not installed.\n");
     }
     if(!g_HudChatDemoBypassAvailable) {
-        advancedfx::Warning("[mirv_pov_killreward] Common HudChat demo guard patch was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] Common HudChat demo guard patch was not found.\n");
     } else if(MirvPov_IsEnabled()) {
         UpdateHudChatDemoBypass(true);
     }

@@ -365,7 +365,7 @@ bool ApplyPatch(
 
     DWORD oldProtect = 0;
     if(!VirtualProtect(address, size, PAGE_EXECUTE_READWRITE, &oldProtect)) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_radar] VirtualProtect failed for %s (error %lu).\n",
             state.name,
             GetLastError());
@@ -380,7 +380,7 @@ bool ApplyPatch(
 
     DWORD unused = 0;
     if(!VirtualProtect(address, size, oldProtect, &unused)) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_radar] Failed to restore protection for %s (error %lu).\n",
             state.name,
             GetLastError());
@@ -399,7 +399,7 @@ bool RestorePatch(RadarPatchState & state)
 
     DWORD oldProtect = 0;
     if(!VirtualProtect(state.address, state.size, PAGE_EXECUTE_READWRITE, &oldProtect)) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_radar] Could not restore %s patch (error %lu).\n",
             state.name,
             GetLastError());
@@ -411,7 +411,7 @@ bool RestorePatch(RadarPatchState & state)
 
     DWORD unused = 0;
     if(!VirtualProtect(state.address, state.size, oldProtect, &unused)) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_radar] Failed to restore protection for %s (error %lu).\n",
             state.name,
             GetLastError());
@@ -433,7 +433,7 @@ bool PatchPovTeamVisibilityDecision(HMODULE clientDll)
         clientDll,
         "38 5C 24 ?? 0F 84 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? F3 41 0F 10 8E ?? ?? ?? ?? F3 0F 10 41");
     if(0 == match) {
-        advancedfx::Warning("[mirv_pov_radar] POV team visibility pattern not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] POV team visibility pattern not found.\n");
         return false;
     }
 
@@ -446,7 +446,7 @@ bool PatchPovTeamVisibilityDecision(HMODULE clientDll)
 
     uint8_t * trampoline = MirvPovHookUtils::AllocateNear(address, 512);
     if(nullptr == trampoline) {
-        advancedfx::Warning("[mirv_pov_radar] Could not allocate POV team visibility trampoline.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] Could not allocate POV team visibility trampoline.\n");
         return false;
     }
 
@@ -487,7 +487,7 @@ bool PatchCompetitiveColorPath(HMODULE clientDll)
         clientDll,
         "4C 89 6C 24 ?? 84 DB 0F 84");
     if(0 == match) {
-        advancedfx::Warning("[mirv_pov_radar] Competitive color path pattern not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] Competitive color path pattern not found.\n");
         return false;
     }
 
@@ -495,7 +495,7 @@ bool PatchCompetitiveColorPath(HMODULE clientDll)
     constexpr size_t patchSize = 5;
     uint8_t * trampoline = MirvPovHookUtils::AllocateNear(address, 64);
     if(nullptr == trampoline) {
-        advancedfx::Warning("[mirv_pov_radar] Could not allocate competitive color path trampoline.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] Could not allocate competitive color path trampoline.\n");
         return false;
     }
 
@@ -526,7 +526,7 @@ bool PatchCompetitiveTeamColor(
 
     size_t match = getAddress(clientDll, pattern);
     if(0 == match) {
-        advancedfx::Warning("[mirv_pov_radar] %s pattern not found.\n", state.name);
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] %s pattern not found.\n", state.name);
         return false;
     }
 
@@ -536,7 +536,7 @@ bool PatchCompetitiveTeamColor(
     uint8_t * originalCallTarget = address + patchSize + originalCall;
     uint8_t * trampoline = MirvPovHookUtils::AllocateNear(address, 64);
     if(nullptr == trampoline) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_radar] Could not allocate %s trampoline.\n",
             state.name);
         return false;
@@ -563,7 +563,7 @@ bool PatchEnemyColor(HMODULE clientDll)
         clientDll,
         "48 8B 6C 24 ?? 41 39 9E ?? ?? ?? ?? 74 ?? 33 D2");
     if(0 == match) {
-        advancedfx::Warning("[mirv_pov_radar] Enemy color pattern not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] Enemy color pattern not found.\n");
         return false;
     }
 
@@ -571,7 +571,7 @@ bool PatchEnemyColor(HMODULE clientDll)
     constexpr size_t patchSize = 12;
     uint8_t * trampoline = MirvPovHookUtils::AllocateNear(address, 512);
     if(nullptr == trampoline) {
-        advancedfx::Warning("[mirv_pov_radar] Could not allocate enemy color trampoline.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] Could not allocate enemy color trampoline.\n");
         return false;
     }
 
@@ -608,7 +608,7 @@ bool GetClientTextRange(HMODULE clientDll, Afx::BinUtils::MemRange & textRange)
     Afx::BinUtils::ImageSectionsReader sections(clientDll);
     if(!sections.Eof()) textRange = sections.GetMemRange();
     if(textRange.IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_radar] client.dll text section was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] client.dll text section was not found.\n");
         return false;
     }
     return true;
@@ -622,13 +622,13 @@ bool FindUniquePattern(
 {
     auto match = Afx::BinUtils::FindPatternString(textRange, pattern);
     if(match.IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_radar] %s pattern not found.\n", description);
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] %s pattern not found.\n", description);
         return false;
     }
 
     auto remaining = Afx::BinUtils::MemRange(match.Start + 1, textRange.End);
     if(!Afx::BinUtils::FindPatternString(remaining, pattern).IsEmpty()) {
-        advancedfx::Warning("[mirv_pov_radar] %s pattern is not unique.\n", description);
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] %s pattern is not unique.\n", description);
         return false;
     }
 
@@ -674,7 +674,7 @@ bool ResolveRadarNativeTargets(HMODULE clientDll, RadarNativeTargets & targets)
         "radar HUD element lookup",
         hudElementSequence)) return false;
     if(!ResolveCallTarget(hudElementSequence + 7, textRange, targets.hudElement)) {
-        advancedfx::Warning("[mirv_pov_radar] Radar HUD element lookup call is invalid.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] Radar HUD element lookup call is invalid.\n");
         return false;
     }
 
@@ -685,7 +685,7 @@ bool ResolveRadarNativeTargets(HMODULE clientDll, RadarNativeTargets & targets)
         "radar player-slot resolver",
         playerSlotSequence)) return false;
     if(!ResolveCallTarget(playerSlotSequence + 6, textRange, targets.playerSlot)) {
-        advancedfx::Warning("[mirv_pov_radar] Radar player-slot resolver call is invalid.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] Radar player-slot resolver call is invalid.\n");
         return false;
     }
 
@@ -710,7 +710,7 @@ bool ResolveRadarNativeTargets(HMODULE clientDll, RadarNativeTargets & targets)
 
     uint8_t * relationCall = relationSequence + 9;
     if(!ResolveCallTarget(relationCall, textRange, targets.relation)) {
-        advancedfx::Warning("[mirv_pov_radar] Radar relation call is invalid.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] Radar relation call is invalid.\n");
         return false;
     }
     targets.relationReturn = relationCall + 5;
@@ -774,7 +774,7 @@ bool AttachRadarDetours(const RadarNativeTargets & targets)
     DetourAttach(&(PVOID &)g_OrgRadarPackageUpdate, New_RadarPackageUpdate);
     if(NO_ERROR != DetourTransactionCommit()) {
         ClearRadarNativeState();
-        advancedfx::Warning("[mirv_pov_radar] Radar detours failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] Radar detours failed.\n");
         return false;
     }
 
@@ -796,7 +796,7 @@ bool RemoveRadarDetours()
         DetourDetach(&(PVOID &)g_OrgRadarPackageUpdate, New_RadarPackageUpdate);
     }
     if(NO_ERROR != DetourTransactionCommit()) {
-        advancedfx::Warning("[mirv_pov_radar] Radar detour removal failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] Radar detour removal failed.\n");
         return false;
     }
 
@@ -862,7 +862,7 @@ bool RemoveRadarBackend()
 void MirvPov_ApplyRadarPatches(HMODULE clientDll)
 {
     if(nullptr == clientDll) {
-        advancedfx::Warning("[mirv_pov_radar] client.dll is not loaded.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] client.dll is not loaded.\n");
         return;
     }
 

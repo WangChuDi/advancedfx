@@ -91,6 +91,21 @@ static bool MirvPovHud_SetPanelClass(void* panel, const char* className, bool va
     return hasPanelClass(panel, classSymbol) == value;
 }
 
+static bool MirvPovHud_SetNativePanelClass(void* panel, const char* className, bool value) {
+    if(!panel || !className) return false;
+
+    short classSymbol = -1;
+    if(!MirvPovHud_MakeSymbol(className, classSymbol)) return false;
+
+    using SetPanelClassState_t = void (__fastcall *)(void*, uint16_t, bool);
+    auto vtable = *(void***)panel;
+    if(!vtable || !vtable[160]) return false;
+
+    auto setPanelClass = reinterpret_cast<SetPanelClassState_t>(vtable[160]);
+    setPanelClass(panel, static_cast<uint16_t>(classSymbol), value);
+    return true;
+}
+
 static unsigned char* MirvPovHud_FindPanelByIdRecursive(unsigned char* parentPanel, const char* panelId) {
     if(!parentPanel) return nullptr;
 
@@ -164,18 +179,43 @@ static void MirvPovHud_ShowHealthAmmoCenterStrokes() {
     MirvPovHud_SetStrokeSiblingVisibleForAnchor(hudPanel, "hud-WPN-main");
 }
 
-static void MirvPovHud_HideSpecPlayerPanel() {
+static bool MirvPovHud_HideSpecPlayerPanel() {
     auto hudPanel = MirvPovHud_GetHudPanel();
-    if(!hudPanel) return;
+    if(!hudPanel) {
+        static bool warned = false;
+        if(!warned) {
+            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_hud] HUD panel was not available while hiding HudSpecplayer.\n");
+            warned = true;
+        }
+        return false;
+    }
 
     auto specPlayerBg = MirvPovHud_FindPanelById(hudPanel, "jsHudSpecplayer__Bg");
-    if(specPlayerBg) MirvPovHud_SetPanelVisible(specPlayerBg, false);
+    const bool bgHidden = specPlayerBg && MirvPovHud_SetPanelVisible(specPlayerBg, false);
 
     auto specPlayerAvatar = MirvPovHud_FindPanelById(hudPanel, "HudSpecplayer__Avatar");
-    if(specPlayerAvatar) MirvPovHud_SetPanelVisible(specPlayerAvatar, false);
+    const bool avatarHidden = specPlayerAvatar && MirvPovHud_SetPanelVisible(specPlayerAvatar, false);
+
+    static bool warned = false;
+    if(!bgHidden || !avatarHidden) {
+        if(!warned) {
+            MIRV_POV_DIAGNOSTIC_WARNING(
+                "[mirv_pov_hud] HudSpecplayer visibility update incomplete "
+                "(bg=%d/%d avatar=%d/%d).\n",
+                specPlayerBg ? 1 : 0,
+                bgHidden ? 1 : 0,
+                specPlayerAvatar ? 1 : 0,
+                avatarHidden ? 1 : 0);
+            warned = true;
+        }
+    }
+
+    return bgHidden && avatarHidden;
 }
 
 static unsigned char* g_SpectatorHotKeyLabelContainerPanel = nullptr;
+static unsigned char* g_LastHudPanel = nullptr;
+static bool g_HudPanelStateNeedsRefresh = true;
 
 static void MirvPovHud_SetSpectatorHotKeyLabelsVisible(bool visible) {
     __try {
@@ -203,13 +243,103 @@ static void MirvPovHud_SetSpectatorHotKeyLabelsVisible(bool visible) {
     }
 }
 
+using MirvPovHud_BuyStatePredicate_t = bool (__fastcall *)(void *);
+
+static bool MirvPovHud_IsExecutableAddress(const void * address) {
+    if(nullptr == address) return false;
+    MEMORY_BASIC_INFORMATION info = {};
+    if(0 == VirtualQuery(address, &info, sizeof(info))) return false;
+    const DWORD protection = info.Protect & 0xFF;
+    return MEM_COMMIT == info.State
+        && (PAGE_EXECUTE == protection || PAGE_EXECUTE_READ == protection
+            || PAGE_EXECUTE_READWRITE == protection || PAGE_EXECUTE_WRITECOPY == protection);
+}
+
+static bool MirvPovHud_ShouldShowBuyZoneIcon(CEntityInstance * povPawn) {
+    if(nullptr == povPawn) return false;
+
+    bool buyZoneAvailable = false;
+    const bool inBuyZone = povPawn->GetInBuyZone(buyZoneAvailable);
+    if(!buyZoneAvailable) return false;
+
+    // These are stable client.dll predicates for the native HudMoney update:
+    // the replicated pawn flag alone is not enough after the buy timer ends.
+    constexpr uintptr_t kGameRulesGlobalRva = 0x23A8BD8;
+    constexpr uintptr_t kBuyStatePredicateRva = 0x722660;
+    constexpr uintptr_t kBuyTimeElapsedPredicateRva = 0x731E00;
+    HMODULE clientDll = GetModuleHandleW(L"client.dll");
+    if(nullptr == clientDll) return false;
+
+    auto base = reinterpret_cast<uint8_t *>(clientDll);
+    auto buyState = reinterpret_cast<MirvPovHud_BuyStatePredicate_t>(
+        base + kBuyStatePredicateRva);
+    auto buyTimeElapsed = reinterpret_cast<MirvPovHud_BuyStatePredicate_t>(
+        base + kBuyTimeElapsedPredicateRva);
+    if(!MirvPovHud_IsExecutableAddress(buyState)
+        || !MirvPovHud_IsExecutableAddress(buyTimeElapsed)) return false;
+
+    __try {
+        void * gameRules = *reinterpret_cast<void **>(base + kGameRulesGlobalRva);
+        if(nullptr == gameRules) return false;
+        return inBuyZone && buyState(gameRules) && !buyTimeElapsed(gameRules);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+static void MirvPovHud_RefreshBuyZoneIcon() {
+    if(!MirvPov_IsEnabled()) return;
+
+    auto hudPanel = MirvPovHud_GetHudPanel();
+    if(!hudPanel) return;
+
+    auto moneyPanel = MirvPovHud_FindPanelById(hudPanel, "HudMoney");
+    if(nullptr == moneyPanel) {
+        moneyPanel = MirvPovHud_FindPanelById(hudPanel, "HudMoneyPanel");
+    }
+    if(nullptr == moneyPanel) return;
+
+    MirvPovHud_SetNativePanelClass(
+        moneyPanel,
+        "money__in-buy-zone",
+        MirvPovHud_ShouldShowBuyZoneIcon(GetCurrentPovPlayerPawn()));
+}
+
+static void MirvPovHud_ResetPanelState() {
+    g_LastHudPanel = nullptr;
+    g_HudPanelStateNeedsRefresh = true;
+    g_SpectatorHotKeyLabelContainerPanel = nullptr;
+}
+
+static void MirvPovHud_RefreshPanelState() {
+    __try {
+        auto hudPanel = MirvPovHud_GetHudPanel();
+        if(hudPanel != g_LastHudPanel) {
+            g_LastHudPanel = hudPanel;
+            g_HudPanelStateNeedsRefresh = true;
+            g_SpectatorHotKeyLabelContainerPanel = nullptr;
+        }
+
+        if(!g_HudPanelStateNeedsRefresh || !hudPanel) return;
+
+        const bool specPlayerHidden = MirvPovHud_HideSpecPlayerPanel();
+        MirvPovHud_ShowHealthAmmoCenterStrokes();
+        MirvPovHud_SetSpectatorHotKeyLabelsVisible(false);
+        g_HudPanelStateNeedsRefresh = !specPlayerHidden;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        g_LastHudPanel = nullptr;
+        g_HudPanelStateNeedsRefresh = true;
+        g_SpectatorHotKeyLabelContainerPanel = nullptr;
+    }
+}
+
 void MirvPovHud_OnPanoramaLayoutFileLoaded(const char* filePath) {
     if(0 == strcmp("panorama\\layout\\hud\\hudhealthammocenter.xml", filePath)) {
-        MirvPovHud_HideSpecPlayerPanel();
-        MirvPovHud_ShowHealthAmmoCenterStrokes();
+        g_HudPanelStateNeedsRefresh = true;
+        MirvPovHud_RefreshPanelState();
     } else if(0 == strcmp("panorama\\layout\\hud\\hudlegend.xml", filePath)) {
-        g_SpectatorHotKeyLabelContainerPanel = nullptr;
-        MirvPovHud_SetSpectatorHotKeyLabelsVisible(!MirvPov_IsEnabled());
+        MirvPovHud_ResetPanelState();
+        if(MirvPov_IsEnabled()) MirvPovHud_RefreshPanelState();
     }
 }
 
@@ -220,7 +350,7 @@ void MirvPovHud_OnPanoramaDllLoaded(HMODULE panoramaDll) {
         0,
         0);
     if(!g_PovStylePropertyVisibleVtable) {
-        advancedfx::Warning("[mirv_pov_hud] Panorama visibility property was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_hud] Panorama visibility property was not found.\n");
     }
 
     auto resolveAddress = getAddress(
@@ -228,7 +358,7 @@ void MirvPovHud_OnPanoramaDllLoaded(HMODULE panoramaDll) {
         "40 55 56 57 41 54 48 8D 6C 24 ?? 48 81 EC ?? ?? ?? ?? 44 8B 05 ?? ?? ?? ?? 48 8B F9 65 48 8B 04 25 58 00 00 00 45 33 E4 C6 01 FF 48 8B F2");
     g_PovResolveStyleProperty = (PovResolveStyleProperty_t)resolveAddress;
     if(!g_PovResolveStyleProperty) {
-        advancedfx::Warning("[mirv_pov_hud] Panorama style-property resolver was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_hud] Panorama style-property resolver was not found.\n");
     }
 
     auto setterAddress = getAddress(
@@ -238,12 +368,31 @@ void MirvPovHud_OnPanoramaDllLoaded(HMODULE panoramaDll) {
         ? (PovPanelStyleSetStyleProperty_t)(setterAddress + 5 + *(int32_t*)(setterAddress + 1))
         : nullptr;
     if(!g_PovPanelStyleSetStyleProperty) {
-        advancedfx::Warning("[mirv_pov_hud] Panorama style setter was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_hud] Panorama style setter was not found.\n");
     }
+
+    MirvPovHud_ResetPanelState();
 }
 
 static int g_ScoreboardSeekSuppressFrames = 0;
 static int g_LastDemoTick = -1;
+
+void MirvPovHud_OnLevelInitPreEntity() {
+    MirvPovHud_ResetPanelState();
+    g_ScoreboardSeekSuppressFrames = 0;
+    g_LastDemoTick = -1;
+}
+
+void MirvPovHud_ReapplyPanelState() {
+    MirvPovHud_RefreshPanelState();
+    if(MirvPov_IsEnabled()) {
+        // Reapply the existing Demo-card background/avatar state after native
+        // observer updates.
+        MirvPovHud_HideSpecPlayerPanel();
+        MirvPovHud_SetSpectatorHotKeyLabelsVisible(false);
+        MirvPovHud_RefreshBuyZoneIcon();
+    }
+}
 
 void MirvPovHud_UpdateSeekDetection(int curTick) {
     MirvPovHud_SetSpectatorHotKeyLabelsVisible(false);
@@ -297,7 +446,7 @@ static bool MirvPovHud_ResolveFlashContexts(HMODULE clientDll) {
         clientDll,
         "84 C0 74 4C 8B 85 B0 02 00 00 49 8D 8D 48 03 00 00");
     if(0 == compactPathMatch || 0 == perViewPathMatch) {
-        advancedfx::Warning("[mirv_pov_flash] Flash render contexts were not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_flash] Flash render contexts were not found.\n");
         return false;
     }
 
@@ -306,7 +455,7 @@ static bool MirvPovHud_ResolveFlashContexts(HMODULE clientDll) {
     uint8_t * compactPredicateTarget = MirvPovHud_GetRelativeCallTarget(compactPredicateCall);
     uint8_t * perViewPredicateTarget = MirvPovHud_GetRelativeCallTarget(perViewPredicateCall);
     if(nullptr == compactPredicateTarget || compactPredicateTarget != perViewPredicateTarget) {
-        advancedfx::Warning("[mirv_pov_flash] Flash view predicate validation failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_flash] Flash view predicate validation failed.\n");
         return false;
     }
 
@@ -325,7 +474,7 @@ static bool MirvPovHud_InstallFlashPredicateHook(HMODULE clientDll) {
     DetourAttach(&(PVOID &)g_OrgFlashViewPredicate, New_FlashViewPredicate);
     if(NO_ERROR != DetourTransactionCommit()) {
         g_OrgFlashViewPredicate = nullptr;
-        advancedfx::Warning("[mirv_pov_flash] Flash view predicate Detour failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_flash] Flash view predicate Detour failed.\n");
         return false;
     }
 
@@ -340,7 +489,7 @@ static void MirvPovHud_RemoveFlashPredicateHook() {
     DetourUpdateThread(GetCurrentThread());
     DetourDetach(&(PVOID &)g_OrgFlashViewPredicate, New_FlashViewPredicate);
     if(NO_ERROR != DetourTransactionCommit()) {
-        advancedfx::Warning("[mirv_pov_flash] Flash view predicate Detour removal failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_flash] Flash view predicate Detour removal failed.\n");
         return;
     }
 
@@ -350,16 +499,15 @@ static void MirvPovHud_RemoveFlashPredicateHook() {
 
 void MirvPovHud_ApplyPatches(HMODULE clientDll) {
     if(nullptr == clientDll) {
-        advancedfx::Warning("[mirv_pov_hud] client.dll is not loaded.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_hud] client.dll is not loaded.\n");
         return;
     }
 
     MirvPovHud_InstallFlashPredicateHook(clientDll);
     g_FlashHooksActive = true;
 
-    MirvPovHud_HideSpecPlayerPanel();
-    MirvPovHud_ShowHealthAmmoCenterStrokes();
-    MirvPovHud_SetSpectatorHotKeyLabelsVisible(false);
+    MirvPovHud_ResetPanelState();
+    MirvPovHud_ReapplyPanelState();
 
     return;
 }
@@ -370,7 +518,7 @@ void MirvPovHud_RemovePatches() {
     g_FlashViewPredicateReturnAddresses[0] = nullptr;
     g_FlashViewPredicateReturnAddresses[1] = nullptr;
     MirvPovHud_SetSpectatorHotKeyLabelsVisible(true);
-    g_SpectatorHotKeyLabelContainerPanel = nullptr;
+    MirvPovHud_ResetPanelState();
     g_ScoreboardSeekSuppressFrames = 0;
     g_LastDemoTick = -1;
 }

@@ -70,7 +70,7 @@ bool WriteCode(uint8_t * address, const uint8_t * bytes, size_t size)
         && 0 != FlushInstructionCache(GetCurrentProcess(), address, size);
     DWORD dummy;
     if(0 == VirtualProtect(address, size, oldProtect, &dummy)) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Could not restore code page protection (error %lu).\n",
             GetLastError());
     }
@@ -209,7 +209,7 @@ void RollBackFailedInstallation()
     const bool activeBuilderRestored = RestoreCallPatch(g_ActiveBuilderCall);
     const bool localPawnRestored = RestoreCallPatch(g_LocalPawnCall);
     if(!activeBuilderRestored || !localPawnRestored) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Rollback was incomplete; call thunks will remain allocated.\n");
     }
     ResetResolvedState();
@@ -221,18 +221,18 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
 {
     if(g_Ready.load(std::memory_order_acquire)) return;
     if(nullptr == clientDll) {
-        advancedfx::Warning("[mirv_pov_pickup_prompt] client.dll is not loaded.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_pickup_prompt] client.dll is not loaded.\n");
         return;
     }
     if(g_LocalPawnCall.Installed || g_ActiveBuilderCall.Installed) {
-        advancedfx::Warning("[mirv_pov_pickup_prompt] A partial hook is already installed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_pickup_prompt] A partial hook is already installed.\n");
         return;
     }
 
     Afx::BinUtils::ImageSectionsReader sections(clientDll);
     sections.Next(IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ);
     if(sections.Eof()) {
-        advancedfx::Warning("[mirv_pov_pickup_prompt] client.dll executable section was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_pickup_prompt] client.dll executable section was not found.\n");
         return;
     }
     const Afx::BinUtils::MemRange textRange = sections.GetMemRange();
@@ -243,7 +243,7 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
         "48 8B F0 48 85 C0 0F 84 ?? ?? ?? ?? 48 8D 54 24 78 48 8B C8 "
         "E8 ?? ?? ?? ?? 8B 54 24 78 85 D2 0F 84 ?? ?? ?? ??");
     if(hintBuilder.IsEmpty()) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Native weapon-ID hint builder is missing or ambiguous.\n");
         return;
     }
@@ -254,7 +254,7 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
         "48 89 70 08 4C 8B EA 4C 89 78 C8 48 8B D9 E8 ?? ?? ?? ?? "
         "4C 8B E0 E8 ?? ?? ?? ?? 49 8B D4");
     if(activeHintBuilder.IsEmpty()) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Active weapon-ID hint builder is missing or ambiguous.\n");
         return;
     }
@@ -263,7 +263,7 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
         textRange,
         "E8 ?? ?? ?? ?? 48 8D 54 24 ?? 49 8D 4E ??");
     if(activeHintBuilderCaller.IsEmpty()) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Active weapon-ID hint caller is missing or ambiguous.\n");
         return;
     }
@@ -274,7 +274,7 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
         "48 81 EC ?? ?? ?? ?? F2 0F 10 05 ?? ?? ?? ?? "
         "48 8B F9 48 8B 99 ?? ?? ?? ??");
     if(updatePickupTarget.IsEmpty()) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Native pickup-target trace is missing or ambiguous.\n");
         return;
     }
@@ -289,7 +289,7 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
         || !Contains(textRange, activeBuilderCallSite, 5)
         || 0xe8 != localPawnCallSite[0]
         || 0xe8 != activeBuilderCallSite[0]) {
-        advancedfx::Warning("[mirv_pov_pickup_prompt] Native call sites changed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_pickup_prompt] Native call sites changed.\n");
         return;
     }
 
@@ -306,7 +306,7 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
             nativeLocalPawn,
             expectedLocalPawnPrefix,
             sizeof(expectedLocalPawnPrefix))) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Native local-Pawn target validation failed.\n");
         return;
     }
@@ -318,7 +318,7 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
         sizeof(nativeActiveHintBuilderRelative));
     if(activeBuilderCallSite + 5 + nativeActiveHintBuilderRelative
         != activeHintBuilderAddress) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Active hint-builder target validation failed.\n");
         return;
     }
@@ -327,7 +327,7 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
         activeBuilderCallSite,
         kThunkAllocationSize);
     if(nullptr == thunks) {
-        advancedfx::Warning("[mirv_pov_pickup_prompt] Could not allocate call thunks.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_pickup_prompt] Could not allocate call thunks.\n");
         return;
     }
 
@@ -338,7 +338,7 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
         GetCurrentProcess(),
         thunks,
         kThunkStride + kAbsoluteJumpThunkSize)) {
-        advancedfx::Warning("[mirv_pov_pickup_prompt] Could not finalize call thunks.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_pickup_prompt] Could not finalize call thunks.\n");
         VirtualFree(thunks, 0, MEM_RELEASE);
         return;
     }
@@ -353,7 +353,7 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
             activeBuilderCallSite + 5,
             activeBuilderThunk,
             activeBuilderThunkRelative)) {
-        advancedfx::Warning("[mirv_pov_pickup_prompt] Call thunks are out of range.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_pickup_prompt] Call thunks are out of range.\n");
         VirtualFree(thunks, 0, MEM_RELEASE);
         return;
     }
@@ -386,7 +386,7 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
         localPawnCallSite,
         localPawnReplacement,
         sizeof(localPawnReplacement))) {
-        advancedfx::Warning("[mirv_pov_pickup_prompt] Could not patch the local-Pawn call.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_pickup_prompt] Could not patch the local-Pawn call.\n");
         RollBackFailedInstallation();
         return;
     }
@@ -396,7 +396,7 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
         activeBuilderCallSite,
         activeBuilderReplacement,
         sizeof(activeBuilderReplacement))) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Could not patch the active hint-builder call.\n");
         RollBackFailedInstallation();
         return;
@@ -410,7 +410,7 @@ void MirvPovPickupPrompt_RemovePatches()
     const bool activeBuilderRestored = RestoreCallPatch(g_ActiveBuilderCall);
     const bool localPawnRestored = RestoreCallPatch(g_LocalPawnCall);
     if(!activeBuilderRestored || !localPawnRestored) {
-        advancedfx::Warning(
+        MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Could not restore all pickup prompt hooks.\n");
         return;
     }

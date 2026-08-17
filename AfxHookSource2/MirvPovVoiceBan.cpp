@@ -47,7 +47,7 @@ bool ResolvePatch()
     Afx::BinUtils::MemRange textRange = Afx::BinUtils::MemRange::FromEmpty();
     if(!sections.Eof()) textRange = sections.GetMemRange();
     if(textRange.IsEmpty()) {
-        advancedfx::Warning("[mirv_voicebanFix] client.dll text section not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_voicebanFix] client.dll text section not found.\n");
         return false;
     }
 
@@ -55,18 +55,18 @@ bool ResolvePatch()
         "E8 ?? ?? ?? ?? 41 B1 01 49 8B D5 45 0F B6 C1 48 8B C8 E8 ?? ?? ?? ?? 48 63 05";
     auto sequence = Afx::BinUtils::FindPatternString(textRange, pattern);
     if(sequence.IsEmpty()) {
-        advancedfx::Warning("[mirv_voicebanFix] communication-abuse block call-site not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_voicebanFix] communication-abuse block call-site not found.\n");
         return false;
     }
     auto remaining = Afx::BinUtils::MemRange(sequence.Start + 1, textRange.End);
     if(!Afx::BinUtils::FindPatternString(remaining, pattern).IsEmpty()) {
-        advancedfx::Warning("[mirv_voicebanFix] communication-abuse block call-site is not unique.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_voicebanFix] communication-abuse block call-site is not unique.\n");
         return false;
     }
 
     uint8_t * bytes = reinterpret_cast<uint8_t *>(sequence.Start);
     if(0xE8 != bytes[0] || 0xE8 != bytes[18]) {
-        advancedfx::Warning("[mirv_voicebanFix] communication-abuse block call-site has unexpected calls.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_voicebanFix] communication-abuse block call-site has unexpected calls.\n");
         return false;
     }
 
@@ -80,13 +80,13 @@ bool ResolvePatch()
         static_cast<intptr_t>(sequence.Start + 23) + setterRelative);
     if(getterAddress < textRange.Start || textRange.End <= getterAddress
         || setterAddress < textRange.Start || textRange.End <= setterAddress) {
-        advancedfx::Warning("[mirv_voicebanFix] communication-abuse block call targets are invalid.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_voicebanFix] communication-abuse block call targets are invalid.\n");
         return false;
     }
 
     uint8_t * immediate = reinterpret_cast<uint8_t *>(sequence.Start + 7);
     if(0x01 != *immediate) {
-        advancedfx::Warning("[mirv_voicebanFix] communication-abuse block call-site has unexpected bytes.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_voicebanFix] communication-abuse block call-site has unexpected bytes.\n");
         return false;
     }
 
@@ -104,13 +104,13 @@ bool SetPatch(bool enabled)
 
     uint8_t expectedCurrent = g_PatchApplied ? 0x00 : g_OriginalImmediate;
     if(expectedCurrent != *g_PatchAddress) {
-        advancedfx::Warning("[mirv_voicebanFix] communication-abuse block call-site changed unexpectedly.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_voicebanFix] communication-abuse block call-site changed unexpectedly.\n");
         return false;
     }
 
     DWORD oldProtect = 0;
     if(!VirtualProtect(g_PatchAddress, 1, PAGE_EXECUTE_READWRITE, &oldProtect)) {
-        advancedfx::Warning("[mirv_voicebanFix] VirtualProtect failed (error %lu).\n", GetLastError());
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_voicebanFix] VirtualProtect failed (error %lu).\n", GetLastError());
         return false;
     }
 
@@ -126,10 +126,10 @@ bool SetPatch(bool enabled)
 
     DWORD unused = 0;
     if(!VirtualProtect(g_PatchAddress, 1, oldProtect, &unused)) {
-        advancedfx::Warning("[mirv_voicebanFix] Failed to restore page protection (error %lu).\n", GetLastError());
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_voicebanFix] Failed to restore page protection (error %lu).\n", GetLastError());
     }
     if(!written) {
-        advancedfx::Warning("[mirv_voicebanFix] Failed to update communication-abuse block call-site.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_voicebanFix] Failed to update communication-abuse block call-site.\n");
         return false;
     }
 
@@ -207,11 +207,11 @@ CON_COMMAND(mirv_voicebanFix, "Ignore communication-abuse mute flags without mod
         bool enable = 0 != atoi(args->ArgV(1));
         g_Enabled = enable;
         Update();
-        advancedfx::Message("%s: %s\n", arg0, enable ? "enabled" : "disabled");
+        MIRV_POV_DIAGNOSTIC_MESSAGE("%s: %s\n", arg0, enable ? "enabled" : "disabled");
         return;
     }
 
-    advancedfx::Message(
+    MIRV_POV_DIAGNOSTIC_MESSAGE(
         "%s <0|1> - Prevent communication-abuse processing from setting local block flags (default: 0).\n"
         "Current value: %d\n",
         arg0,
