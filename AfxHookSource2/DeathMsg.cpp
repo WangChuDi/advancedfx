@@ -1173,7 +1173,9 @@ static bool DeathPanel_InvokeFullShow(
 static void DeathPanel_MarkTouched(u_char * deathPanel)
 {
 	if(nullptr == deathPanel) return;
-	if(MirvPov_IsEnabled() && nullptr != g_MirvPovDeathPanelLocalPawnOverride) {
+	if(MirvPov_IsEnabled()
+		&& MirvPov_IsDeathFeedbackEnabled()
+		&& nullptr != g_MirvPovDeathPanelLocalPawnOverride) {
 		g_MirvPovDeathPanelState.reapplyPanel = deathPanel;
 		g_MirvPovDeathPanelState.reapplyPawn = g_MirvPovDeathPanelLocalPawnOverride;
 		g_MirvPovDeathPanelState.reapplyPawnHandle = 0xFFFFFFFFu;
@@ -1558,7 +1560,7 @@ u_char * __fastcall handleDeathnotice(
 	// The old wrapper's GetString ABI is not compatible with the current game
 	// and previously produced the 0x6e00 crash. Explicit mirv_deathmsg
 	// transformations therefore remain available only outside mirv_pov.
-	if(MirvPov_IsEnabled()) {
+	if(MirvPov_IsEnabled() && MirvPov_IsDeathFeedbackEnabled()) {
 		u_char * result = HandleNativePovDeathPanel(hudDeathNotice, gameEvent);
 		return result;
 	}
@@ -1806,6 +1808,7 @@ u_char * __fastcall handleDeathnotice(
 	}
 
 				const bool povVictim = MirvPov_IsEnabled()
+					&& MirvPov_IsDeathFeedbackEnabled()
 					&& MirvPovFeedback_IsLocalPlayerVictim(gameEvent);
 				CEntityInstance * deathPanelPovPawn = povVictim ? victimPawn : nullptr;
 					if(povVictim && nullptr == deathPanelPovPawn) {

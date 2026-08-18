@@ -394,7 +394,7 @@ void RenderSystemDX11_DeathFade_ObserveHurtEvent() {
 }
 
 void RenderSystemDX11_DeathFade_Death() {
-    if(!MirvPov_IsEnabled()) return;
+    if(!MirvPov_IsEnabled() || !MirvPov_IsDeathFeedbackEnabled()) return;
     const uint64_t epoch = g_DeathFadeEpoch.fetch_add(1, std::memory_order_acq_rel) + 1;
     // Keep the last hurt Fade queued. Native CS2 can receive player_hurt and
     // player_death in the same simulation step; dropping hurt here removed
@@ -485,7 +485,7 @@ void RenderSystemDX11_DeathFade_ClearForObserverChange() {
 }
 
 void RenderSystemDX11_DeathFade_UpdateObserverState() {
-    if(!MirvPov_IsEnabled()) {
+    if(!MirvPov_IsEnabled() || !MirvPov_IsDeathFeedbackEnabled()) {
         RenderSystemDX11_DeathFade_ResetObserverState();
         return;
     }

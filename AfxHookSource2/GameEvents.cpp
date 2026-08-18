@@ -150,7 +150,7 @@ static void HandleDeathFadeEvent(
         if(localVictim) RenderSystemDX11_DeathFade_Hurt();
     } else if(0 == strcmp(name, "player_death")) {
         bool localVictim = MirvPovFeedback_IsLocalPlayerVictim(event);
-        if(localVictim) RenderSystemDX11_DeathFade_Death();
+        if(localVictim && MirvPov_IsDeathFeedbackEnabled()) RenderSystemDX11_DeathFade_Death();
     } else if(0 == strcmp(name, "player_spawn")) {
         bool localVictim = MirvPovFeedback_IsLocalPlayerVictim(event);
         if(localVictim) {
@@ -191,7 +191,8 @@ bool New_CGameEventManager_FireEventClientSide( void * This, SOURCESDK::CS2::CGa
     __try {
         const char * name = nullptr != event ? event->GetName() : nullptr;
         reapplyDeathPanelAfterDispatch = nullptr != name
-            && 0 == strcmp(name, "player_death");
+            && 0 == strcmp(name, "player_death")
+            && MirvPov_IsDeathFeedbackEnabled();
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         reapplyDeathPanelAfterDispatch = false;
     }

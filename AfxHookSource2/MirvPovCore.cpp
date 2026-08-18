@@ -31,6 +31,7 @@ namespace {
 int g_FakePovRadarControllerIndex = 0;
 bool g_MirvPovAutoSync = false;
 bool g_MirvPovEnabled = false;
+bool g_MirvPovDeathFeedbackEnabled = true;
 bool g_MirvPovHadDemoFile = false;
 thread_local void * g_MirvPovHookReturnAddress = nullptr;
 
@@ -81,6 +82,20 @@ CEntityInstance * ResolveConfiguredPovPlayerController()
 bool MirvPov_IsEnabled()
 {
     return g_MirvPovEnabled;
+}
+
+bool MirvPov_IsDeathFeedbackEnabled()
+{
+    return g_MirvPovDeathFeedbackEnabled;
+}
+
+void MirvPov_SetDeathFeedbackEnabled(bool enabled)
+{
+    g_MirvPovDeathFeedbackEnabled = enabled;
+    if(!enabled) {
+        MirvPovDeathPanel_Clear();
+        RenderSystemDX11_DeathFade_Reset();
+    }
 }
 
 CEntityInstance * GetCurrentPovPlayerController()

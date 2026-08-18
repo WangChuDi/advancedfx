@@ -12,6 +12,8 @@ class IGameEvent;
 }
 
 bool MirvPov_IsEnabled();
+bool MirvPov_IsDeathFeedbackEnabled();
+void MirvPov_SetDeathFeedbackEnabled(bool enabled);
 void MirvPov_Enable(HMODULE clientDll);
 void MirvPov_Disable();
 

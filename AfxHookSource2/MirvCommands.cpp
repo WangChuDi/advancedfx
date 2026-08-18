@@ -238,6 +238,31 @@ CON_COMMAND(mirv_pov, "POV HUD with radar, feedback, and native pickup prompts. 
 		);
 }
 
+CON_COMMAND(mirv_pov_death_feedback, "Enable POV death black screen and death banner. Enabled by default.")
+{
+	int argc = args->ArgC();
+	if(2 == argc) {
+		const char * arg1 = args->ArgV(1);
+		if(0 == _stricmp(arg1, "true") || 0 == _stricmp(arg1, "1") || 0 == _stricmp(arg1, "on")) {
+			MirvPov_SetDeathFeedbackEnabled(true);
+			advancedfx::Message("mirv_pov_death_feedback enabled.\n");
+			return;
+		}
+		if(0 == _stricmp(arg1, "false") || 0 == _stricmp(arg1, "0") || 0 == _stricmp(arg1, "off")) {
+			MirvPov_SetDeathFeedbackEnabled(false);
+			advancedfx::Message("mirv_pov_death_feedback disabled.\n");
+			return;
+		}
+	}
+	advancedfx::Message(
+		"Usage: mirv_pov_death_feedback true|false\n"
+		"  true  - Enable POV death black screen and death banner\n"
+		"  false - Disable POV death black screen and death banner\n"
+		"Current: %s\n"
+			, MirvPov_IsDeathFeedbackEnabled() ? "enabled" : "disabled"
+	);
+}
+
 CON_COMMAND(mirv_pov_scoreboard, "Sync demo POV scoreboard key to +showscores. Disabled by default.")
 {
 	int argc = args->ArgC();

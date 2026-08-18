@@ -123,6 +123,7 @@ static constexpr int kPovDeathPanelReapplyFrameWindow = 1024;
 __int64 __fastcall MirvPovDeathPanel_HideWhileAlive(u_char * deathPanel)
 {
 	const bool suppress = MirvPov_IsEnabled()
+		&& MirvPov_IsDeathFeedbackEnabled()
 		&& g_MirvPovDeathPanelState.reapplyArmed
 		&& nullptr != deathPanel
 		&& deathPanel == g_MirvPovDeathPanelState.reapplyPanel;
@@ -256,6 +257,7 @@ bool MirvPovDeathPanel_Reapply(const char * source)
 {
 	if(!g_MirvPovDeathPanelState.reapplyArmed
 		|| !MirvPov_IsEnabled()
+		|| !MirvPov_IsDeathFeedbackEnabled()
 		|| nullptr == g_MirvPovDeathPanelState.reapplyPanel
 		|| nullptr == g_MirvPovDeathPanelState.show) {
 		if(false) {
@@ -331,6 +333,7 @@ bool MirvPovDeathPanel_Reapply(const char * source)
 void MirvPovDeathPanel_Update()
 	{
 		if(!g_MirvPovDeathPanelState.reapplyArmed || !MirvPov_IsEnabled()
+			|| !MirvPov_IsDeathFeedbackEnabled()
 			|| nullptr == g_MirvPovDeathPanelState.reapplyPanel) return;
 
 		const int currentFrame = g_MirvTime.framecount_get();
