@@ -270,16 +270,6 @@ bool IsExpectedDelegateOwner(void * owner, const void * expectedVtable)
     }
 }
 
-uintptr_t ReadOwnerVtable(void * owner)
-{
-    if(nullptr == owner) return 0;
-    __try {
-        return reinterpret_cast<uintptr_t>(*reinterpret_cast<void **>(owner));
-    } __except(EXCEPTION_EXECUTE_HANDLER) {
-        return 0;
-    }
-}
-
 bool ReadDelegateDispatch(const void * vtable, const Afx::BinUtils::MemRange & textRange, size_t & address)
 {
     address = 0;
@@ -329,196 +319,117 @@ const char * GetRadioModeDescription(int mode)
     }
 }
 
+const char * GetLocalizedRadioText(const char * token);
+
 const char * GetPlayerRadioText(int slot)
 {
     switch(slot) {
-    case 2: return "Go go go!";
-    case 3: return "Fall back!";
-    case 4: return "Stick together, team.";
-    case 5: return "Hold this position.";
-    case 6: return "Follow me.";
-    case 8: return "Affirmative.";
-    case 9: return "Negative.";
-    case 10: return "Cheer!";
-    case 11: return "Nice!";
-    case 12: return "Thanks!";
-    case 14: return "Enemy spotted.";
-    case 15: return "Need backup!";
-    case 16: return "You take the point.";
-    case 17: return "Sector clear.";
-    case 18: return "I'm in position.";
-    case 19: return "Cover me.";
-    case 20: return "Regroup, team.";
-    case 21: return "Taking fire, need assistance!";
-    case 22: return "Report in, team.";
-    case 23: return "Reporting in.";
-    case 24: return "Get out of there!";
-    case 25: return "Enemy down.";
+    case 2: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Go_go_go");
+    case 3: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Team_fall_back");
+    case 4: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Stick_together_team");
+    case 5: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Hold_this_position");
+    case 6: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Follow_me");
+    case 8: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Affirmative");
+    case 9: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Negative");
+    case 10: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Cheer");
+    case 11: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Compliment");
+    case 12: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Thanks");
+    case 14: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Enemy_spotted");
+    case 15: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Need_backup");
+    case 16: return GetLocalizedRadioText("#Cstrike_TitlesTXT_You_take_the_point");
+    case 17: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Sector_clear");
+    case 18: return GetLocalizedRadioText("#Cstrike_TitlesTXT_In_position");
+    case 19: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Cover_me");
+    case 20: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Regroup_team");
+    case 21: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Taking_fire");
+    case 22: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Report_in_team");
+    case 23: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Reporting_in");
+    case 24: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Game_get_out_of_there");
+    case 25: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Enemy_down");
     default: return nullptr;
     }
 }
-const unsigned char kSmokeUtf8[] = {
-    0xe6, 0x8a, 0x95, 0xe6, 0x8e, 0xb7, 0xe7, 0x83,
-    0x9f, 0xe9, 0x9b, 0xbe, 0xe5, 0xbc, 0xb9, 0xef, 0xbc, 0x81, 0
-};
-const unsigned char kFlashUtf8[] = {
-    0xe6, 0x8a, 0x95, 0xe6, 0x8e, 0xb7, 0xe9, 0x97,
-    0xaa, 0xe5, 0x85, 0x89, 0xe5, 0xbc, 0xb9, 0xef, 0xbc, 0x81, 0
-};
-const unsigned char kHeUtf8[] = {
-    0xe6, 0x8a, 0x95, 0xe6, 0x8e, 0xb7, 0xe9, 0xab,
-    0x98, 0xe7, 0x88, 0x86, 0xe6, 0x89, 0x8b, 0xe9,
-    0x9b, 0xb7, 0xef, 0xbc, 0x81, 0
-};
-const unsigned char kMolotovUtf8[] = {
-    0xe6, 0x8a, 0x95, 0xe6, 0x8e, 0xb7, 0xe7, 0x87,
-    0x83, 0xe7, 0x83, 0xa7, 0xe7, 0x93, 0xb6, 0xef, 0xbc, 0x81, 0
-};
-const unsigned char kIncendiaryUtf8[] = {
-    0xe6, 0x8a, 0x95, 0xe6, 0x8e, 0xb7, 0xe7, 0x87,
-    0x83, 0xe7, 0x83, 0xa7, 0xe5, 0xbc, 0xb9, 0xef, 0xbc, 0x81, 0
-};
-const unsigned char kDecoyUtf8[] = {
-    0xe6, 0x8a, 0x95, 0xe6, 0x8e, 0xb7, 0xe8, 0xaf,
-    0xb1, 0xe9, 0xa5, 0xb5, 0xe5, 0xbc, 0xb9, 0xef, 0xbc, 0x81, 0
-};
 const unsigned char kFullWidthColonUtf8[] = {0xef, 0xbc, 0x9a, 0};
-const unsigned char kBombPlantingTextZh[] = {
-    0xe6, 0xad, 0xa3, 0xe5, 0x9c, 0xa8, 0xe5, 0xae, 0x89,
-    0xe6, 0x94, 0xbe, 0xe7, 0x82, 0xb8, 0xe5, 0xbc, 0xb9, 0
-};
-const unsigned char kBombPlantedTextZh[] = {
-    0xe7, 0x82, 0xb8, 0xe5, 0xbc, 0xb9, 0xe5, 0xb7, 0xb2,
-    0xe5, 0xae, 0x89, 0xe6, 0x94, 0xbe, 0
-};
-const unsigned char kBombDefusingTextZh[] = {
-    0xe6, 0xad, 0xa3, 0xe5, 0x9c, 0xa8, 0xe6, 0x8b, 0x86,
-    0xe9, 0x99, 0xa4, 0xe7, 0x82, 0xb8, 0xe5, 0xbc, 0xb9, 0
-};
-const unsigned char kBombAbortDefuseTextZh[] = {
-    0xe6, 0x8b, 0x86, 0xe5, 0x8c, 0x85, 0xe5, 0xb7, 0xb2,
-    0xe4, 0xb8, 0xad, 0xe6, 0xad, 0xa2, 0
-};
-const unsigned char kBombDefusedTextZh[] = {
-    0xe7, 0x82, 0xb8, 0xe5, 0xbc, 0xb9, 0xe5, 0xb7, 0xb2,
-    0xe6, 0x8b, 0x86, 0xe9, 0x99, 0xa4, 0
-};
-const unsigned char kBombExplodedTextZh[] = {
-    0xe7, 0x82, 0xb8, 0xe5, 0xbc, 0xb9, 0xe5, 0xb7, 0xb2,
-    0xe7, 0x88, 0x86, 0xe7, 0x82, 0xb8, 0
-};
-const unsigned char kBombDroppedTextZh[] = {
-    0xe7, 0x82, 0xb8, 0xe5, 0xbc, 0xb9, 0xe5, 0xb7, 0xb2,
-    0xe6, 0x8e, 0x89, 0xe8, 0x90, 0xbd, 0
-};
-const unsigned char kBombPickupTextZh[] = {
-    0xe6, 0x88, 0x91, 0xe6, 0x8b, 0xbf, 0xe5, 0x88, 0xb0,
-    0xe7, 0x82, 0xb8, 0xe5, 0xbc, 0xb9, 0xe4, 0xba, 0x86, 0
-};
-const unsigned char kBombSiteTextZh[] = {
-    0xe7, 0x82, 0xb8, 0xe5, 0xbc, 0xb9, 0xe5, 0x8c, 0xba, 0
-};
-const char kBombPlantingTextEn[] = "I'm planting the bomb.";
-const char kBombPlantedTextEn[] = "Bomb has been planted.";
-const char kBombDefusingTextEn[] = "I'm defusing the bomb.";
-const char kBombAbortDefuseTextEn[] = "Defuse aborted.";
-const char kBombDefusedTextEn[] = "Bomb has been defused.";
-const char kBombExplodedTextEn[] = "Bomb has exploded.";
-const char kBombDroppedTextEn[] = "Bomb has been dropped.";
-const char kBombPickupTextEn[] = "I have the bomb.";
-const char kLockAndLoadText[] = "Lock and load.";
-const char kOnMyWayText[] = "On my way.";
-const char kBombSiteTextEn[] = "Bombsite.";
-const char kFireInTheHoleText[] = "Fire in the hole!";
 
-bool UseSimplifiedChineseRadioText();
-
-const char * SelectRadioText(const char * english, const unsigned char * simplifiedChinese)
+const char * GetLocalizedRadioText(const char * token)
 {
-    return UseSimplifiedChineseRadioText()
-        ? reinterpret_cast<const char *>(simplifiedChinese)
-        : english;
+    const char * localized = MirvPovKillReward_LocalizeToken(token);
+    if(nullptr == localized || '\0' == localized[0]
+        || nullptr != strstr(localized, "%s1")
+        || nullptr != strstr(localized, "%s2")
+        || nullptr != strstr(localized, "%s3"))
+        return nullptr;
+    return localized;
 }
 
-const char * GetBombPlantingText() { return SelectRadioText(kBombPlantingTextEn, kBombPlantingTextZh); }
-const char * GetBombPlantedText() { return SelectRadioText(kBombPlantedTextEn, kBombPlantedTextZh); }
-const char * GetBombDefusingText() { return SelectRadioText(kBombDefusingTextEn, kBombDefusingTextZh); }
-const char * GetBombAbortDefuseText() { return SelectRadioText(kBombAbortDefuseTextEn, kBombAbortDefuseTextZh); }
-const char * GetBombDefusedText() { return SelectRadioText(kBombDefusedTextEn, kBombDefusedTextZh); }
-const char * GetBombExplodedText() { return SelectRadioText(kBombExplodedTextEn, kBombExplodedTextZh); }
-const char * GetBombDroppedText() { return SelectRadioText(kBombDroppedTextEn, kBombDroppedTextZh); }
-const char * GetBombPickupText() { return SelectRadioText(kBombPickupTextEn, kBombPickupTextZh); }
-const char * GetBombSiteText() { return SelectRadioText(kBombSiteTextEn, kBombSiteTextZh); }
+const char * GetBombPlantingText()
+{
+    return GetLocalizedRadioText("#Cstrike_TitlesTXT_Planting_Bomb");
+}
 
-// m_szLastPlaceName is stored as the English map token even when the client
-// language is Simplified Chinese.  Native RadioText normally localizes this
-// token internally; synthetic notices need to do the same before composing
-// the `@location` portion of the HudChat line.
-struct PlaceTranslation {
-    const char * english;
-    const char * simplifiedChinese;
-};
+const char * GetBombPlantedText()
+{
+    return GetLocalizedRadioText("#Time_Bomb_Planted");
+}
 
+const char * GetBombDefusingText()
+{
+    return GetLocalizedRadioText("#Cstrike_TitlesTXT_Defusing_Bomb");
+}
+
+const char * GetBombAbortDefuseText()
+{
+    return GetLocalizedRadioText("#Cstrike_TitlesTXT_Defuse_Aborted");
+}
+
+const char * GetBombDefusedText()
+{
+    return GetLocalizedRadioText("#Cstrike_TitlesTXT_Bomb_Defused");
+}
+
+const char * GetBombExplodedText()
+{
+    return GetLocalizedRadioText("#SFUI_RoundWin_Bomb");
+}
+
+const char * GetBombDroppedText()
+{
+    return GetLocalizedRadioText("#Cstrike_TitlesTXT_Game_afk_bomb_drop");
+}
+
+const char * GetBombPickupText()
+{
+    return GetLocalizedRadioText("#Cstrike_TitlesTXT_Got_bomb");
+}
+
+const char * GetLockAndLoadText()
+{
+    return GetLocalizedRadioText("#Cstrike_TitlesTXT_Lock_and_load");
+}
+
+const char * GetOnMyWayText()
+{
+    return GetLocalizedRadioText("#Cstrike_TitlesTXT_On_my_way");
+}
+
+const char * GetBombSiteText()
+{
+    return GetLocalizedRadioText("#Cstrike_TitlesTXT_Bombsite");
+}
+
+// m_szLastPlaceName is stored as an English map token. Native RadioText
+// normally localizes it internally; synthetic notices need to do the same
+// before composing the `@location` portion of the HudChat line.
 const char * TranslatePlaceName(const char * placeName)
 {
-    if(nullptr == placeName || !UseSimplifiedChineseRadioText()) return nullptr;
+    if(nullptr == placeName || '\0' == placeName[0]) return nullptr;
 
-    static const PlaceTranslation translations[] = {
-        {"Arch", "\xE6\x8B\xB1\xE9\x97\xA8"},
-        {"Library", "\xE5\x9B\xBE\xE4\xB9\xA6\xE9\xA6\x86"},
-        {"BombsiteA", "A\xE5\x8C\x85\xE7\x82\xB9"},
-        {"BombsiteB", "B\xE5\x8C\x85\xE7\x82\xB9"},
-        {"Bombsite_A", "A\xE5\x8C\x85\xE7\x82\xB9"},
-        {"Bombsite_B", "B\xE5\x8C\x85\xE7\x82\xB9"},
-        {"Bombsite A", "A\xE5\x8C\x85\xE7\x82\xB9"},
-        {"Bombsite B", "B\xE5\x8C\x85\xE7\x82\xB9"},
-        {"Banana", "\xE9\xA6\x99\xE8\x95\x89\xE9\x81\x93"},
-        {"CTSpawn", "CT\xE5\x87\xBA\xE7\x94\x9F\xE7\x82\xB9"},
-        {"TSpawn", "T\xE5\x87\xBA\xE7\x94\x9F\xE7\x82\xB9"},
-        {"CT_Spawn", "CT\xE5\x87\xBA\xE7\x94\x9F\xE7\x82\xB9"},
-        {"T_Spawn", "T\xE5\x87\xBA\xE7\x94\x9F\xE7\x82\xB9"},
-        {"TopofMid", "\xE4\xB8\xAD\xE8\xB7\xAF\xE4\xB8\x8A\xE6\x96\xB9"},
-        {"Top of Mid", "\xE4\xB8\xAD\xE8\xB7\xAF\xE4\xB8\x8A\xE6\x96\xB9"},
-        {"TopMid", "\xE4\xB8\xAD\xE8\xB7\xAF\xE4\xB8\x8A\xE6\x96\xB9"},
-        {"LowerMid", "\xE4\xB8\xAD\xE8\xB7\xAF\xE4\xB8\x8B\xE6\x96\xB9"},
-        {"Mid", "\xE4\xB8\xAD\xE8\xB7\xAF"},
-        {"Catwalk", "\xE7\x8C\xAB\xE9\x81\x93"},
-        {"Short", "\xE7\x9F\xAD\xE9\x81\x93"},
-        {"Long", "\xE9\x95\xBF\xE9\x81\x93"},
-        {"APlatform", "A\xE5\xB9\xB3\xE5\x8F\xB0"},
-        {"Ramp", "\xE5\x9D\xA1\xE9\x81\x93"},
-        {"Palace", "\xE7\x9A\x87\xE5\xAE\xAB"},
-        {"Ticket", "\xE5\x94\xAE\xE7\xA5\xA8\xE5\xA4\x84"},
-        {"Jungle", "\xE4\xB8\x9B\xE6\x9E\x97"},
-        {"Connector", "\xE8\xBF\x9E\xE6\x8E\xA5\xE9\x81\x93"},
-        {"Stairs", "\xE6\xA5\xBC\xE6\xA2\xAF"},
-        {"Underpass", "\xE4\xB8\x8B\xE6\xB0\xB4\xE9\x81\x93"},
-        {"Market", "\xE5\xB8\x82\xE5\x9C\xBA"},
-        {"Apartments", "\xE5\x85\xAC\xE5\xAF\x93"},
-        {"Pit", "\xE5\x9D\x91"},
-        {"Car", "\xE6\xB1\xBD\xE8\xBD\xA6"},
-        {"Default", "\xE9\xBB\x98\xE8\xAE\xA4"},
-        {"Truck", "\xE5\x8D\xA1\xE8\xBD\xA6"},
-        {"Ninja", "\xE5\xBF\x8D\xE8\x80\x85\xE4\xBD\x8D"},
-        {"Heaven", "\xE5\xA4\xA9\xE5\xA0\x82"},
-        {"Hell", "\xE5\x9C\xB0\xE7\x8B\xB1"},
-        {"Backsite", "\xE5\x90\x8E\xE7\x82\xB9"},
-        {"Frontsite", "\xE5\x89\x8D\xE7\x82\xB9"},
-        {"Window", "\xE7\xAA\x97\xE5\x8F\xA3"},
-        {"Door", "\xE9\x97\xA8"},
-        {"Quad", "\xE5\x9B\x9B\xE7\xAE\xB1"},
-        {"Generator", "\xE5\x8F\x91\xE7\x94\xB5\xE6\x9C\xBA"},
-        {"Logs", "\xE6\x9C\xA8\xE7\xAE\xB1"},
-        {"Ruins", "\xE9\x81\x97\xE8\xBF\xB9"},
-        {"Cave", "\xE6\xB4\x9E\xE7\xA9\xB4"},
-        {"Dark", "\xE9\xBB\x91\xE5\xB1\x8B"},
-        {"Secret", "\xE6\x9A\x97\xE9\x81\x93"}
-    };
-    for(const PlaceTranslation & translation : translations) {
-        if(0 == _stricmp(placeName, translation.english))
-            return translation.simplifiedChinese;
-    }
-    return nullptr;
+    char token[64];
+    int tokenLength = snprintf(token, sizeof(token), "#%s", placeName);
+    if(0 >= tokenLength || tokenLength >= static_cast<int>(sizeof(token)))
+        return nullptr;
+
+    return GetLocalizedRadioText(token);
 }
 
 SOURCESDK::CS2::GameEventKeySymbol_t MakeKey(const char * name)
@@ -771,7 +682,8 @@ bool CopyControllerLocation(CEntityInstance * controller, char * output, size_t 
         size_t sourceLength = strnlen_s(location, 18);
         if(0 == sourceLength || 18 <= sourceLength) return false;
         const char * translatedLocation = TranslatePlaceName(location);
-        if(nullptr != translatedLocation) location = translatedLocation;
+        if(nullptr == translatedLocation) return false;
+        location = translatedLocation;
         size_t length = strnlen_s(location, outputSize);
         if(0 == length || outputSize <= length) return false;
         size_t copyLength = length < outputSize - 1 ? length : outputSize - 1;
@@ -792,7 +704,8 @@ CEntityInstance * GetStablePovController()
         CEntityInstance * tracked = GetEntityFromIndex(trackedHandle & 0x7fff);
         if(nullptr != tracked && tracked->IsPlayerController()) return tracked;
     }
-    return current;
+    if(nullptr != current) return current;
+    return GetObservedPlayerController();
 }
 
 bool IsNativeRadioVisibleForCurrentPov(int clientSlot)
@@ -1189,25 +1102,13 @@ void MarkProjectileEmitted(int entityHandle)
 }
 
 bool ContainsInsensitive(const char * text, const char * needle);
+int GetGrenadeSlot(const char * weapon);
+const char * GetRadioBodyForSlot(int slot);
 
 const char * GetGrenadeText(const char * weapon)
 {
-    if(nullptr == weapon) return nullptr;
-    if(0 == strncmp(weapon, "weapon_", 7)) weapon += 7;
-
-    if(ContainsInsensitive(weapon, "smokegrenade") || ContainsInsensitive(weapon, "smoke_grenade"))
-        return reinterpret_cast<const char *>(kSmokeUtf8);
-    if(ContainsInsensitive(weapon, "flashbang") || ContainsInsensitive(weapon, "flash_grenade"))
-        return reinterpret_cast<const char *>(kFlashUtf8);
-    if(ContainsInsensitive(weapon, "hegrenade") || ContainsInsensitive(weapon, "high_explosive"))
-        return reinterpret_cast<const char *>(kHeUtf8);
-    if(ContainsInsensitive(weapon, "molotov"))
-        return reinterpret_cast<const char *>(kMolotovUtf8);
-    if(ContainsInsensitive(weapon, "incgrenade") || ContainsInsensitive(weapon, "incendiary"))
-        return reinterpret_cast<const char *>(kIncendiaryUtf8);
-    if(ContainsInsensitive(weapon, "decoy"))
-        return reinterpret_cast<const char *>(kDecoyUtf8);
-    return nullptr;
+    const int slot = GetGrenadeSlot(weapon);
+    return 0 <= slot ? GetRadioBodyForSlot(slot) : nullptr;
 }
 
 int GetGrenadeSlot(const char * weapon)
@@ -1258,22 +1159,35 @@ int GetRadioTextColorControl(int slot)
     }
 }
 
+bool HasInlineRadioColorControl(const char * text)
+{
+    if(nullptr == text) return false;
+    const unsigned char * bytes = reinterpret_cast<const unsigned char *>(text);
+    while('\0' != *bytes) {
+        if(0x05 <= *bytes && *bytes <= 0x10) return true;
+        ++bytes;
+    }
+    return false;
+}
+
 const char * GetRadioBodyForSlot(int slot)
 {
     switch(slot) {
-    case 101: return reinterpret_cast<const char *>(kSmokeUtf8);
-    case 102: return reinterpret_cast<const char *>(kFlashUtf8);
-    case 103: return reinterpret_cast<const char *>(kHeUtf8);
-    case 104: return reinterpret_cast<const char *>(kMolotovUtf8);
-    case 105: return reinterpret_cast<const char *>(kIncendiaryUtf8);
-    case 106: return reinterpret_cast<const char *>(kDecoyUtf8);
+    case 101: return GetLocalizedRadioText("#SFUI_TitlesTXT_Smoke_in_the_hole");
+    case 102: return GetLocalizedRadioText("#SFUI_TitlesTXT_Flashbang_in_the_hole");
+    case 103: return GetLocalizedRadioText("#SFUI_TitlesTXT_Fire_in_the_hole");
+    case 104: return GetLocalizedRadioText("#SFUI_TitlesTXT_Molotov_in_the_hole");
+    case 105: return GetLocalizedRadioText("#SFUI_TitlesTXT_Incendiary_in_the_hole");
+    case 106: return GetLocalizedRadioText("#SFUI_TitlesTXT_Decoy_in_the_hole");
     case 109: return GetBombSiteText();
     case 110: return GetBombPlantedText();
     case 111: return GetBombDefusingText();
     case 112: return GetBombAbortDefuseText();
     case 113: return GetBombDefusedText();
     case 114: return GetBombExplodedText();
-    case 117: return kFireInTheHoleText;
+    case 115: return GetBombDroppedText();
+    case 116: return GetBombPickupText();
+    case 117: return GetLocalizedRadioText("#Cstrike_TitlesTXT_Fire_in_the_hole");
     default: return GetPlayerRadioText(slot);
     }
 }
@@ -1625,25 +1539,6 @@ const char * GetAgentVoicePrefix(CEntityInstance * controller)
     return nullptr;
 }
 
-bool UseSimplifiedChineseRadioText()
-{
-    __try {
-        if(nullptr == SOURCESDK::CS2::g_pCVar) return false;
-        auto handle = SOURCESDK::CS2::g_pCVar->FindConVar("cl_language", false);
-        if(!handle.IsValid()) return false;
-        auto cvar = SOURCESDK::CS2::g_pCVar->GetCvar(handle.Get());
-        if(nullptr == cvar || SOURCESDK::CS2::EConVarType_String != cvar->m_eVarType)
-            return false;
-        const char * language = cvar->m_Value.m_szValue.Get();
-        return ContainsInsensitive(language, "schinese")
-            || ContainsInsensitive(language, "tchinese")
-            || ContainsInsensitive(language, "chinese")
-            || ContainsInsensitive(language, "zh");
-    } __except(EXCEPTION_EXECUTE_HANDLER) {
-        return false;
-    }
-}
-
 const char * GetSoundRadioText(const char * soundName, int & slot)
 {
     slot = -1;
@@ -1697,61 +1592,62 @@ const char * GetSoundRadioText(const char * soundName, int & slot)
         if(!ContainsNormalizedRadioToken(soundName, mapping.needle)) continue;
         slot = mapping.slot;
         switch(slot) {
-        case 101: return reinterpret_cast<const char *>(kSmokeUtf8);
-        case 102: return reinterpret_cast<const char *>(kFlashUtf8);
-        case 103: return reinterpret_cast<const char *>(kHeUtf8);
-        case 104: return reinterpret_cast<const char *>(kMolotovUtf8);
-        case 105: return reinterpret_cast<const char *>(kIncendiaryUtf8);
-        case 106: return reinterpret_cast<const char *>(kDecoyUtf8);
-        case 109: return GetBombSiteText();
-        case 110: return GetBombPlantedText();
-        case 111: return GetBombDefusingText();
-        case 112: return GetBombAbortDefuseText();
-        case 113: return GetBombDefusedText();
-        case 114: return GetBombExplodedText();
-        case 115: return GetBombDroppedText();
-        case 116: return GetBombPickupText();
-        case 117: return kFireInTheHoleText;
+        case 101:
+        case 102:
+        case 103:
+        case 104:
+        case 105:
+        case 106:
+        case 109:
+        case 110:
+        case 111:
+        case 112:
+        case 113:
+        case 114:
+        case 115:
+        case 116:
+        case 117:
+            return GetRadioBodyForSlot(slot);
         default: return GetPlayerRadioText(slot);
         }
     }
 
     if(ContainsInsensitive(soundName, "throwing_smoke")) {
         slot = 101;
-        return reinterpret_cast<const char *>(kSmokeUtf8);
+        return GetRadioBodyForSlot(slot);
     }
     if(ContainsInsensitive(soundName, "throwing_flash")) {
         slot = 102;
-        return reinterpret_cast<const char *>(kFlashUtf8);
+        return GetRadioBodyForSlot(slot);
     }
     if(ContainsInsensitive(soundName, "throwing_grenade")
         || ContainsInsensitive(soundName, "throwing_hegrenade")) {
         slot = 103;
-        return reinterpret_cast<const char *>(kHeUtf8);
+        return GetRadioBodyForSlot(slot);
     }
     if(ContainsInsensitive(soundName, "throwing_molotov")) {
         slot = 104;
-        return reinterpret_cast<const char *>(kMolotovUtf8);
+        return GetRadioBodyForSlot(slot);
     }
     if(ContainsInsensitive(soundName, "throwing_incendiary")) {
         slot = 105;
-        return reinterpret_cast<const char *>(kIncendiaryUtf8);
+        return GetRadioBodyForSlot(slot);
     }
     if(ContainsInsensitive(soundName, "throwing_fire")) {
         slot = 104;
-        return reinterpret_cast<const char *>(kMolotovUtf8);
+        return GetRadioBodyForSlot(slot);
     }
     if(ContainsInsensitive(soundName, "throwing_decoy")) {
         slot = 106;
-        return reinterpret_cast<const char *>(kDecoyUtf8);
+        return GetRadioBodyForSlot(slot);
     }
     if(ContainsInsensitive(soundName, "locknload")) {
         slot = 107;
-        return kLockAndLoadText;
+        return GetLockAndLoadText();
     }
     if(ContainsInsensitive(soundName, "onmyway") || ContainsInsensitive(soundName, "omw")) {
         slot = 108;
-        return kOnMyWayText;
+        return GetOnMyWayText();
     }
     if(ContainsInsensitive(soundName, "bombsite")) {
         slot = 109;
@@ -1853,7 +1749,7 @@ const char * GetSoundRadioText(const char * soundName, int & slot)
         || ContainsInsensitive(soundName, "radio.fire_in_the_hole")
         || ContainsInsensitive(soundName, "fireinthehole")) {
         slot = 117;
-        return kFireInTheHoleText;
+        return GetRadioBodyForSlot(slot);
     }
 
     struct Mapping {
@@ -1974,21 +1870,22 @@ const char * GetSoundRadioText(const char * soundName, int & slot)
         if(!ContainsInsensitive(soundName, mapping.needle)) continue;
         slot = mapping.slot;
         switch(slot) {
-        case 101: return reinterpret_cast<const char *>(kSmokeUtf8);
-        case 102: return reinterpret_cast<const char *>(kFlashUtf8);
-        case 103: return reinterpret_cast<const char *>(kHeUtf8);
-        case 104: return reinterpret_cast<const char *>(kMolotovUtf8);
-        case 105: return reinterpret_cast<const char *>(kIncendiaryUtf8);
-        case 106: return reinterpret_cast<const char *>(kDecoyUtf8);
-        case 109: return GetBombSiteText();
-        case 110: return GetBombPlantedText();
-        case 111: return GetBombDefusingText();
-        case 112: return GetBombAbortDefuseText();
-        case 113: return GetBombDefusedText();
-        case 114: return GetBombExplodedText();
-        case 115: return GetBombDroppedText();
-        case 116: return GetBombPickupText();
-        case 117: return kFireInTheHoleText;
+        case 101:
+        case 102:
+        case 103:
+        case 104:
+        case 105:
+        case 106:
+        case 109:
+        case 110:
+        case 111:
+        case 112:
+        case 113:
+        case 114:
+        case 115:
+        case 116:
+        case 117:
+            return GetRadioBodyForSlot(slot);
         default: return GetPlayerRadioText(slot);
         }
     }
@@ -2358,23 +2255,41 @@ bool DispatchRadioNotice(
     if(nullptr == controller || nullptr == body || nullptr == source
         || IsSuppressedRadioSlot(slot)) return false;
 
-    const char * playerName = "player";
+    MIRV_POV_DIAGNOSTIC_MESSAGE(
+        "[mirv_pov_radio] dispatch slot=%d source=%s body=%p\n",
+        slot,
+        source,
+        body);
+
+    const char * playerName = "";
     __try {
         const char * value = controller->GetPlayerName();
         if(nullptr != value && '\0' != value[0]) playerName = value;
     } __except(EXCEPTION_EXECUTE_HANDLER) {
     }
-
-    int controllerHandle = GetControllerHandle(controller);
     int entityIndex = GetEntityIndex(controller);
     int teamNumber = ResolveControllerTeam(controller);
-    const char * teamPrefix = 3 == teamNumber
-        ? "[CT]"
-        : 2 == teamNumber ? "[T]" : "[?]";
+    const char * teamToken = 3 == teamNumber
+        ? "#game_radio_team_prefix_3"
+        : 2 == teamNumber ? "#game_radio_team_prefix_2" : nullptr;
+    const char * teamPrefix = nullptr != teamToken
+        ? MirvPovKillReward_LocalizeToken(teamToken)
+        : nullptr;
+    if(nullptr == teamPrefix || '\0' == teamPrefix[0]) {
+        MIRV_POV_DIAGNOSTIC_WARNING(
+            "[mirv_pov_radio] sender prefix unavailable team=%d source=%s\n",
+            teamNumber,
+            source);
+        // Keep the localized body visible while the controller is between
+        // observer/team updates. No language fallback is introduced here.
+        teamPrefix = "";
+    }
     int clientSlot = GetControllerClientSlot(controller);
     char placeName[64];
     bool hasPlaceName = CopyControllerLocation(controller, placeName, sizeof(placeName));
-    const int bodyColor = GetRadioTextColorControl(slot);
+    const int bodyColor = HasInlineRadioColorControl(body)
+        ? 0x01
+        : GetRadioTextColorControl(slot);
     char text[512];
     if(hasPlaceName) {
         snprintf(
@@ -2407,9 +2322,16 @@ bool DispatchRadioNotice(
     }
     text[sizeof(text) - 1] = '\0';
     // The 0x03 marker is resolved by the native HudChat converter using the
-    // client slot, which also restores the small player-color dot.  Keep the
-    // Keep the controller entity index for deduplication.
-    if(!MirvPovKillReward_PushHudChatText(text, clientSlot, source)) return false;
+    // client slot, which also restores the small player-color dot. Keep the
+    // controller entity index for deduplication.
+    bool pushed = MirvPovKillReward_PushHudChatText(text, clientSlot, source);
+    MIRV_POV_DIAGNOSTIC_MESSAGE(
+        "[mirv_pov_radio] dispatch result=%d slot=%d source=%s clientSlot=%d\n",
+        pushed ? 1 : 0,
+        slot,
+        source,
+        clientSlot);
+    if(!pushed) return false;
     if(recordForAutoDedupe) RecordSyntheticRadio(entityIndex, soundFallbackRecord);
     if(recordForAutoDedupe && IsSyntheticAudioSource(source))
         QueueSyntheticAudio(controller, slot, source);
@@ -2426,7 +2348,7 @@ bool DispatchGrenadeRadioNotice(
     if(nullptr == controller || slot < 0 || nullptr == body) return false;
     int entityIndex = GetEntityIndex(controller);
     if(IsRecentRadio(entityIndex, slot)) {
-                return false;
+        return false;
     }
 
     bool dispatched = DispatchRadioNotice(
@@ -2486,19 +2408,20 @@ void ProcessProjectileEntity(CEntityInstance * entity, int suppliedHandle, const
     CEntityInstance * povController = GetStablePovController();
     int controllerHandle = GetControllerHandle(controller);
     int controllerEntityIndex = GetEntityIndex(controller);
-    int povHandle = GetControllerHandle(povController);
     int controllerTeam = ResolveControllerTeam(controller);
     int povTeam = ResolveControllerTeam(povController);
     MarkProjectileThrower(entityHandle, controllerHandle, slot);
-    bool controllerValid = controllerHandle >= 0
-        && IsPlayableTeam(controllerTeam);
+    bool controllerValid = controllerHandle >= 0;
+    bool controllerTeamKnown = IsPlayableTeam(controllerTeam);
     bool teamFilterPassed = (3 == mode || 6 == mode)
         ? controllerValid
-        : controllerValid
-            && ((2 != povTeam && 3 != povTeam) || controllerTeam == povTeam);
+            : controllerValid
+                && (!controllerTeamKnown
+                    || (2 != povTeam && 3 != povTeam)
+                    || controllerTeam == povTeam);
     if(!teamFilterPassed) {
         if(controllerValid) MarkProjectileEmitted(entityHandle);
-                return;
+        return;
     }
 
     if(4 == mode && ConsumeRecentNativeForEvent(controllerEntityIndex, "projectile")) {
@@ -2508,7 +2431,7 @@ void ProcessProjectileEntity(CEntityInstance * entity, int suppliedHandle, const
 
     if(ConsumeGrenadeThrowEventForProjectile(controllerHandle, slot)) {
         MarkProjectileEmitted(entityHandle);
-                return;
+        return;
     }
 
     if(DispatchGrenadeRadioNotice(controller, slot, body, source ? source : "projectile", 4 == mode)) {
@@ -2807,7 +2730,10 @@ bool IsSendAudioTeamAllowed(CEntityInstance * controller, int mode)
     int controllerTeam = ResolveControllerTeam(controller);
     CEntityInstance * povController = GetStablePovController();
     int povTeam = ResolveControllerTeam(povController);
-    if(!IsPlayableTeam(controllerTeam)) return false;
+    // A demo seek can expose the controller before its team field is updated.
+    // The native message is still usable, and DispatchRadioNotice omits only
+    // the localized team prefix until the field becomes available.
+    if(!IsPlayableTeam(controllerTeam)) return true;
     if(3 == mode || 6 == mode) return true;
     // During demo playback the camera may be in spectator state and the POV
     // controller has no T/CT team for a few ticks.  Do not drop every real
@@ -2829,7 +2755,7 @@ void HandleSendAudioToken(const char * token)
         return;
     }
     if(IsSuppressedRadioSlot(slot)) {
-                return;
+        return;
     }
     bool usedFallback = false;
     CEntityInstance * controller = ResolveSendAudioController(slot, usedFallback);
@@ -2840,16 +2766,16 @@ void HandleSendAudioToken(const char * token)
     // still authoritative and must cancel the delayed synthetic cue.
     RecordNativeAudioObservation(entityIndex, slot, token, "SendAudio");
     if(4 == mode && IsProjectileRadioSlot(slot)) {
-                return;
+        return;
     }
 
     if(nullptr == controller || !IsSendAudioTeamAllowed(controller, mode)) {
-                return;
+        return;
     }
 
     if(4 == mode && ConsumeRecentNativeForEvent(entityIndex, "send-audio")) return;
     if(IsRecentRadio(entityIndex, slot)) {
-                return;
+        return;
     }
     if((4 == mode || 5 == mode || 6 == mode)
         && ConsumeRecentSyntheticForFallback(entityIndex, "send-audio")) return;
@@ -2877,7 +2803,7 @@ __int64 __fastcall New_SendAudioEmitter(void * message)
         strncpy_s(g_LastSendAudioToken, sizeof(g_LastSendAudioToken), token, _TRUNCATE);
         g_LastSendAudioTimeMs = GetTickCount64();
         HandleSendAudioToken(token);
-        }
+    }
     return nullptr != g_OrgSendAudioEmitter
         ? g_OrgSendAudioEmitter(message)
         : 0;
@@ -2908,10 +2834,10 @@ __int64 __fastcall New_SendAudioParser(void * message)
         g_LastSendAudioTimeMs = GetTickCount64();
         suppressOriginal = IsSuppressedRadioToken(token);
         HandleSendAudioToken(token);
-        }
+    }
 
     if(suppressOriginal) {
-                return 0;
+        return 0;
     }
     return nullptr != g_OrgSendAudioParser
         ? g_OrgSendAudioParser(message)
@@ -2978,7 +2904,7 @@ void HandleRawAudioMessage(void * message)
         return;
     }
     if(IsSuppressedRadioSlot(slot) || IsSuppressedRadioToken(voice)) {
-                return;
+        return;
     }
     bool usedFallback = false;
     CEntityInstance * controller = ResolveRawAudioController(rawEntityIndex);
@@ -2991,10 +2917,10 @@ void HandleRawAudioMessage(void * message)
     int entityIndex = nullptr != controller ? GetEntityIndex(controller) : rawEntityIndex;
     RecordNativeAudioObservation(entityIndex, slot, voice, "RawAudio");
     if(4 == mode && IsProjectileRadioSlot(slot)) {
-                return;
+        return;
     }
     if(nullptr == controller || !IsSendAudioTeamAllowed(controller, mode)) {
-                return;
+        return;
     }
 
     entityIndex = GetEntityIndex(controller);
@@ -3005,7 +2931,7 @@ void HandleRawAudioMessage(void * message)
     }
     if(4 == mode && ConsumeRecentNativeForEvent(entityIndex, "raw-audio")) return;
     if(IsRecentRadio(entityIndex, slot)) {
-            return;
+        return;
     }
     if((4 == mode || 5 == mode || 6 == mode)
         && ConsumeRecentSyntheticForFallback(entityIndex, "raw-audio")) return;
@@ -3015,15 +2941,9 @@ void HandleRawAudioMessage(void * message)
 
 __int64 __fastcall New_SendAudioDispatch(void * owner, void * message)
 {
-    const uintptr_t ownerVtable = ReadOwnerVtable(owner);
-    const bool expectedOwner = IsExpectedDelegateOwner(owner, g_SendAudioVtable);
-    if(!expectedOwner) {
-        // CS2 clones CGameMessageDelegateHook for several user-message
-        // registrations.  The same Dispatch body is reached with a cloned
-        // owner vtable, so filtering it here silently drops real RadioText.
-        // Decode first and let the token mapper decide whether this is a radio
-        // message; unrelated user messages are ignored without side effects.
-        }
+    // CS2 clones CGameMessageDelegateHook for several user-message
+    // registrations. Decode the payload first so cloned owners do not hide
+    // valid radio messages.
     char token[sizeof(g_LastSendAudioToken)];
     bool decoded = DecodeSendAudioToken(message, token, sizeof(token));
     bool suppressOriginal = false;
@@ -3033,10 +2953,10 @@ __int64 __fastcall New_SendAudioDispatch(void * owner, void * message)
         HandleSendAudioToken(token);
     } else {
         strncpy_s(g_LastSendAudioToken, sizeof(g_LastSendAudioToken), "<decode-failed>", _TRUNCATE);
-        }
+    }
     g_LastSendAudioTimeMs = GetTickCount64();
     if(suppressOriginal) {
-                return 0;
+        return 0;
     }
     return nullptr != g_OrgSendAudioDispatch
         ? g_OrgSendAudioDispatch(owner, message)
@@ -3045,12 +2965,11 @@ __int64 __fastcall New_SendAudioDispatch(void * owner, void * message)
 
 __int64 __fastcall New_RawAudioHandler(void * owner, void * message)
 {
-    const uintptr_t ownerVtable = ReadOwnerVtable(owner);
     if(!IsExpectedDelegateOwner(owner, g_RawAudioVtable) && nullptr == message) return 0;
     const bool suppressOriginal = IsSuppressedRawAudioMessage(message);
     HandleRawAudioMessage(message);
     if(suppressOriginal) {
-                return 0;
+        return 0;
     }
     return nullptr != g_OrgRawAudioHandler
         ? g_OrgRawAudioHandler(owner, message)
@@ -3067,7 +2986,7 @@ __int64 __fastcall New_RawAudioFormatter(void * owner, void * message)
     const bool suppressOriginal = IsSuppressedRawAudioMessage(message);
     HandleRawAudioMessage(message);
     if(suppressOriginal) {
-                return 0;
+        return 0;
     }
     return nullptr != g_OrgRawAudioFormatter
         ? g_OrgRawAudioFormatter(owner, message)
@@ -3076,15 +2995,10 @@ __int64 __fastcall New_RawAudioFormatter(void * owner, void * message)
 
 __int64 __fastcall New_RadioTextDispatch(void * owner, void * message)
 {
-    const uintptr_t ownerVtable = ReadOwnerVtable(owner);
-
     // The current RadioText table is the one at image+0x1B75608.  The
     // dispatcher is shared by several user-message registrations in some
     // builds, so do not reject cloned owners here; the typed formatter remains
-    // responsible for
-    // deciding whether the message is actually RadioText.
-    if(nullptr != message) {
-        }
+    // responsible for deciding whether the message is actually RadioText.
 
     unsigned char * demoController = nullptr;
     unsigned char previousSuppress = 0;
@@ -3155,8 +3069,19 @@ void __fastcall New_RadioTextHandler(void * owner, void * message)
     bool povEnabled = MirvPov_IsEnabled();
     int mode = GetRadioMode();
     bool callOriginal = !povEnabled || 1 == mode || 4 == mode;
-    if(povEnabled && (1 == mode || 4 == mode)
-        && !IsNativeRadioVisibleForCurrentPov(clientIndex)) {
+    bool nativeVisible = !povEnabled || (1 != mode && 4 != mode)
+        || IsNativeRadioVisibleForCurrentPov(clientIndex);
+    MIRV_POV_DIAGNOSTIC_MESSAGE(
+        "[mirv_pov_radio] native handler slot=%d mode=%d enabled=%d visible=%d callOriginal=%d\n",
+        clientIndex,
+        mode,
+        povEnabled ? 1 : 0,
+        nativeVisible ? 1 : 0,
+        callOriginal ? 1 : 0);
+    if(!nativeVisible) {
+        MIRV_POV_DIAGNOSTIC_WARNING(
+            "[mirv_pov_radio] native RadioText suppressed by POV filter, slot=%d\n",
+            clientIndex);
         return;
     }
     if(povEnabled && 4 == mode && ConsumeRecentSyntheticForNative(nativeEntityIndex))
@@ -3196,7 +3121,10 @@ void __fastcall New_RadioTextHandler(void * owner, void * message)
     }
 
     __try {
-                // Preserve the formatter's owner exactly.  IDA confirms that this is
+        MIRV_POV_DIAGNOSTIC_MESSAGE(
+            "[mirv_pov_radio] invoking native RadioText formatter, slot=%d\n",
+            clientIndex);
+        // Preserve the formatter's owner exactly. IDA confirms that this is
         // the object passed in RCX by CGameMessageDelegateHook::Dispatch; it is
         // not a client-slot integer.  The payload remains the original RDX.
         g_OrgRadioTextHandler(owner, message);
@@ -3237,7 +3165,7 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
     sections.Next(IMAGE_SCN_MEM_EXECUTE);
     if(!sections.Eof()) textRange = sections.GetMemRange();
     if(textRange.IsEmpty()) {
-            MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] client.dll text section was not found.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] client.dll text section was not found.\n");
         return;
     }
 
@@ -3295,7 +3223,7 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
         if(textRange.Start <= knownAddress && knownAddress < textRange.End) {
             radioTextHandlerAddress = knownAddress;
             radioTextPatternFound = true;
-                }
+        }
     }
 
     if(radioTextPatternFound) {
@@ -3322,7 +3250,7 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
         g_GetDemoController = reinterpret_cast<GetDemoController_t>(knownDemoControllerAddress);
         getDemoControllerAddress = knownDemoControllerAddress;
         demoControllerPatternFound = true;
-        } else if(demoControllerPatternFound) {
+    } else if(demoControllerPatternFound) {
         g_GetDemoController = reinterpret_cast<GetDemoController_t>(getDemoControllerAddress);
     } else {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] Demo controller getter was not resolved.\n");
@@ -3419,7 +3347,7 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
         if(textRange.Start <= knownAddress && knownAddress < textRange.End) {
             sendAudioParserAddress = knownAddress;
             sendAudioParserResolved = true;
-                }
+        }
     }
     if(sendAudioParserResolved) {
         g_OrgSendAudioParser = reinterpret_cast<SendAudioParser_t>(sendAudioParserAddress);
@@ -3490,7 +3418,7 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
     g_Hooked = g_RadioTextDispatchHooked || g_RadioTextHooked || g_SendAudioHooked || g_SendAudioEmitterHooked
         || g_SendAudioParserHooked || g_RawAudioHooked || g_RawAudioFormatterHooked;
     if(!g_Hooked) {
-            return;
+        return;
     }
 }
 
@@ -3526,7 +3454,7 @@ void MirvPovRadio_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
     bool bombInventoryEvent = 0 == strcmp(eventName, "bomb_dropped")
         || 0 == strcmp(eventName, "bomb_pickup");
     if(bombInventoryEvent) {
-                return;
+        return;
     }
     bool bombEvent = 0 == strcmp(eventName, "bomb_planted")
         || 0 == strcmp(eventName, "bomb_beginplant")
@@ -3536,13 +3464,9 @@ void MirvPovRadio_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
         || 0 == strcmp(eventName, "bomb_exploded");
     if(!playerRadio && !grenadeThrown && !weaponFire && !bombEvent) return;
 
-    if(grenadeThrown || weaponFire) {
-        const char * rawWeapon = event->GetString(MakeKey("weapon"));
-    }
-
     int mode = GetRadioMode();
     if(mode < 2 || 6 < mode) {
-            return;
+        return;
     }
 
     // Auto mode prefers a native RadioText packet when one arrives. Do not
@@ -3553,35 +3477,25 @@ void MirvPovRadio_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
         auto useridKey = MakeKey("userid");
         CEntityInstance * controller = ResolveEventController(event, useridKey);
         CEntityInstance * povController = GetStablePovController();
-        int eventClientSlot = GetEventClientSlot(event, useridKey);
         int controllerHandle = GetControllerHandle(controller);
         int controllerEntityIndex = GetEntityIndex(controller);
-        int povHandle = GetControllerHandle(povController);
         int controllerTeam = ResolveControllerTeam(controller);
         int povTeam = ResolveControllerTeam(povController);
 
-        bool controllerValid = controllerHandle >= 0
-            && IsPlayableTeam(controllerTeam);
+        bool controllerValid = controllerHandle >= 0;
+        bool controllerTeamKnown = IsPlayableTeam(controllerTeam);
         // During a demo seek/update the controller can be valid while both its
-        // controller and pawn team fields are briefly zero.  We still have a
-        // concrete sender (and therefore a usable player name/location), so
-        // keep the RadioText fallback instead of dropping the entire notice.
-        // Native RadioText remains authoritative whenever it is available; this
-        // branch only affects the event/sound fallback modes.
-        bool controllerTeamPending = controllerHandle >= 0
-            && 0 == controllerTeam
-            && (4 == mode || 5 == mode || 6 == mode);
-        bool pendingSenderIsPov = controllerTeamPending
-            && eventClientSlot >= 0
-            && eventClientSlot == GetControllerClientSlot(povController);
+        // controller and pawn team fields are briefly zero. Keep the event
+        // fallback alive; DispatchRadioNotice omits only the unavailable
+        // localized team prefix.
         bool teamFilterPassed = (3 == mode || 6 == mode)
-            ? (controllerValid || controllerTeamPending)
+            ? controllerValid
             : controllerValid
-                && ((2 != povTeam && 3 != povTeam) || controllerTeam == povTeam)
-                || (controllerTeamPending
-                    && (2 != povTeam && 3 != povTeam || pendingSenderIsPov));
+                && (!controllerTeamKnown
+                    || (2 != povTeam && 3 != povTeam)
+                    || controllerTeam == povTeam);
         if(!teamFilterPassed) {
-                            return;
+            return;
         }
 
         if(playerRadio) {
@@ -3596,7 +3510,7 @@ void MirvPovRadio_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
                 && ConsumeRecentSyntheticForFallback(controllerEntityIndex, "player_radio")) return;
             const char * body = GetPlayerRadioText(slot);
             if(nullptr == body) {
-                                        return;
+                return;
             }
             DispatchRadioNotice(
                 controller,
@@ -3626,11 +3540,11 @@ void MirvPovRadio_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
             }
             if(controllerHandle >= 0 && 0 <= slot
                 && ConsumeProjectileEmissionForGrenadeEvent(controllerHandle, slot)) {
-                                        return;
+                return;
             }
             if(controllerHandle >= 0 && 0 <= slot
                 && !RecordGrenadeThrowEvent(controllerHandle, slot)) {
-                                        return;
+                return;
             }
             DispatchGrenadeRadioNotice(controller, slot, body, source, 4 == mode);
             return;
@@ -3665,7 +3579,7 @@ void MirvPovRadio_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
             && ConsumeRecentSyntheticForFallback(controllerEntityIndex, eventName)) return;
         if(nullptr != body) DispatchRadioNotice(controller, slot, body, eventName, 4 == mode);
     } __except(EXCEPTION_EXECUTE_HANDLER) {
-            }
+    }
 }
 
 void MirvPovRadio_HandleSoundEvent(CEntityInstance * sourcePawn, const char * soundName)
@@ -3679,10 +3593,10 @@ void MirvPovRadio_HandleSoundEvent(CEntityInstance * sourcePawn, const char * so
     const char * body = GetSoundRadioText(soundName, slot);
     if(nullptr == body) return;
     if(IsSuppressedRadioSlot(slot) || IsSuppressedRadioToken(soundName)) {
-                return;
+        return;
     }
     if(4 == mode && IsProjectileRadioSlot(slot)) {
-                return;
+        return;
     }
 
     __try {
@@ -3693,7 +3607,6 @@ void MirvPovRadio_HandleSoundEvent(CEntityInstance * sourcePawn, const char * so
         CEntityInstance * povController = GetStablePovController();
         int controllerHandle = GetControllerHandle(controller);
         int controllerEntityIndex = GetEntityIndex(controller);
-        int povHandle = GetControllerHandle(povController);
         int controllerTeam = ResolveControllerTeam(controller);
         int povTeam = ResolveControllerTeam(povController);
 
@@ -3703,14 +3616,16 @@ void MirvPovRadio_HandleSoundEvent(CEntityInstance * sourcePawn, const char * so
             g_LastSoundControllerTimeMs = GetTickCount64();
         }
 
-        bool controllerValid = controllerHandle >= 0
-            && IsPlayableTeam(controllerTeam);
+        bool controllerValid = controllerHandle >= 0;
+        bool controllerTeamKnown = IsPlayableTeam(controllerTeam);
         bool teamFilterPassed = 6 == mode
             ? controllerValid
             : controllerValid
-                && ((2 != povTeam && 3 != povTeam) || controllerTeam == povTeam);
+                && (!controllerTeamKnown
+                    || (2 != povTeam && 3 != povTeam)
+                    || controllerTeam == povTeam);
         if(!teamFilterPassed) {
-                            return;
+            return;
         }
 
         if(4 == mode) {
@@ -3724,7 +3639,7 @@ void MirvPovRadio_HandleSoundEvent(CEntityInstance * sourcePawn, const char * so
 
         DispatchRadioNotice(controller, slot, body, "sound-event", 4 == mode, true);
     } __except(EXCEPTION_EXECUTE_HANDLER) {
-            }
+    }
 }
 
 void MirvPovRadio_OnDemoTick(int demoTick)
@@ -3740,7 +3655,7 @@ void MirvPovRadio_OnDemoTick(int demoTick)
     if(!g_ProjectileScanPrimed) {
         ScanProjectileEntities(true);
         g_ProjectileScanPrimed = true;
-            return;
+        return;
     }
     ScanProjectileEntities(false);
 }

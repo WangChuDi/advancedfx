@@ -19,6 +19,7 @@ bool MirvPovKillReward_ApplyHudChatDemoBypass(bool enabled);
 bool MirvPovKillReward_IsHudChatDemoBypassAvailable();
 bool MirvPovKillReward_IsHudChatDemoBypassApplied();
 bool MirvPovKillReward_IsAvailable();
+const char * MirvPovKillReward_LocalizeToken(const char * token);
 bool MirvPovKillReward_PushHudChatText(
     const char * text,
     int entityIndex,
