@@ -69,14 +69,18 @@ constexpr size_t kMaxRecentNativeRewards = 16;
 constexpr size_t kTextMsgParamsOffset = 0x48;
 constexpr size_t kTextMsgDestinationOffset = 0x60;
 constexpr size_t kDemoHudChatSuppressOffset = 0x72;
-const unsigned char kKillRewardPrefixUtf8[] = {
-    0xE8, 0xA7, 0xA3, 0xE5, 0x86, 0xB3,
-    0xE4, 0xB8, 0x80, 0xE5, 0x90, 0x8D,
-    0xE6, 0x95, 0x8C, 0xE4, 0xBA, 0xBA,
-    0xE8, 0x8E, 0xB7, 0xE5, 0xBE, 0x97,
-    ' ', 0x04, '+', '$', 0
-};
+// localize.dll's Localize_001 interface. The current CLocalize vtable uses
+// +0x78 for Find(const char *), while +0x88 is FindSafe and returns the input
+// token when no translation exists. Use Find so missing tokens remain null.
+constexpr size_t kLocalizationFindVtableIndex = 0x78 / sizeof(void *);
+using CreateInterface_t = void * (__cdecl *)(const char * name, int * returnCode);
+using LocalizationFind_t = const char * (__fastcall *)(
+    void * localize,
+    const char * token);
 
+HMODULE g_LocalizeDll = nullptr;
+void * g_Localize = nullptr;
+LocalizationFind_t g_LocalizationFind = nullptr;
 HashString_t g_HashString = nullptr;
 PrintHudNotice_t g_PrintHudNotice = nullptr;
 FindHudElement_t g_FindHudElement = nullptr;
@@ -194,6 +198,77 @@ void __fastcall New_MoneyPanelUpdate(void * This)
         0xffffffffu != oldControllerHandle ? static_cast<int>(oldControllerHandle) : -1,
         0xffffffffu != newControllerHandle ? static_cast<int>(newControllerHandle) : -1,
         controllerHandle);
+}
+
+bool ResolveLocalization()
+{
+    if(nullptr != g_LocalizationFind) return true;
+
+    HMODULE localizeDll = g_LocalizeDll;
+    if(nullptr == localizeDll) localizeDll = GetModuleHandleA("localize.dll");
+    if(nullptr == localizeDll) return false;
+
+    __try {
+        auto createInterface = reinterpret_cast<CreateInterface_t>(
+            GetProcAddress(localizeDll, "CreateInterface"));
+        if(nullptr == createInterface) return false;
+
+        void * localize = createInterface("Localize_001", nullptr);
+        if(nullptr == localize) return false;
+
+        void ** vtable = *reinterpret_cast<void ***>(localize);
+        if(nullptr == vtable || nullptr == vtable[kLocalizationFindVtableIndex])
+            return false;
+
+        g_LocalizeDll = localizeDll;
+        g_Localize = localize;
+        g_LocalizationFind = reinterpret_cast<LocalizationFind_t>(
+            vtable[kLocalizationFindVtableIndex]);
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        g_LocalizeDll = nullptr;
+        g_Localize = nullptr;
+        g_LocalizationFind = nullptr;
+        return false;
+    }
+}
+
+const char * LocalizeToken(const char * token)
+{
+    if(nullptr == token || '\0' == token[0] || !ResolveLocalization())
+        return nullptr;
+
+    __try {
+        const char * localized = g_LocalizationFind(g_Localize, token);
+        return nullptr != localized && '\0' != localized[0] ? localized : nullptr;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
+bool SubstituteFirstLocalizationParameter(
+    const char * format,
+    const char * value,
+    char * output,
+    size_t outputSize)
+{
+    if(nullptr == format || nullptr == value || nullptr == output || 0 == outputSize)
+        return false;
+
+    const char * marker = strstr(format, "%s1");
+    if(nullptr == marker) return false;
+
+    size_t prefixLength = static_cast<size_t>(marker - format);
+    size_t valueLength = strlen(value);
+    const char * suffix = marker + 3;
+    size_t suffixLength = strlen(suffix);
+    if(outputSize <= prefixLength + valueLength + suffixLength)
+        return false;
+
+    memcpy(output, format, prefixLength);
+    memcpy(output + prefixLength, value, valueLength);
+    memcpy(output + prefixLength + valueLength, suffix, suffixLength + 1);
+    return true;
 }
 
 void InitializeMoneyHook(HMODULE clientDll)
@@ -421,6 +496,51 @@ int GetControllerHandle(CEntityInstance * controller)
     return handle.IsValid() ? handle.ToInt() : -1;
 }
 
+CEntityInstance * NormalizePlayerController(CEntityInstance * entity)
+{
+    if(nullptr == entity) return nullptr;
+    __try {
+        if(entity->IsPlayerController()) return entity;
+        if(!entity->IsPlayerPawn()) return nullptr;
+        auto controllerHandle = entity->GetPlayerControllerHandle();
+        if(!controllerHandle.IsValid()) return nullptr;
+        CEntityInstance * controller = GetEntityFromIndex(controllerHandle.GetEntryIndex());
+        return nullptr != controller && controller->IsPlayerController()
+            ? controller
+            : nullptr;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
+int GetPlayableTeam(CEntityInstance * entity)
+{
+    if(nullptr == entity) return 0;
+    __try {
+        int team = entity->GetTeam();
+        if(2 == team || 3 == team) return team;
+
+        CEntityInstance * controller = NormalizePlayerController(entity);
+        if(nullptr != controller && controller != entity) {
+            team = controller->GetTeam();
+            if(2 == team || 3 == team) return team;
+        }
+
+        if(nullptr != controller) {
+            auto pawnHandle = controller->GetPlayerPawnHandle();
+            if(pawnHandle.IsValid()) {
+                CEntityInstance * pawn = GetEntityFromIndex(pawnHandle.GetEntryIndex());
+                if(nullptr != pawn) {
+                    team = pawn->GetTeam();
+                    if(2 == team || 3 == team) return team;
+                }
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return 0;
+}
+
 bool HandlesReferToSameEntity(int first, int second)
 {
     // Event objects and HUD caches can briefly expose different serial bits for
@@ -626,7 +746,13 @@ bool PushHudChatText(const char * text, int entityIndex, const char * source)
 {
     if(nullptr == text || '\0' == text[0]
         || nullptr == g_FindHudElement || nullptr == g_PushHudNotice) {
-                return false;
+        MIRV_POV_DIAGNOSTIC_WARNING(
+            "[mirv_pov_hudchat] push skipped: text=%p find=%p push=%p source=%s\n",
+            text,
+            reinterpret_cast<void *>(g_FindHudElement),
+            reinterpret_cast<void *>(g_PushHudNotice),
+            nullptr != source ? source : "<null>");
+        return false;
     }
 
     bool dispatched = false;
@@ -646,13 +772,28 @@ bool PushHudChatText(const char * text, int entityIndex, const char * source)
                 0 <= entityIndex ? static_cast<unsigned int>(entityIndex) : 0xffffffffu,
                 flags);
             dispatched = true;
+        } else {
+            MIRV_POV_DIAGNOSTIC_WARNING(
+                "[mirv_pov_hudchat] CCSGO_HudVoiceStatus was not found, source=%s\n",
+                nullptr != source ? source : "<null>");
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {
+        MIRV_POV_DIAGNOSTIC_WARNING(
+            "[mirv_pov_hudchat] PushNotice raised an exception, source=%s\n",
+            nullptr != source ? source : "<null>");
     }
 
     if(!dispatched) {
-                return false;
+        MIRV_POV_DIAGNOSTIC_WARNING(
+            "[mirv_pov_hudchat] push failed, source=%s\n",
+            nullptr != source ? source : "<null>");
+        return false;
     }
+
+    MIRV_POV_DIAGNOSTIC_MESSAGE(
+        "[mirv_pov_hudchat] push ok: entity=%d source=%s\n",
+        entityIndex,
+        nullptr != source ? source : "<null>");
 
     return true;
 }
@@ -660,17 +801,31 @@ bool PushHudChatText(const char * text, int entityIndex, const char * source)
 bool PrintReward(int amount, const char * source)
 {
     if(amount <= 0) {
-            return false;
+        return false;
     }
 
+    char amountText[32];
+    snprintf(amountText, sizeof(amountText), "%d", amount);
+
     char message[256];
-    snprintf(
-        message,
-        sizeof(message),
-        "%s%d%c",
-        reinterpret_cast<const char *>(kKillRewardPrefixUtf8),
+    const char * localized = LocalizeToken(
+        "#Player_Cash_Award_Killed_Enemy_Generic");
+    MIRV_POV_DIAGNOSTIC_MESSAGE(
+        "[mirv_pov_reward] template=%p amount=%d source=%s\n",
+        localized,
         amount,
-        0x01);
+        nullptr != source ? source : "<null>");
+    if(!SubstituteFirstLocalizationParameter(
+        localized,
+        amountText,
+        message,
+        sizeof(message))) {
+        MIRV_POV_DIAGNOSTIC_WARNING(
+            "[mirv_pov_reward] localization substitution failed, amount=%d source=%s\n",
+            amount,
+            nullptr != source ? source : "<null>");
+        return false;
+    }
     message[sizeof(message) - 1] = '\0';
 
     if(!PushHudChatText(message, -1, source)) return false;
@@ -702,7 +857,7 @@ void ScheduleRewardNotice(int controllerHandle, int reward, int demoTick, const 
     ReleaseSRWLockExclusive(&g_RewardNoticeLock);
 
     if(nativeCovered) {
-                return;
+        return;
     }
 
 }
@@ -912,7 +1067,7 @@ bool UpdateHudChatDemoBypass(bool enabled)
     bool result = false;
     __try {
         if(!g_HudChatDemoBypassAvailable || nullptr == g_HudChatDemoBypassPatch) {
-                    __leave;
+            __leave;
         }
         if(g_HudChatDemoBypassApplied == enabled) {
             result = true;
@@ -933,7 +1088,7 @@ bool UpdateHudChatDemoBypass(bool enabled)
             g_HudChatDemoBypassPatch,
             expectedCurrent,
             sizeof(g_HudChatDemoBypassOriginal))) {
-                    MIRV_POV_DIAGNOSTIC_WARNING(
+            MIRV_POV_DIAGNOSTIC_WARNING(
                 "[mirv_pov_killreward] Common HudChat guard bytes changed unexpectedly; refusing to patch.\n");
             __leave;
         }
@@ -944,7 +1099,7 @@ bool UpdateHudChatDemoBypass(bool enabled)
             sizeof(g_HudChatDemoBypassOriginal),
             PAGE_EXECUTE_READWRITE,
             &oldProtect)) {
-                    MIRV_POV_DIAGNOSTIC_WARNING(
+            MIRV_POV_DIAGNOSTIC_WARNING(
                 "[mirv_pov_killreward] VirtualProtect failed for common HudChat guard (error %lu).\n",
                 GetLastError());
             __leave;
@@ -986,11 +1141,11 @@ bool UpdateHudChatDemoBypass(bool enabled)
         }
 
         if(!written) {
-                    __leave;
+            __leave;
         }
 
         g_HudChatDemoBypassApplied = enabled;
-                result = true;
+        result = true;
     } __finally {
         ReleaseSRWLockExclusive(&g_HudChatDemoBypassLock);
     }
@@ -1041,10 +1196,14 @@ bool MirvPovKillReward_IsHudChatDemoBypassApplied()
     return g_HudChatDemoBypassApplied;
 }
 
+const char * MirvPovKillReward_LocalizeToken(const char * token)
+{
+    return LocalizeToken(token);
+}
+
 void MirvPovKillReward_Initialize(HMODULE clientDll)
 {
     if(nullptr == clientDll) return;
-
     if(nullptr == g_HashString) {
         g_HashString = reinterpret_cast<HashString_t>(getAddress(
             clientDll,
@@ -1214,17 +1373,20 @@ void MirvPovKillReward_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
         auto attackerKey = MakeKey("attacker");
         auto victimKey = MakeKey("userid");
         auto weaponKey = MakeKey("weapon");
-        CEntityInstance * attacker = reinterpret_cast<CEntityInstance *>(event->GetPlayerController(attackerKey));
-        CEntityInstance * victim = reinterpret_cast<CEntityInstance *>(event->GetPlayerController(victimKey));
+        CEntityInstance * attacker = NormalizePlayerController(
+            reinterpret_cast<CEntityInstance *>(event->GetPlayerController(attackerKey)));
+        CEntityInstance * victim = NormalizePlayerController(
+            reinterpret_cast<CEntityInstance *>(event->GetPlayerController(victimKey)));
         CEntityInstance * povController = GetCurrentPovPlayerController();
+        if(nullptr == povController) povController = GetObservedPlayerController();
         const char * weapon = event->GetString(weaponKey);
 
         int attackerHandle = GetControllerHandle(attacker);
         int victimHandle = GetControllerHandle(victim);
         int povHandle = GetControllerHandle(povController);
         if(0 <= povHandle) g_LastResolvedPovHandle = povHandle;
-        int attackerTeam = nullptr != attacker ? attacker->GetTeam() : 0;
-        int victimTeam = nullptr != victim ? victim->GetTeam() : 0;
+        int attackerTeam = GetPlayableTeam(attacker);
+        int victimTeam = GetPlayableTeam(victim);
 
         bool currentPovMatches = HandlesReferToSameEntity(attackerHandle, povHandle);
         bool moneyPovMatches = HandlesReferToSameEntity(
@@ -1234,7 +1396,6 @@ void MirvPovKillReward_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
             attackerHandle,
             g_LastResolvedPovHandle);
 
-
         if(attackerHandle < 0
             || (!currentPovMatches && !moneyPovMatches && !resolvedHistoryMatches)
             || victimHandle < 0
@@ -1242,13 +1403,13 @@ void MirvPovKillReward_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
             || (2 != attackerTeam && 3 != attackerTeam)
             || (2 != victimTeam && 3 != victimTeam)
             || attackerTeam == victimTeam) {
-                            return;
+            return;
         }
 
         ULONGLONG now = GetTickCount64();
         PruneQueues(now, g_LastDemoTick);
         if(IsDuplicateDeath(attackerHandle, victimHandle, g_LastDemoTick, now)) {
-                            return;
+            return;
         }
 
         int baseReward = 0;
@@ -1261,7 +1422,7 @@ void MirvPovKillReward_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
             derivedReward);
 
         if(!derivedRewardAvailable || derivedReward <= 0) {
-                            return;
+            return;
         }
 
         // Each qualified death owns one independent fallback notice. The native
