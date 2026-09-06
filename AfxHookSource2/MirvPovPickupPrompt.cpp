@@ -82,6 +82,26 @@ bool CodeMatches(const uint8_t * address, const uint8_t * bytes, size_t size)
     return 0 == memcmp(address, bytes, size);
 }
 
+bool IsExpectedLocalPawnEntry(
+    const Afx::BinUtils::MemRange & textRange,
+    const uint8_t * address)
+{
+    static const uint8_t nativePrefix[] = {0x40, 0x53, 0x48, 0x83, 0xec};
+    if(Contains(textRange, address, sizeof(nativePrefix))
+        && CodeMatches(address, nativePrefix, sizeof(nativePrefix))) return true;
+
+    // Another AdvancedFX component may already have detoured this shared
+    // helper before pickup-prompt initialization. Accept only the common,
+    // structurally complete x64 jump stubs rather than arbitrary executable
+    // bytes at the resolved call target.
+    if(Contains(textRange, address, 5) && 0xe9 == address[0]) return true;
+    if(Contains(textRange, address, 6)
+        && 0xff == address[0] && 0x25 == address[1]) return true;
+    return Contains(textRange, address, kAbsoluteJumpThunkSize)
+        && 0x48 == address[0] && 0xb8 == address[1]
+        && 0xff == address[10] && 0xe0 == address[11];
+}
+
 bool RestoreCallPatch(CallPatch & patch)
 {
     if(nullptr == patch.Site) return true;
@@ -300,12 +320,10 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
         sizeof(nativeLocalPawnRelative));
     uint8_t * nativeLocalPawn =
         localPawnCallSite + 5 + nativeLocalPawnRelative;
-    const uint8_t expectedLocalPawnPrefix[] = {0x40, 0x53, 0x48, 0x83, 0xec};
-    if(!Contains(textRange, nativeLocalPawn, sizeof(expectedLocalPawnPrefix))
-        || 0 != memcmp(
-            nativeLocalPawn,
-            expectedLocalPawnPrefix,
-            sizeof(expectedLocalPawnPrefix))) {
+    // The unique hint-builder signature and E8 identify this call semantically.
+    // Validate either the current native prologue or a recognized detour entry,
+    // because this shared helper can already be hooked during initialization.
+    if(!IsExpectedLocalPawnEntry(textRange, nativeLocalPawn)) {
         MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Native local-Pawn target validation failed.\n");
         return;

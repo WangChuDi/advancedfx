@@ -143,13 +143,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: prerelease-${{ github.run_number }}-${{ github.sha }}
           RELEASE_TITLE: AfxHookSource2 prerelease ${{ github.sha }}
-          RELEASE_LICENSE_NOTICE: This AfxHookSource2 binary includes the AGPL-3.0-only mirv_pov feature. Download the matching source archive beside the binary archive for the complete corresponding source; separate AdvancedFX and third-party source retains its original license.
         run: |
+          short_sha="${GITHUB_SHA:0:12}"
+          binary_archive="AfxHookSource2-${short_sha}-windows-x64.zip"
+          source_archive="AfxHookSource2-${short_sha}-source.zip"
+          commit_message="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}" --jq '.commit.message')"
+          notes_file="${RUNNER_TEMP}/prerelease-notes.md"
+
+          {
+            printf '## Download\n\n'
+            printf 'Download `%s`, extract it, and use the `AfxHookSource2.dll` file inside.\n\n' "$binary_archive"
+            printf '## Commit\n\n'
+            printf '[`%s`](https://github.com/%s/commit/%s)\n\n' "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            printf '### Commit message\n\n'
+            printf '%s\n' "$commit_message" | sed 's/^/> /'
+            printf '\n\n## Corresponding source\n\n'
+            printf 'Download `%s` from this release for the complete corresponding source. ' "$source_archive"
+            printf 'This AfxHookSource2 binary includes the AGPL-3.0-only mirv_pov feature; '
+            printf 'separate AdvancedFX and third-party source retains its original license.\n'
+          } > "$notes_file"
+
           gh release create "$RELEASE_TAG" release/*.zip \
             --repo "$GITHUB_REPOSITORY" \
             --title "$RELEASE_TITLE" \
             --target "$GITHUB_SHA" \
-            --notes "$RELEASE_LICENSE_NOTICE" \
+            --notes-file "$notes_file" \
             --prerelease \
             --latest=false \
             --generate-notes

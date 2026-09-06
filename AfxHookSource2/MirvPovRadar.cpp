@@ -225,6 +225,15 @@ void ApplyPovRadarPackageColor(uint8_t * root)
         uint8_t flags = *(root + kRadarPackageFlagsOffset);
         if(0 != (flags & 0x20)) return;
 
+        void * holder = *reinterpret_cast<void **>(root + kRadarPackagePanelOffset);
+        // The bomb is always an enemy objective from a CT POV. Do not require a
+        // carrier slot here: a dropped package has no player carrier, and stale
+        // demo handles can briefly fail native slot resolution as well.
+        if(3 == povTeam) {
+            SetRadarPanelColor(holder, kRadarEnemyColor);
+            return;
+        }
+
         uint32_t carrierHandle = *reinterpret_cast<uint32_t *>(
             root + kRadarPackageCarrierHandleOffset);
 
@@ -232,7 +241,6 @@ void ApplyPovRadarPackageColor(uint8_t * root)
         if(!GetNativeRadarPlayerSlot(carrierHandle, carrierSlot)) return;
 
         if(2 == povTeam && (0 != (flags & 0x10) || carrierSlot < 0)) {
-            void * holder = *reinterpret_cast<void **>(root + kRadarPackagePanelOffset);
             SetRadarPanelColor(holder, kRadarUncarriedPackageColor);
             return;
         }
@@ -249,7 +257,6 @@ void ApplyPovRadarPackageColor(uint8_t * root)
         uint32_t color = kRadarEnemyColor;
         if(carrierTeam == povTeam && !GetRadarCompetitiveColor(carrier, color)) return;
 
-        void * holder = *reinterpret_cast<void **>(root + kRadarPackagePanelOffset);
         SetRadarPanelColor(holder, color);
     } __except(EXCEPTION_EXECUTE_HANDLER) {
     }

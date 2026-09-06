@@ -26,6 +26,15 @@ using HashString_t = unsigned int (__fastcall *)(const char * string, unsigned i
 using DamageMessage_t = __int64 (__fastcall *)(void * hudDamageIndicator, void * damageMessage);
 using AddDamageDirection_t = void (__fastcall *)(void * hudDamageIndicator, float * sourcePosition, CEntityInstance * victimPawn);
 using DamageIndicatorConstructor_t = void * (__fastcall *)(void * hudDamageIndicator);
+using TriggerSoundControl_t = void (__fastcall *)(void * soundSystem, uint32_t controlHash);
+using LocalPlayerFilterCtor_t = void (__fastcall *)(void * filter);
+using PlayLocalSound_t = void (__fastcall *)(
+    void * outHandle,
+    void * filter,
+    int entityIndex,
+    const char * soundName,
+    float volume,
+    const void * parameters);
 
 PlayEntitySound_t g_PlayEntitySound = nullptr;
 HashString_t g_HashString = nullptr;
@@ -35,6 +44,9 @@ DamageIndicatorConstructor_t g_OriginalDamageIndicatorConstructor = nullptr;
 void * g_DamageIndicator = nullptr;
 bool g_DamageMessageHooked = false;
 bool g_DamageIndicatorConstructorHooked = false;
+void ** g_SoundSystemSlot = nullptr;
+LocalPlayerFilterCtor_t g_LocalPlayerFilterCtor = nullptr;
+PlayLocalSound_t g_PlayLocalSound = nullptr;
 uint32_t g_LastPovControllerHandle = 0xFFFFFFFFu;
 uint32_t g_PreviousPovControllerHandle = 0xFFFFFFFFu;
 int g_PreviousPovControllerFrame = INT_MIN;
@@ -49,6 +61,25 @@ struct DamageDirectionClaim {
 
 std::mutex g_DamageDirectionClaimMutex;
 DamageDirectionClaim g_LastDamageDirectionClaim;
+
+struct FlashSoundProfile {
+    const char * ringSound;
+    uint32_t deafenControlHash;
+};
+
+// These are the native SoundSystem control hashes used by the current CS2
+// AudioParameter path. They trigger the same DSP controls as the live client;
+// no sound buses, global volume, or unrelated messages are modified.
+constexpr uint32_t kHeGrenadeDeafenControlHash = 0xb60b5483;
+const FlashSoundProfile kShortFlashSoundProfile = {
+    "Flashbang.Ring.Short", 0x523f9894
+};
+const FlashSoundProfile kMediumFlashSoundProfile = {
+    "Flashbang.Ring.Medium", 0x67bdb4cb
+};
+const FlashSoundProfile kLongFlashSoundProfile = {
+    "Flashbang.Ring.Long", 0xf339fbbb
+};
 
 bool ClaimDamageDirection(
     int victimEntityIndex,
@@ -128,6 +159,63 @@ bool PawnHasArmor(CEntityInstance * pawn)
         && 0 < *reinterpret_cast<int *>(
             reinterpret_cast<unsigned char *>(pawn)
             + g_clientDllOffsets.C_CSPlayerPawn.m_ArmorValue);
+}
+
+bool IsRemotePovPawn(CEntityInstance * pawn)
+{
+    if(nullptr == pawn || pawn != GetCurrentPovPlayerPawn()) return false;
+    CEntityInstance * realLocalPawn = GetRealLocalPlayerPawn();
+    return nullptr == realLocalPawn || pawn != realLocalPawn;
+}
+
+bool ApplyDeafenControl(uint32_t controlHash)
+{
+    if(0 == controlHash || nullptr == g_SoundSystemSlot) return false;
+
+    __try {
+        void * soundSystem = *g_SoundSystemSlot;
+        if(nullptr == soundSystem) return false;
+        void ** vtable = *reinterpret_cast<void ***>(soundSystem);
+        if(nullptr == vtable) return false;
+        auto triggerControl = reinterpret_cast<TriggerSoundControl_t>(
+            vtable[0x1b8 / sizeof(void *)]);
+        if(nullptr == triggerControl) return false;
+        triggerControl(soundSystem, controlHash);
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool PlayLocalFlashRing(const char * soundName)
+{
+    if(nullptr == soundName || '\0' == soundName[0]
+        || nullptr == g_LocalPlayerFilterCtor
+        || nullptr == g_PlayLocalSound) return false;
+
+    alignas(16) unsigned char outHandle[0x20] = {};
+    alignas(16) unsigned char localPlayerFilter[0x20] = {};
+    __try {
+        g_LocalPlayerFilterCtor(localPlayerFilter);
+        g_PlayLocalSound(
+            outHandle,
+            localPlayerFilter,
+            -1,
+            soundName,
+            1.0f,
+            nullptr);
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+const FlashSoundProfile * GetFlashSoundProfile(float blindDuration)
+{
+    if(!std::isfinite(blindDuration) || blindDuration <= 0.0f) return nullptr;
+    if(2.5f <= blindDuration) return &kLongFlashSoundProfile;
+    if(0.75f <= blindDuration) return &kMediumFlashSoundProfile;
+    return &kShortFlashSoundProfile;
 }
 
 void Play(CEntityInstance * victimPawn, const char * soundName)
@@ -247,6 +335,49 @@ void HandleHurt(SOURCESDK::CS2::IGameEvent * event)
                 : "Player.DamageBody.AttackerFeedback"));
 }
 
+void HandlePlayerBlind(CEntityInstance * victimPawn, SOURCESDK::CS2::IGameEvent * event)
+{
+    if(!IsRemotePovPawn(victimPawn) || nullptr == event) return;
+
+    auto durationKey = MakeKey("blind_duration");
+    if(!event->HasKey(durationKey)) return;
+    const float blindDuration = event->GetFloat(durationKey);
+    const FlashSoundProfile * profile = GetFlashSoundProfile(blindDuration);
+    if(nullptr == profile) return;
+
+    // Additive fallback only: never suppress the native ring or AudioParameter
+    // message. If either native helper is unavailable, the untouched original
+    // CS2 path remains authoritative.
+    const bool deafenApplied = ApplyDeafenControl(profile->deafenControlHash);
+    const bool ringPlayed = PlayLocalFlashRing(profile->ringSound);
+    MIRV_POV_DIAGNOSTIC_MESSAGE(
+        "[mirv_pov_feedback] remote POV flash duration=%.3f deafen=%d ring=%d sound=%s\n",
+        blindDuration,
+        deafenApplied ? 1 : 0,
+        ringPlayed ? 1 : 0,
+        profile->ringSound);
+}
+
+void HandleHeGrenadeHurt(CEntityInstance * victimPawn, SOURCESDK::CS2::IGameEvent * event)
+{
+    if(!IsRemotePovPawn(victimPawn) || nullptr == event) return;
+
+    auto weaponKey = MakeKey("weapon");
+    if(!event->HasKey(weaponKey)) return;
+    const char * weapon = event->GetString(weaponKey);
+    if(nullptr == weapon
+        || (0 != _stricmp(weapon, "hegrenade")
+            && 0 != _strnicmp(weapon, "hegrenade_", 10))) return;
+
+    auto damageKey = MakeKey("dmg_health");
+    if(!event->HasKey(damageKey) || event->GetInt(damageKey) <= 0) return;
+    const bool deafenApplied = ApplyDeafenControl(kHeGrenadeDeafenControlHash);
+    MIRV_POV_DIAGNOSTIC_MESSAGE(
+        "[mirv_pov_feedback] remote POV HE deafen=%d damage=%d\n",
+        deafenApplied ? 1 : 0,
+        event->GetInt(damageKey));
+}
+
 void HandleDeath(SOURCESDK::CS2::IGameEvent * event)
 {
     CEntityInstance * attackerPawn = nullptr;
@@ -279,6 +410,75 @@ void MirvPovFeedback_Initialize(HMODULE clientDll)
         g_HashString = reinterpret_cast<HashString_t>(getAddress(
             clientDll,
             "48 83 EC 28 45 8B D0 4C 8B C9 48 83 FA 04 0F 82 ?? ?? ?? ?? 0F B6 09 48 89 5C 24 20 8D 41 BF 3C 19 77 03 80 C1 20"));
+    }
+
+    if(nullptr == g_SoundSystemSlot) {
+        size_t audioParameterHandler = getAddress(
+            clientDll,
+            "8B 41 ?? 48 8B D1 39 05");
+        uint8_t * soundSystemLoad = 0 != audioParameterHandler
+            ? reinterpret_cast<uint8_t *>(audioParameterHandler) + 0x52
+            : nullptr;
+        const uint8_t expectedLoad[] = {0x48, 0x8b, 0x0d};
+        const uint8_t expectedControlTail[] = {
+            0x8b, 0x52, 0x4c,
+            0x48, 0x8b, 0x01,
+            0x48, 0xff, 0xa0, 0xb8, 0x01, 0x00, 0x00,
+            0xc3
+        };
+        if(nullptr != soundSystemLoad
+            && 0 == memcmp(soundSystemLoad, expectedLoad, sizeof(expectedLoad))
+            && 0 == memcmp(
+                soundSystemLoad + 7,
+                expectedControlTail,
+                sizeof(expectedControlTail))) {
+            int32_t relative = 0;
+            memcpy(&relative, soundSystemLoad + 3, sizeof(relative));
+            g_SoundSystemSlot = reinterpret_cast<void **>(
+                soundSystemLoad + 7 + relative);
+        } else {
+            MIRV_POV_DIAGNOSTIC_WARNING(
+                "[mirv_pov_feedback] Native deafen control path was not found.\n");
+        }
+    }
+
+    if(nullptr == g_LocalPlayerFilterCtor || nullptr == g_PlayLocalSound) {
+        size_t sendAudioHandler = getAddress(
+            clientDll,
+            "40 53 48 83 EC 60 48 8B 59 48 48 83 E3 FC 48 83 7B 18 0F 76");
+        uint8_t * filterCtorCall = 0 != sendAudioHandler
+            ? reinterpret_cast<uint8_t *>(sendAudioHandler) + 0x35
+            : nullptr;
+        uint8_t * playLocalSoundCall = 0 != sendAudioHandler
+            ? reinterpret_cast<uint8_t *>(sendAudioHandler) + 0x64
+            : nullptr;
+        uint8_t * filterCtor = nullptr;
+        uint8_t * playLocalSound = nullptr;
+        if(nullptr != filterCtorCall && 0xe8 == filterCtorCall[0]) {
+            int32_t relative = 0;
+            memcpy(&relative, filterCtorCall + 1, sizeof(relative));
+            filterCtor = filterCtorCall + 5 + relative;
+        }
+        if(nullptr != playLocalSoundCall && 0xe8 == playLocalSoundCall[0]) {
+            int32_t relative = 0;
+            memcpy(&relative, playLocalSoundCall + 1, sizeof(relative));
+            playLocalSound = playLocalSoundCall + 5 + relative;
+        }
+        const uint8_t expectedFilterCtorPrefix[] = {0x48, 0x89, 0x5c, 0x24};
+        const uint8_t expectedPlayLocalSoundPrefix[] = {0x40, 0x53, 0x48, 0x83, 0xec};
+        if(nullptr != filterCtor
+            && nullptr != playLocalSound
+            && 0 == memcmp(filterCtor, expectedFilterCtorPrefix, sizeof(expectedFilterCtorPrefix))
+            && 0 == memcmp(
+                playLocalSound,
+                expectedPlayLocalSoundPrefix,
+                sizeof(expectedPlayLocalSoundPrefix))) {
+            g_LocalPlayerFilterCtor = reinterpret_cast<LocalPlayerFilterCtor_t>(filterCtor);
+            g_PlayLocalSound = reinterpret_cast<PlayLocalSound_t>(playLocalSound);
+        } else {
+            MIRV_POV_DIAGNOSTIC_WARNING(
+                "[mirv_pov_feedback] Native local flash-ring path was not found.\n");
+        }
     }
 
     if(nullptr == g_OriginalDamageMessage && !g_DamageMessageHooked) {
@@ -401,7 +601,16 @@ void MirvPovFeedback_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
     if(nullptr == name) return;
 
     __try {
-        if(0 == strcmp(name, "player_hurt")) {
+        if(0 == strcmp(name, "player_blind")) {
+            CEntityInstance * victimPawn = nullptr;
+            if(TryGetEventPawn(event, "userid", victimPawn)) {
+                HandlePlayerBlind(victimPawn, event);
+            }
+        } else if(0 == strcmp(name, "player_hurt")) {
+            CEntityInstance * victimPawn = nullptr;
+            if(TryGetEventPawn(event, "userid", victimPawn)) {
+                HandleHeGrenadeHurt(victimPawn, event);
+            }
             HandleVictimDamageDirection(event);
             HandleHurt(event);
         } else if(0 == strcmp(name, "player_death")) {
