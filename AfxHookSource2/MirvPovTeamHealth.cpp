@@ -47,6 +47,45 @@ constexpr size_t kPlayerStateSize = 0x38;
 constexpr size_t kPlayerStateSpectateTargetOffset = 0x17;
 constexpr size_t kPlayerDataFlagsOffset = 0x08;
 constexpr uint8_t kPlayerDataSpectateTargetMask = 0x80;
+constexpr size_t kPlayerDataHealthOffset = 0x0c;
+volatile LONG g_EnemyHealthSanitizeLogged = 0;
+volatile LONG g_HitLogMask = 0;
+volatile LONG g_ClassificationDetailLogged = 0;
+
+const char * GetRelationName(TargetRelation relation)
+{
+    switch(relation) {
+    case TargetRelation::Teammate: return "teammate";
+    case TargetRelation::Enemy: return "enemy";
+    default: return "unknown";
+    }
+}
+
+void LogHookHitOnce(const char * path, int pathIndex, const void * playerState, const void * output)
+{
+    const int relationIndex = static_cast<int>(g_TargetRelation);
+    const LONG bit = 1L << (pathIndex * 3 + relationIndex);
+    if(0 != (InterlockedOr(&g_HitLogMask, bit) & bit)) return;
+
+    __try {
+        int stateKey = -1;
+        int cachedKey = -1;
+        int cachedHealth = -1;
+        if(nullptr != playerState) memcpy(&stateKey, playerState, sizeof(stateKey));
+        if(nullptr != output) {
+            memcpy(&cachedKey, reinterpret_cast<const uint8_t *>(output) + 4, sizeof(cachedKey));
+            memcpy(&cachedHealth, reinterpret_cast<const uint8_t *>(output) + kPlayerDataHealthOffset, sizeof(cachedHealth));
+        }
+        MIRV_POV_DIAGNOSTIC_MESSAGE(
+            "[mirv_pov_team_health] %s hit: relation=%s state=%d cached=%d health=%d.\n",
+            path,
+            GetRelationName(g_TargetRelation),
+            stateKey,
+            cachedKey,
+            cachedHealth);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
 
 TargetRelation ClassifyPlayerState(const void * playerState)
 {
@@ -54,23 +93,58 @@ TargetRelation ClassifyPlayerState(const void * playerState)
         || nullptr == g_GetPlayerControllerFromSlot) return TargetRelation::Unknown;
 
     __try {
-        CEntityInstance * povController = GetCurrentPovPlayerController();
-        if(nullptr == povController || !povController->IsPlayerController())
-            return TargetRelation::Unknown;
-
         int playerSlot = 0;
         memcpy(&playerSlot, playerState, sizeof(playerSlot));
+        CEntityInstance * povController = GetCurrentPovPlayerController();
         CEntityInstance * playerController = g_GetPlayerControllerFromSlot(playerSlot);
-        if(nullptr == playerController) return TargetRelation::Unknown;
+        const bool povIsController = nullptr != povController && povController->IsPlayerController();
+        const int povTeam = povIsController ? povController->GetTeam() : -1;
+        const int playerTeam = nullptr != playerController ? playerController->GetTeam() : -1;
+        TargetRelation result = TargetRelation::Unknown;
+        if(povIsController && nullptr != playerController
+            && (2 == povTeam || 3 == povTeam)
+            && (2 == playerTeam || 3 == playerTeam)) {
+            result = povTeam == playerTeam ? TargetRelation::Teammate : TargetRelation::Enemy;
+        }
 
-        int povTeam = povController->GetTeam();
-        int playerTeam = playerController->GetTeam();
-        if((2 != povTeam && 3 != povTeam) || (2 != playerTeam && 3 != playerTeam))
-            return TargetRelation::Unknown;
-
-        return povTeam == playerTeam ? TargetRelation::Teammate : TargetRelation::Enemy;
+        if(0 == InterlockedCompareExchange(&g_ClassificationDetailLogged, 1, 0)) {
+            MIRV_POV_DIAGNOSTIC_MESSAGE(
+                "[mirv_pov_team_health] classify: state=%d pov=%p povController=%d povTeam=%d player=%p playerTeam=%d relation=%s.\n",
+                playerSlot,
+                povController,
+                povIsController ? 1 : 0,
+                povTeam,
+                playerController,
+                playerTeam,
+                GetRelationName(result));
+        }
+        return result;
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         return TargetRelation::Unknown;
+    }
+}
+
+void SanitizeEnemyPlayerData(void * output)
+{
+    if(TargetRelation::Enemy != g_TargetRelation || nullptr == output) return;
+
+    __try {
+        uint8_t * playerData = reinterpret_cast<uint8_t *>(output);
+        playerData[kPlayerDataFlagsOffset] &= ~kPlayerDataSpectateTargetMask;
+        int previousHealth = 0;
+        memcpy(&previousHealth, playerData + kPlayerDataHealthOffset, sizeof(previousHealth));
+
+        // TeamCounter publishes this integer as Panorama's `health` dialog
+        // variable. The byte at +0x18 belongs to the weapon-icon string and must
+        // not be cleared: doing so hides the weapon instead of the health bar.
+        memset(playerData + kPlayerDataHealthOffset, 0, sizeof(previousHealth));
+
+        if(0 == InterlockedCompareExchange(&g_EnemyHealthSanitizeLogged, 1, 0)) {
+            MIRV_POV_DIAGNOSTIC_MESSAGE(
+                "[mirv_pov_team_health] Enemy row sanitized: health %d -> 0.\n",
+                previousHealth);
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
     }
 }
 
@@ -78,6 +152,8 @@ void __fastcall New_BuildPlayerData(void * teamCounter, void * output, const voi
 {
     TargetRelation previous = g_TargetRelation;
     g_TargetRelation = ClassifyPlayerState(playerState);
+    if(MIRV_POV_FEATURE_ACTIVE("teamhealth"))
+        LogHookHitOnce("builder", 0, playerState, output);
 
     // A live player POV never has an observer target. Build from a copy so the
     // TeamCounter cannot propagate its observer-only target byte into bit 7 of
@@ -90,6 +166,7 @@ void __fastcall New_BuildPlayerData(void * teamCounter, void * output, const voi
     } else {
         g_OrgBuildPlayerData(teamCounter, output, playerState, row);
     }
+    SanitizeEnemyPlayerData(output);
     g_TargetRelation = previous;
 }
 
@@ -97,15 +174,12 @@ void __fastcall New_PresentPlayerData(void * teamCounter, const void * playerSta
 {
     TargetRelation previous = g_TargetRelation;
     g_TargetRelation = ClassifyPlayerState(playerState);
+    if(MIRV_POV_FEATURE_ACTIVE("teamhealth"))
+        LogHookHitOnce("presentation", 1, playerState, output);
 
-    // Clear cached rows immediately as well, including rows built before
+    // Sanitize cached rows immediately as well, including rows built before
     // mirv_pov was enabled or retained across a demo seek.
-    if(MIRV_POV_FEATURE_ACTIVE("teamhealth") && nullptr != output) {
-        __try {
-            reinterpret_cast<uint8_t *>(output)[kPlayerDataFlagsOffset]
-                &= ~kPlayerDataSpectateTargetMask;
-        } __except(EXCEPTION_EXECUTE_HANDLER) {}
-    }
+    if(MIRV_POV_FEATURE_ACTIVE("teamhealth")) SanitizeEnemyPlayerData(output);
     g_OrgPresentPlayerData(teamCounter, playerState, output);
     g_TargetRelation = previous;
 }
@@ -344,4 +418,6 @@ void MirvPovTeamHealth_Initialize(HMODULE clientDll)
     }
 
     g_Hooked = true;
+    MIRV_POV_DIAGNOSTIC_MESSAGE(
+        "[mirv_pov_team_health] TeamCounter health hooks installed.\n");
 }

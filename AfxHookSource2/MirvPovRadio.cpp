@@ -165,12 +165,10 @@ constexpr int kRecentGrenadeThrowTickWindow = 64;
 constexpr ULONGLONG kSyntheticAudioWaitMs = 180;
 constexpr int kSyntheticAudioWaitTicks = 8;
 constexpr ULONGLONG kRecentNativeAudioWindowMs = 800;
-// RVA values from the client.dll analyzed by IDA Pro (image base
-// 0x180000000).  The +0x28 slot in each table is the actual
-// CGameMessageDelegateHook::Dispatch implementation for that user message.
-// Keep the previous table locations as compatibility fallbacks for older
-// client builds; never use a pattern from a neighboring delegate when the
-// vtable slot can be read directly.
+// Legacy RVA values from the client.dll analyzed by IDA Pro (image base
+// 0x180000000). The tables move between client builds, so initialization first
+// resolves each CGameMessageDelegateHook vtable from its MSVC RTTI and only
+// uses these addresses as compatibility fallbacks.
 // IDA Pro (client.dll 2026-08-11): CCSUsrMsg_RadioText is registered by
 // sub_1810D2FB0, whose CGameMessageDelegateHook object uses off_181B75608.
 // Its +0x28 slot is sub_1810D5040 (the generic Dispatch).  0x1BB7ED0 is a
@@ -2461,6 +2459,135 @@ bool FindUniquePattern(
     return true;
 }
 
+struct MsvcCompleteObjectLocator
+{
+    uint32_t Signature;
+    uint32_t Offset;
+    uint32_t ConstructorDisplacementOffset;
+    uint32_t TypeDescriptorRva;
+    uint32_t ClassDescriptorRva;
+    uint32_t SelfRva;
+};
+
+bool ResolveDelegateVtableByRtti(
+    HMODULE module,
+    const char * decoratedTypeName,
+    const Afx::BinUtils::MemRange & textRange,
+    const void *& vtable)
+{
+    vtable = nullptr;
+    if(nullptr == module || nullptr == decoratedTypeName) return false;
+
+    const size_t imageBase = reinterpret_cast<size_t>(module);
+    size_t typeNameAddress = 0;
+    size_t typeNameCount = 0;
+    Afx::BinUtils::ImageSectionsReader nameSections(module);
+    nameSections.Next(IMAGE_SCN_MEM_READ);
+    while(!nameSections.Eof()) {
+        auto remaining = nameSections.GetMemRange();
+        while(!remaining.IsEmpty()) {
+            auto match = Afx::BinUtils::FindCString(remaining, decoratedTypeName);
+            if(match.IsEmpty()) break;
+            typeNameAddress = match.Start;
+            if(1 < ++typeNameCount) return false;
+            remaining.Start = match.End;
+        }
+        nameSections.Next();
+        nameSections.Next(IMAGE_SCN_MEM_READ);
+    }
+    if(1 != typeNameCount || typeNameAddress < imageBase + 2 * sizeof(uintptr_t)) return false;
+
+    const size_t typeDescriptorAddress = typeNameAddress - 2 * sizeof(uintptr_t);
+    const size_t typeDescriptorOffset = typeDescriptorAddress - imageBase;
+    if(UINT32_MAX < typeDescriptorOffset) return false;
+    const uint32_t typeDescriptorRva = static_cast<uint32_t>(typeDescriptorOffset);
+
+    size_t locatorAddress = 0;
+    size_t locatorCount = 0;
+    Afx::BinUtils::ImageSectionsReader locatorSections(module);
+    locatorSections.Next(IMAGE_SCN_MEM_READ);
+    while(!locatorSections.Eof()) {
+        const auto sectionRange = locatorSections.GetMemRange();
+        auto remaining = sectionRange;
+        while(!remaining.IsEmpty()) {
+            auto match = Afx::BinUtils::FindBytes(
+                remaining,
+                reinterpret_cast<const char *>(&typeDescriptorRva),
+                sizeof(typeDescriptorRva));
+            if(match.IsEmpty()) break;
+            if(0 == (locatorSections.Get()->Characteristics & IMAGE_SCN_MEM_WRITE)
+                && sectionRange.Start <= match.Start
+                && offsetof(MsvcCompleteObjectLocator, TypeDescriptorRva)
+                    <= match.Start - sectionRange.Start) {
+                const size_t candidateAddress =
+                    match.Start - offsetof(MsvcCompleteObjectLocator, TypeDescriptorRva);
+                if(imageBase <= candidateAddress
+                    && candidateAddress <= sectionRange.End
+                    && sizeof(MsvcCompleteObjectLocator)
+                        <= sectionRange.End - candidateAddress) {
+                    const auto * candidate =
+                        reinterpret_cast<const MsvcCompleteObjectLocator *>(candidateAddress);
+                    if(1 == candidate->Signature
+                        && 0 == candidate->Offset
+                        && 0 == candidate->ConstructorDisplacementOffset
+                        && typeDescriptorRva == candidate->TypeDescriptorRva
+                        && candidateAddress - imageBase == candidate->SelfRva) {
+                        locatorAddress = candidateAddress;
+                        if(1 < ++locatorCount) return false;
+                    }
+                }
+            }
+            remaining.Start = match.End;
+        }
+        locatorSections.Next();
+        locatorSections.Next(IMAGE_SCN_MEM_READ);
+    }
+    if(1 != locatorCount) return false;
+
+    size_t resolvedVtable = 0;
+    size_t vtableCount = 0;
+    Afx::BinUtils::ImageSectionsReader vtableSections(module);
+    vtableSections.Next(IMAGE_SCN_MEM_READ);
+    while(!vtableSections.Eof()) {
+        const auto sectionRange = vtableSections.GetMemRange();
+        auto remaining = sectionRange;
+        while(!remaining.IsEmpty()) {
+            auto match = Afx::BinUtils::FindBytes(
+                remaining,
+                reinterpret_cast<const char *>(&locatorAddress),
+                sizeof(locatorAddress));
+            if(match.IsEmpty()) break;
+            const size_t candidateVtable = match.End;
+            constexpr size_t kRequiredVtableSlots = 6;
+            const size_t requiredVtableSize = kRequiredVtableSlots * sizeof(uintptr_t);
+            bool validVtable = 0 == (vtableSections.Get()->Characteristics & IMAGE_SCN_MEM_WRITE)
+                && 0 == candidateVtable % alignof(uintptr_t)
+                && candidateVtable <= sectionRange.End
+                && requiredVtableSize <= sectionRange.End - candidateVtable;
+            if(validVtable) {
+                const auto * slots = reinterpret_cast<const uintptr_t *>(candidateVtable);
+                for(size_t i = 0; i < kRequiredVtableSlots; ++i) {
+                    if(slots[i] < textRange.Start || textRange.End <= slots[i]) {
+                        validVtable = false;
+                        break;
+                    }
+                }
+            }
+            if(validVtable) {
+                resolvedVtable = candidateVtable;
+                if(1 < ++vtableCount) return false;
+            }
+            remaining.Start = match.End;
+        }
+        vtableSections.Next();
+        vtableSections.Next(IMAGE_SCN_MEM_READ);
+    }
+    if(1 != vtableCount) return false;
+
+    vtable = reinterpret_cast<const void *>(resolvedVtable);
+    return true;
+}
+
 void RestoreDemoHudChatSuppress(unsigned char * demoController, unsigned char value)
 {
     if(nullptr == demoController) return;
@@ -3161,9 +3288,9 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
     if(g_Hooked || nullptr == clientDll) return;
 
     const uintptr_t clientBase = reinterpret_cast<uintptr_t>(clientDll);
-    g_RadioTextVtable = reinterpret_cast<const void *>(clientBase + kRadioTextVtableRva);
-    g_SendAudioVtable = reinterpret_cast<const void *>(clientBase + kSendAudioVtableRva);
-    g_RawAudioVtable = reinterpret_cast<const void *>(clientBase + kRawAudioVtableRva);
+    g_RadioTextVtable = nullptr;
+    g_SendAudioVtable = nullptr;
+    g_RawAudioVtable = nullptr;
 
     if(nullptr == g_HashString) {
         g_HashString = reinterpret_cast<HashString_t>(getAddress(
@@ -3178,6 +3305,55 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
     if(textRange.IsEmpty()) {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] client.dll text section was not found.\n");
         return;
+    }
+
+    const void * resolvedVtable = nullptr;
+    if(ResolveDelegateVtableByRtti(
+            clientDll,
+            ".?AV?$CGameMessageDelegateHook@VCCSUsrMsg_RadioText_t@@@@",
+            textRange,
+            resolvedVtable)) {
+        g_RadioTextVtable = resolvedVtable;
+    }
+    if(ResolveDelegateVtableByRtti(
+            clientDll,
+            ".?AV?$CGameMessageDelegateHook@VCUserMessageSendAudio_t@@@@",
+            textRange,
+            resolvedVtable)
+        || ResolveDelegateVtableByRtti(
+            clientDll,
+            ".?AV?$CGameMessageDelegateHook@VCCSUsrMsg_SendAudio_t@@@@",
+            textRange,
+            resolvedVtable)) {
+        g_SendAudioVtable = resolvedVtable;
+    }
+    if(ResolveDelegateVtableByRtti(
+            clientDll,
+            ".?AV?$CGameMessageDelegateHook@VCCSUsrMsg_RawAudio_t@@@@",
+            textRange,
+            resolvedVtable)) {
+        g_RawAudioVtable = resolvedVtable;
+    }
+
+    // RTTI is the authoritative mapping. Retain the previous build's table
+    // addresses only as guarded compatibility fallbacks; an RVA that now points
+    // at unrelated data must never become an expected delegate owner.
+    size_t legacyDispatchAddress = 0;
+    const void * legacyVtable = nullptr;
+    if(nullptr == g_RadioTextVtable) {
+        legacyVtable = reinterpret_cast<const void *>(clientBase + kRadioTextVtableRva);
+        if(ReadDelegateDispatch(legacyVtable, textRange, legacyDispatchAddress))
+            g_RadioTextVtable = legacyVtable;
+    }
+    if(nullptr == g_SendAudioVtable) {
+        legacyVtable = reinterpret_cast<const void *>(clientBase + kSendAudioVtableRva);
+        if(ReadDelegateDispatch(legacyVtable, textRange, legacyDispatchAddress))
+            g_SendAudioVtable = legacyVtable;
+    }
+    if(nullptr == g_RawAudioVtable) {
+        legacyVtable = reinterpret_cast<const void *>(clientBase + kRawAudioVtableRva);
+        if(ReadDelegateDispatch(legacyVtable, textRange, legacyDispatchAddress))
+            g_RawAudioVtable = legacyVtable;
     }
 
     // IDA Pro (client.dll 2026-08-10): this is the actual HudChat formatter
@@ -3302,7 +3478,11 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
         "0F B6 41 ?? 88 44 24 ?? 8B 41 ?? 89 44 24 ?? 8B 41 ?? "
         "89 44 24 ?? 48 8B 41 ??";
     size_t sendAudioEmitterAddress = 0;
-    if(FindUniquePattern(textRange, sendAudioEmitterPattern, sendAudioEmitterAddress)) {
+    const bool sendAudioEmitterResolved = FindUniquePattern(
+        textRange,
+        sendAudioEmitterPattern,
+        sendAudioEmitterAddress);
+    if(sendAudioEmitterResolved) {
         g_OrgSendAudioEmitter = reinterpret_cast<SendAudioEmitter_t>(sendAudioEmitterAddress);
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
@@ -3313,8 +3493,6 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
             g_OrgSendAudioEmitter = nullptr;
             MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] SendAudio emitter detour failed.\n");
         }
-    } else {
-        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] SendAudio emitter pattern was not found uniquely.\n");
     }
 
     // IDA Pro (client.dll 2026-08-25): this is the concrete SendAudio
@@ -3346,6 +3524,10 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
         }
     } else {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] SendAudio parser pattern was not found uniquely.\n");
+    }
+    if(!g_SendAudioEmitterHooked && !g_SendAudioHooked && !g_SendAudioParserHooked) {
+        MIRV_POV_DIAGNOSTIC_WARNING(
+            "[mirv_pov_radio] No SendAudio delegate, emitter, or parser path was resolved.\n");
     }
 
     // RawAudio has the same cloned delegate shape.  IDA identifies the
@@ -3534,7 +3716,15 @@ void MirvPovRadio_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
                 && !RecordGrenadeThrowEvent(controllerHandle, slot)) {
                 return;
             }
-            DispatchGrenadeRadioNotice(controller, slot, body, source, 4 == mode);
+            // Modes 2 and 3 are fully synthetic game-event modes, so the
+            // grenade notice must also enqueue its voice cue. Mode 4 uses the
+            // same delayed queue to let native SendAudio / RawAudio cancel it.
+            DispatchGrenadeRadioNotice(
+                controller,
+                slot,
+                body,
+                source,
+                2 == mode || 3 == mode || 4 == mode);
             return;
         }
 
