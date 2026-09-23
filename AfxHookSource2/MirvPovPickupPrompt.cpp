@@ -259,8 +259,8 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
 
     const auto hintBuilder = FindUniquePattern(
         textRange,
-        "40 53 55 56 48 83 EC 40 41 0F B6 D8 48 8B EA E8 ?? ?? ?? ?? "
-        "48 8B F0 48 85 C0 0F 84 ?? ?? ?? ?? 48 8D 54 24 78 48 8B C8 "
+        "40 53 55 56 48 83 EC 40 41 0F B6 D8 48 8B F2 E8 ?? ?? ?? ?? "
+        "48 8B E8 48 85 C0 0F 84 ?? ?? ?? ?? 48 8D 54 24 78 48 8B C8 "
         "E8 ?? ?? ?? ?? 8B 54 24 78 85 D2 0F 84 ?? ?? ?? ??");
     if(hintBuilder.IsEmpty()) {
         MIRV_POV_DIAGNOSTIC_WARNING(
@@ -270,9 +270,8 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
 
     const auto activeHintBuilder = FindUniquePattern(
         textRange,
-        "48 8B C4 53 55 57 41 54 41 55 41 56 48 81 EC 88 00 00 00 "
-        "48 89 70 08 4C 8B EA 4C 89 78 C8 48 8B D9 E8 ?? ?? ?? ?? "
-        "4C 8B E0 E8 ?? ?? ?? ?? 49 8B D4");
+        "40 53 55 57 41 54 41 56 41 57 48 83 EC 48 48 89 B4 24 80 00 00 00 "
+        "4C 8B FA 4C 89 6C 24 40 48 8B D9 E8 ?? ?? ?? ?? 4C 8B E0");
     if(activeHintBuilder.IsEmpty()) {
         MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Active weapon-ID hint builder is missing or ambiguous.\n");
@@ -281,7 +280,7 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
 
     const auto activeHintBuilderCaller = FindUniquePattern(
         textRange,
-        "E8 ?? ?? ?? ?? 48 8D 54 24 ?? 49 8D 4E ??");
+        "E8 ?? ?? ?? ?? 48 8D 54 24 40 49 8D 4E E0 E8 ?? ?? ?? ?? 49 8D 4E E0");
     if(activeHintBuilderCaller.IsEmpty()) {
         MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Active weapon-ID hint caller is missing or ambiguous.\n");

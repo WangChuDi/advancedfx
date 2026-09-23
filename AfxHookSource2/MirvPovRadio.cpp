@@ -165,24 +165,8 @@ constexpr int kRecentGrenadeThrowTickWindow = 64;
 constexpr ULONGLONG kSyntheticAudioWaitMs = 180;
 constexpr int kSyntheticAudioWaitTicks = 8;
 constexpr ULONGLONG kRecentNativeAudioWindowMs = 800;
-// Legacy RVA values from the client.dll analyzed by IDA Pro (image base
-// 0x180000000). The tables move between client builds, so initialization first
-// resolves each CGameMessageDelegateHook vtable from its MSVC RTTI and only
-// uses these addresses as compatibility fallbacks.
-// IDA Pro (client.dll 2026-08-11): CCSUsrMsg_RadioText is registered by
-// sub_1810D2FB0, whose CGameMessageDelegateHook object uses off_181B75608.
-// Its +0x28 slot is sub_1810D5040 (the generic Dispatch).  0x1BB7ED0 is a
-// different user-message table and never receives RadioText callbacks.
-constexpr uintptr_t kRadioTextVtableRva = 0x1B75608;
-// IDA Pro (client.dll 2026-08-11): the registered user-message tables are
-// adjacent to RadioText.  SendAudio is off_181B756E8 and RawAudio is
-// off_181B75640.  The previous source used 0x1AB9220/0x1B756E8, which swapped
-// the real message tables and made the native audio delegate hooks miss the
-// messages that carry the agent voice filename.
-constexpr uintptr_t kSendAudioVtableRva = 0x1B756E8;
-constexpr uintptr_t kSendAudioVtableLegacyRva = 0x1AB9220;
-constexpr uintptr_t kRawAudioVtableRva = 0x1B75640;
-constexpr uintptr_t kRawAudioVtableLegacyRva = 0x1BB7FB0;
+// Delegate identity comes from MSVC RTTI. An executable dispatch slot at an
+// old table RVA cannot establish that it still belongs to the same message.
 RadioTextHandler_t g_OrgRadioTextHandler = nullptr;
 RadioTextDispatch_t g_OrgRadioTextDispatch = nullptr;
 SendAudioDispatch_t g_OrgSendAudioDispatch = nullptr;
@@ -3287,7 +3271,6 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
 {
     if(g_Hooked || nullptr == clientDll) return;
 
-    const uintptr_t clientBase = reinterpret_cast<uintptr_t>(clientDll);
     g_RadioTextVtable = nullptr;
     g_SendAudioVtable = nullptr;
     g_RawAudioVtable = nullptr;
@@ -3333,27 +3316,6 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
             textRange,
             resolvedVtable)) {
         g_RawAudioVtable = resolvedVtable;
-    }
-
-    // RTTI is the authoritative mapping. Retain the previous build's table
-    // addresses only as guarded compatibility fallbacks; an RVA that now points
-    // at unrelated data must never become an expected delegate owner.
-    size_t legacyDispatchAddress = 0;
-    const void * legacyVtable = nullptr;
-    if(nullptr == g_RadioTextVtable) {
-        legacyVtable = reinterpret_cast<const void *>(clientBase + kRadioTextVtableRva);
-        if(ReadDelegateDispatch(legacyVtable, textRange, legacyDispatchAddress))
-            g_RadioTextVtable = legacyVtable;
-    }
-    if(nullptr == g_SendAudioVtable) {
-        legacyVtable = reinterpret_cast<const void *>(clientBase + kSendAudioVtableRva);
-        if(ReadDelegateDispatch(legacyVtable, textRange, legacyDispatchAddress))
-            g_SendAudioVtable = legacyVtable;
-    }
-    if(nullptr == g_RawAudioVtable) {
-        legacyVtable = reinterpret_cast<const void *>(clientBase + kRawAudioVtableRva);
-        if(ReadDelegateDispatch(legacyVtable, textRange, legacyDispatchAddress))
-            g_RawAudioVtable = legacyVtable;
     }
 
     // IDA Pro (client.dll 2026-08-10): this is the actual HudChat formatter
@@ -3423,36 +3385,10 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] Demo controller getter was not resolved.\n");
     }
 
-    // IDA Pro (client.dll 2026-08-11): the SendAudio delegate's vtable is
-    // 0x181B756E8 and its Dispatch slot (+0x28) is sub_1810D5210.  The
-    // function is one of several cloned CGameMessageDelegateHook bodies, so
-    // match the unique SendAudio tail (the call to sub_180B12310) and step
-    // back 0x8d bytes to the function start.  This is the actual
-    // Dispatch(owner, message) path; the nearby CBufferString/protobuf
-    // formatter is not a user-message callback and must not be detoured.
-    const char * sendAudioTailPattern =
-        "48 89 BC 24 E0 00 00 00 E8 D6 D9 FD FF "
-        "48 8B 4B 38 48 8D 56 30 F2 0F 10 46 08 48 8B F8";
+    // The RTTI-resolved +0x28 slot is Dispatch(owner, wrapper), distinct
+    // from the typed protobuf parser hooked below.
     size_t sendAudioAddress = 0;
-    size_t sendAudioTailAddress = 0;
     bool sendAudioResolved = ReadDelegateDispatch(g_SendAudioVtable, textRange, sendAudioAddress);
-    if(!sendAudioResolved) {
-        // Keep compatibility with the previous client build whose SendAudio
-        // delegate used the neighboring RVA 0x1B05578.
-        const void * legacyVtable = reinterpret_cast<const void *>(clientBase + kSendAudioVtableLegacyRva);
-        size_t legacyAddress = 0;
-        if(ReadDelegateDispatch(legacyVtable, textRange, legacyAddress)) {
-            g_SendAudioVtable = legacyVtable;
-            sendAudioAddress = legacyAddress;
-            sendAudioResolved = true;
-        }
-    }
-    if(!sendAudioResolved
-        && FindUniquePattern(textRange, sendAudioTailPattern, sendAudioTailAddress)
-        && sendAudioTailAddress >= 0x8d) {
-        sendAudioAddress = sendAudioTailAddress - 0x8d;
-        sendAudioResolved = true;
-    }
     if(sendAudioResolved) {
         g_OrgSendAudioDispatch = reinterpret_cast<SendAudioDispatch_t>(sendAudioAddress);
         DetourTransactionBegin();
@@ -3478,10 +3414,27 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
         "0F B6 41 ?? 88 44 24 ?? 8B 41 ?? 89 44 24 ?? 8B 41 ?? "
         "89 44 24 ?? 48 8B 41 ??";
     size_t sendAudioEmitterAddress = 0;
-    const bool sendAudioEmitterResolved = FindUniquePattern(
-        textRange,
-        sendAudioEmitterPattern,
-        sendAudioEmitterAddress);
+    // The prologue is shared by many message emitters. Identify the typed
+    // message vtable installed by the emitter, rather than accepting a clone.
+    const auto sendAudioMessageVtable = Afx::BinUtils::FindClassVtable(
+        clientDll, ".?AVCUserMessageSendAudio_t@@", 0, 0);
+    size_t emitterCount = 0;
+    auto emitterRemaining = textRange;
+    while(sendAudioMessageVtable && !emitterRemaining.IsEmpty()) {
+        auto candidate = Afx::BinUtils::FindPatternString(emitterRemaining, sendAudioEmitterPattern);
+        if(candidate.IsEmpty()) break;
+        if(candidate.Start + 0x6c <= textRange.End) {
+            const auto load = reinterpret_cast<const uint8_t *>(candidate.Start + 0x65);
+            const uint8_t expected[] = {0x48, 0x8d, 0x05};
+            if(0 == memcmp(load, expected, sizeof(expected))
+                && reinterpret_cast<size_t>(load + 7 + *reinterpret_cast<const int32_t *>(load + 3)) == sendAudioMessageVtable) {
+                sendAudioEmitterAddress = candidate.Start;
+                ++emitterCount;
+            }
+        }
+        emitterRemaining = Afx::BinUtils::MemRange(candidate.Start + 1, textRange.End);
+    }
+    const bool sendAudioEmitterResolved = emitterCount == 1;
     if(sendAudioEmitterResolved) {
         g_OrgSendAudioEmitter = reinterpret_cast<SendAudioEmitter_t>(sendAudioEmitterAddress);
         DetourTransactionBegin();
@@ -3530,20 +3483,9 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
             "[mirv_pov_radio] No SendAudio delegate, emitter, or parser path was resolved.\n");
     }
 
-    // RawAudio has the same cloned delegate shape.  IDA identifies the
-    // RawAudio table at image+0x1B75640 and its +0x28 slot as
-    // sub_1810D55B0.  Fall back to the previous table only on older builds.
+    // RawAudio uses the same RTTI-resolved delegate slot.
     size_t rawAudioAddress = 0;
     bool rawAudioResolved = ReadDelegateDispatch(g_RawAudioVtable, textRange, rawAudioAddress);
-    if(!rawAudioResolved) {
-        const void * legacyVtable = reinterpret_cast<const void *>(clientBase + kRawAudioVtableLegacyRva);
-        size_t legacyAddress = 0;
-        if(ReadDelegateDispatch(legacyVtable, textRange, legacyAddress)) {
-            g_RawAudioVtable = legacyVtable;
-            rawAudioAddress = legacyAddress;
-            rawAudioResolved = true;
-        }
-    }
     if(rawAudioResolved) {
         g_OrgRawAudioHandler = reinterpret_cast<RawAudioHandler_t>(rawAudioAddress);
         DetourTransactionBegin();

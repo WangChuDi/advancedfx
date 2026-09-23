@@ -1292,13 +1292,12 @@ void MirvPovKillReward_Initialize(HMODULE clientDll)
         sections.Next(IMAGE_SCN_MEM_EXECUTE);
         if(!sections.Eof()) textRange = sections.GetMemRange();
 
-        // IDA Pro MCP, client.dll 2026-08-09 (SHA-256 EA2B721E...):
-        //   CUserMessageTextMsg handler  sub_18110F560
-        //   demo controller getter      sub_180CC8860
-        // The handler's repeated-param count / item calls are at +0x94/+0xad.
+        // client.dll 40bce820: typed TextMsg handler at 0x11A3160.
+        // Its repeated-param count / item calls moved to +0xb5/+0xcc.
+        // The older broad prologue now matches an unrelated function.
         const char * textMsgHandlerPattern =
-            "48 89 4C 24 ?? 55 53 56 57 41 54 41 55 41 56 41 57 "
-            "48 8D AC 24 ?? ?? ?? ?? B8";
+            "48 89 4C 24 08 55 41 55 41 56 48 8D AC 24 90 E9 FF FF "
+            "B8 70 17 00 00 E8 ?? ?? ?? ?? 48 2B E0 48 89 9C 24 68 17 00 00";
         const char * getDemoControllerPattern =
             "48 8D 05 ?? ?? ?? ?? C3 CC CC CC CC CC CC CC CC 48 85 D2";
 
@@ -1310,11 +1309,11 @@ void MirvPovKillReward_Initialize(HMODULE clientDll)
             && FindUniquePattern(textRange, textMsgHandlerPattern, textMsgHandlerAddress)
             && FindUniquePattern(textRange, getDemoControllerPattern, getDemoControllerAddress)
             && ResolveCallTarget(
-                reinterpret_cast<uint8_t *>(textMsgHandlerAddress + 0x94),
+                reinterpret_cast<uint8_t *>(textMsgHandlerAddress + 0xb5),
                 textRange,
                 countTarget)
             && ResolveCallTarget(
-                reinterpret_cast<uint8_t *>(textMsgHandlerAddress + 0xad),
+                reinterpret_cast<uint8_t *>(textMsgHandlerAddress + 0xcc),
                 textRange,
                 atTarget)
             && countTarget != atTarget;

@@ -222,7 +222,18 @@ static bool New_MirvPov_IsPlayingDemo(void * This) {
 }
 
 static __int64 __fastcall New_MirvPov_ServerVoiceData(__int64 This, __int64 msg) {
-    unsigned int playerSlot = msg ? *(unsigned int *)(msg + 104) : 0xFFFFFFFF;
+    unsigned int playerSlot = 0xFFFFFFFF;
+    if(msg) {
+        const unsigned int fields = *(unsigned int *)(msg + 0x40);
+        // Native ServerVoiceData prefers the new entity index when present;
+        // older demo messages can still supply the zero-based player slot.
+        if(fields & 0x100) {
+            const unsigned int entityIndex = *(unsigned int *)(msg + 0x6c);
+            if(1 <= entityIndex && entityIndex <= 64) playerSlot = entityIndex - 1;
+        } else if(fields & 0x80) {
+            playerSlot = *(unsigned int *)(msg + 0x68);
+        }
+    }
     __int64 result = g_Org_MirvPov_ServerVoiceData(This, msg);
     if(0 == g_MirvPovVoiceClearRenderPasses
         && playerSlot < 64
@@ -242,13 +253,13 @@ static bool MirvPov_ResolveVoiceHud(HMODULE clientDll) {
         if(matchAddr) g_MirvPovShowSpeakerRetAddr = matchAddr + 0x22;
     }
     if(!g_MirvPovServerVoiceDataAddr) {
-        g_MirvPovServerVoiceDataAddr = getAddress(clientDll, "48 89 4C 24 ?? 53 55 56 57 41 54 41 55 41 57 48 81 EC");
+        g_MirvPovServerVoiceDataAddr = getAddress(clientDll, "48 89 4C 24 08 53 56 57 41 54 41 55 41 57 48 81 EC C8 00 00 00 44 8B 42 40 33 FF");
     }
     if(!g_MirvPovVoiceStatusGetAddr) {
         g_MirvPovVoiceStatusGetAddr = getAddress(clientDll, "48 8B 05 ?? ?? ?? ?? C3 CC CC CC CC CC CC CC CC 48 8D 05");
     }
     if(!g_MirvPovVoiceStatusUpdateSpeakerStatusAddr) {
-        g_MirvPovVoiceStatusUpdateSpeakerStatusAddr = getAddress(clientDll, "44 88 4C 24 ?? 44 89 44 24 ?? 89 54 24");
+        g_MirvPovVoiceStatusUpdateSpeakerStatusAddr = getAddress(clientDll, "48 89 5C 24 08 55 56 57 48 83 EC 30 48 8B 05 ?? ?? ?? ?? 48 8B F1 41 0F B6 E9 49 63 F8 48 63 DA 83 78 58 00");
     }
     return g_MirvPovShowSpeakerRetAddr && g_MirvPovServerVoiceDataAddr && MirvPov_IsVoiceHudReady();
 }

@@ -50,6 +50,7 @@ using GetSoundFieldCount_t = int (__fastcall *)(void *, uint32_t, uint32_t, bool
 using GetSoundFieldValue_t = bool (__fastcall *)(void *, uint32_t, uint32_t, const void **, int, bool);
 
 GetLocalPawn_t g_OrgGetLocalPawn = nullptr;
+GetLocalPawn_t g_OrgGetSoundViewPawn = nullptr;
 DoStartSoundEvent_t g_OrgDoStartSoundEvent = nullptr;
 StartSoundEvent_t g_StartSoundEvent = nullptr;
 QueueRadarSound_t g_QueueRadarSound = nullptr;
@@ -224,12 +225,8 @@ int GetNativeSoundRadius(void * soundEventInterface, uint32_t eventId)
     return 1.0f <= radius ? static_cast<int>(radius) : 0;
 }
 
-CEntityInstance * __fastcall New_GetLocalPawn()
+CEntityInstance * OverrideSoundPawn(CEntityInstance * nativePawn, void * returnAddress)
 {
-    void * previousReturnAddress = MirvPov_PushHookReturnAddress(_ReturnAddress());
-    void * returnAddress = MirvPov_GetHookReturnAddress();
-    CEntityInstance * nativePawn = g_OrgGetLocalPawn();
-    MirvPov_PopHookReturnAddress(previousReturnAddress);
     if(!MIRV_POV_FEATURE_ACTIVE("soundcircle")) return nativePawn;
 
     int gate = returnAddress == g_SoundGateReturnAddresses[0]
@@ -247,6 +244,24 @@ CEntityInstance * __fastcall New_GetLocalPawn()
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         return nativePawn;
     }
+}
+
+CEntityInstance * __fastcall New_GetLocalPawn()
+{
+    void * previous = MirvPov_PushHookReturnAddress(_ReturnAddress());
+    void * caller = MirvPov_GetHookReturnAddress();
+    CEntityInstance * pawn = g_OrgGetLocalPawn();
+    MirvPov_PopHookReturnAddress(previous);
+    return OverrideSoundPawn(pawn, caller);
+}
+
+CEntityInstance * __fastcall New_GetSoundViewPawn()
+{
+    void * previous = MirvPov_PushHookReturnAddress(_ReturnAddress());
+    void * caller = MirvPov_GetHookReturnAddress();
+    CEntityInstance * pawn = g_OrgGetSoundViewPawn();
+    MirvPov_PopHookReturnAddress(previous);
+    return OverrideSoundPawn(pawn, caller);
 }
 
 void __fastcall New_DoStartSoundEvent(void * soundOpGameSystem, void * netMessage)
@@ -329,10 +344,10 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
 
     size_t playerSoundProducer = getAddress(
         clientDll,
-        "8B D8 E8 ?? ?? ?? ?? 48 3B C6 0F 85 ?? ?? ?? ?? 0F 28 DE 44 88 74 24 20 44 8B C3 48 8D 0D ?? ?? ?? ?? 48 8B D6 E8 ?? ?? ?? ??");
+        "8B D8 48 85 FF 0F 84 ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 3B F8 0F 85 ?? ?? ?? ?? 0F 28 DE 40 88 74 24 20 44 8B C3");
     size_t queueRadarSound = getAddress(
         clientDll,
-        "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 40 0F 29 74 24 30 41 0F B6 F9 0F 28 F2 8B F2 48 8B D9 E8 ?? ?? ?? ?? 48 3B C3 75 ??");
+        "48 85 C9 74 77 48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 40 0F 29 74 24 30 41 0F B6 F9 0F 28 F2 8B F2 48 8B D9 E8 ?? ?? ?? ?? 48 3B D8");
     size_t positionUpdaterBody = getAddress(
         clientDll,
         "48 8B D9 E8 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? 00 00 48 89 6C 24 ?? 48 8D 54 24 ?? 48 89 74 24 ?? 48 8B C8");
@@ -341,8 +356,8 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
         return;
     }
     uint8_t * callSites[3] = {
-        reinterpret_cast<uint8_t *>(playerSoundProducer) + 2,
-        reinterpret_cast<uint8_t *>(queueRadarSound) + 0x20,
+        reinterpret_cast<uint8_t *>(playerSoundProducer) + 0x0b,
+        reinterpret_cast<uint8_t *>(queueRadarSound) + 0x25,
         reinterpret_cast<uint8_t *>(positionUpdaterBody) + 3
     };
     if(0xe8 != callSites[0][0] || 0xe8 != callSites[1][0] || 0xe8 != callSites[2][0]) {
@@ -355,12 +370,15 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
         int32_t relative = *reinterpret_cast<int32_t *>(callSites[i] + 1);
         localPawnTargets[i] = callSites[i] + 5 + relative;
     }
+    // The event producer and queue now use the observer-aware view Pawn;
+    // the position updater still uses the real local Pawn. Keep both gates
+    // scoped to their verified return addresses.
     if(localPawnTargets[0] != localPawnTargets[1]
-        || localPawnTargets[0] != localPawnTargets[2]) {
+        || localPawnTargets[0] == localPawnTargets[2]) {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_sound_circle] Native local-Pawn target validation failed.\n");
         return;
     }
-    if(!IsExecutableAddress(localPawnTargets[0])) {
+    if(!IsExecutableAddress(localPawnTargets[0]) || !IsExecutableAddress(localPawnTargets[2])) {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_sound_circle] Native local-Pawn target is not executable.\n");
         return;
     }
@@ -372,18 +390,10 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
         return;
     }
 
-    // IDA Pro: sub_1803D91F0 (CSoundOpGameSystem direct StartSoundEvent).
-    // Keep this pattern separate from DoStartSoundEvent: the two functions
-    // share the same sound core but have different argument layouts.
-    size_t startSoundEventAnchor = getAddress(
+    // Direct StartSoundEvent helper, distinct from the network-message handler.
+    size_t startSoundEvent = getAddress(
         clientDll,
-        "48 8B FA 48 8B F1 BA FF FF FF FF 48 8D 0D");
-    // The stable anchor is 0x18 bytes into sub_1803D91F0 on the analyzed
-    // client.dll.  The shorter pattern avoids depending on the RIP-relative
-    // convar address embedded immediately after the anchor.
-    size_t startSoundEvent = 0 < startSoundEventAnchor
-        ? startSoundEventAnchor - 0x18
-        : 0;
+        "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 41 56 41 57 48 83 EC 60 48 8B 05 ?? ?? ?? ?? 48 8B FA 48 8D 15");
     uint8_t * createSoundEventCall = reinterpret_cast<uint8_t *>(doStartSoundEvent) + 0xec;
     if(0xe8 != createSoundEventCall[0]) {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_sound_circle] Native SOS create-sound call validation failed.\n");
@@ -424,7 +434,8 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
         return;
     }
 
-    g_OrgGetLocalPawn = reinterpret_cast<GetLocalPawn_t>(localPawnTargets[0]);
+    g_OrgGetSoundViewPawn = reinterpret_cast<GetLocalPawn_t>(localPawnTargets[0]);
+    g_OrgGetLocalPawn = reinterpret_cast<GetLocalPawn_t>(localPawnTargets[2]);
     g_OrgDoStartSoundEvent = reinterpret_cast<DoStartSoundEvent_t>(doStartSoundEvent);
     g_StartSoundEvent = reinterpret_cast<StartSoundEvent_t>(startSoundEvent);
     g_QueueRadarSound = reinterpret_cast<QueueRadarSound_t>(queueRadarSound);
@@ -435,9 +446,11 @@ void MirvPovSoundCircle_Initialize(HMODULE clientDll)
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID &)g_OrgGetLocalPawn, New_GetLocalPawn);
+    DetourAttach(&(PVOID &)g_OrgGetSoundViewPawn, New_GetSoundViewPawn);
     DetourAttach(&(PVOID &)g_OrgDoStartSoundEvent, New_DoStartSoundEvent);
     if(NO_ERROR != DetourTransactionCommit()) {
         g_OrgGetLocalPawn = nullptr;
+        g_OrgGetSoundViewPawn = nullptr;
         g_OrgDoStartSoundEvent = nullptr;
         g_StartSoundEvent = nullptr;
         g_QueueRadarSound = nullptr;

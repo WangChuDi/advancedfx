@@ -78,9 +78,9 @@ struct RadarNativeTargets {
     uint8_t * playerSlot = nullptr;
 };
 
-constexpr size_t kRadarPackagePanelOffset = 0x238;
-constexpr size_t kRadarPackageFlagsOffset = 0x17760;
-constexpr size_t kRadarPackageCarrierHandleOffset = 0x17768;
+constexpr size_t kRadarPackagePanelOffset = 0x2A0;
+constexpr size_t kRadarPackageFlagsOffset = 0x17808;
+constexpr size_t kRadarPackageCarrierHandleOffset = 0x17810;
 constexpr uint32_t kRadarEnemyColor = 0xFF0000FF;
 constexpr uint32_t kRadarUncarriedPackageColor = 0xFFFFFFFF;
 
@@ -669,7 +669,7 @@ bool ResolveRadarNativeTargets(HMODULE clientDll, RadarNativeTargets & targets)
 
     if(!FindUniquePattern(
         textRange,
-        "48 89 5C 24 ?? 48 89 74 24 ?? 55 57 41 54 41 56 41 57 48 8D 6C 24 ?? 48 81 EC ?? ?? ?? ?? 48 8B D9 45 33 FF",
+        "48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 70 48 8B F9 48 89 4D 50 48 8B 0D ?? ?? ?? ?? 45 33 E4",
         "radar bomb-package update",
         targets.packageUpdate)) return false;
 
@@ -682,7 +682,7 @@ bool ResolveRadarNativeTargets(HMODULE clientDll, RadarNativeTargets & targets)
     uint8_t * hudElementSequence = nullptr;
     if(!FindUniquePattern(
         packageRange,
-        "48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 44 0F 28 9C 24 ?? ?? ?? ?? 48 85 C0",
+        "48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 85 C0 48 8D 48 E0 49 0F 44 CC 48 85 F6",
         "radar HUD element lookup",
         hudElementSequence)) return false;
     if(!ResolveCallTarget(hudElementSequence + 7, textRange, targets.hudElement)) {
@@ -693,7 +693,7 @@ bool ResolveRadarNativeTargets(HMODULE clientDll, RadarNativeTargets & targets)
     uint8_t * playerSlotSequence = nullptr;
     if(!FindUniquePattern(
         packageRange,
-        "8B 93 ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B CE C7 45 ?? FF 9B 25 FF",
+        "8B 97 ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B CE C7 45 ?? FF 9B 25 FF",
         "radar player-slot resolver",
         playerSlotSequence)) return false;
     if(!ResolveCallTarget(playerSlotSequence + 6, textRange, targets.playerSlot)) {
@@ -709,14 +709,14 @@ bool ResolveRadarNativeTargets(HMODULE clientDll, RadarNativeTargets & targets)
 
     if(!FindUniquePattern(
         textRange,
-        "40 53 48 83 EC ?? 48 8B D9 83 FA ?? 7D",
+        "4C 8B C1 83 FA FF 7D ?? C7 01 C8 C8 C8 FF 48 8B C1 C3 83 FA 05 77 ??",
         "radar competitive-color resolver",
         targets.competitiveColor)) return false;
 
     uint8_t * relationSequence = nullptr;
     if(!FindUniquePattern(
         textRange,
-        "8B 54 24 28 48 8B 4C 24 38 E8 ?? ?? ?? ?? 88 85 90 00 00 00",
+        "8B 54 24 28 48 8B 4C 24 38 E8 ?? ?? ?? ?? 88 85 A0 00 00 00",
         "radar relation call",
         relationSequence)) return false;
 

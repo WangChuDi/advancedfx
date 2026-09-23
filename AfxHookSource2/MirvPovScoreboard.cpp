@@ -157,6 +157,7 @@ bool ParseBaseUserCmdButtons(
 
 bool ReadProtoBytes(void * value, const unsigned char *& data, size_t & size)
 {
+    if(!value) return false;
     unsigned char * bytes = static_cast<unsigned char *>(value);
     uint64_t byteCount = *reinterpret_cast<uint64_t *>(bytes + 0x10);
     uint64_t capacity = *reinterpret_cast<uint64_t *>(bytes + 0x18);
@@ -188,7 +189,7 @@ void ParseUserCommandsMessage(void * msg)
 
         uint64_t states[3] = {};
         if(!ParseBaseUserCmdButtons(data, size, states)) continue;
-        int playerId = *reinterpret_cast<int *>(static_cast<unsigned char *>(entry) + 0x34);
+        int playerId = *reinterpret_cast<int *>(static_cast<unsigned char *>(entry) + 0x38);
         if(0 <= playerId && playerId < 256) {
             g_UserCmdScoreboardOpen[playerId] = 0 != (states[0] & 0x200000000ull);
         }
@@ -253,7 +254,7 @@ void HookHltvParser(HMODULE clientDll)
 void HookUserCommands(HMODULE clientDll)
 {
     if(g_UserCommandsHooked || nullptr == clientDll) return;
-    size_t address = getAddress(clientDll, "4C 8B DC 49 89 53 10 49 89 4B 08 55 53 57 49 8D AB 38 FF FF FF 48 81 EC B0 01 00 00 48 63 42 48");
+    size_t address = getAddress(clientDll, "40 53 41 54 41 55 48 81 EC 80 00 00 00 4C 8B EA 4C 8B E1 49 8B CD 33 D2 33 DB E8 ?? ?? ?? ?? 49 63 45 48");
     if(0 == address) {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_scoreboard] UserCommands handler pattern not found.\n");
         return;

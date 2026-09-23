@@ -96,11 +96,10 @@ void MirvPovDeathPanel_ResolveAddresses(HMODULE clientDll)
         "48 83 EC 28 83 F9 FF 75 ?? 48 8B 0D ?? ?? ?? ?? 48 8D 54 24 ?? 48 8B 01 FF 90 ?? ?? ?? ?? 8B 08 48 63 C1 4C 8D 05 ?? ?? ?? ?? 33 D2 4D 8B 04 C0 4D 85 C0"));
 
     auto replayGate = reinterpret_cast<unsigned char *>(getAddress(clientDll,
-        "48 8D 0D ?? ?? ?? ?? 44 89 87 08 01 00 00 45 33 F6 E8 ?? ?? ?? ?? 85 C0 0F 85 ?? ?? ?? ?? BA FF FF FF FF 48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 85 C0 75 0B 48 8B 05 ?? ?? ?? ?? 48 8B 40 08 44 38 30"));
+        "48 8B 05 ?? ?? ?? ?? 44 38 70 58 75 ?? 48 85 F6 0F 84 ?? ?? ?? ?? 48 39 B5 18 06 00 00 0F 85 ?? ?? ?? ?? 44 88 B7 A2 01 00 00"));
     if(nullptr != replayGate) {
-        g_MirvPovDeathPanelState.replayObject = replayGate + 42 + *reinterpret_cast<int32_t *>(replayGate + 38);
-        g_MirvPovDeathPanelState.resolveReplayValue = reinterpret_cast<MirvPovDeathPanelResolveReplayValue_t>(replayGate + 47 + *reinterpret_cast<int32_t *>(replayGate + 43));
-        g_MirvPovDeathPanelState.replayFallbackObject = reinterpret_cast<void **>(replayGate + 59 + *reinterpret_cast<int32_t *>(replayGate + 55));
+        g_MirvPovDeathPanelState.replayConVarSlot = reinterpret_cast<void **>(
+            replayGate + 7 + *reinterpret_cast<int32_t *>(replayGate + 3));
     }
 }
 

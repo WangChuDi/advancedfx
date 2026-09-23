@@ -365,33 +365,32 @@ static bool MirvPovHud_IsExecutableAddress(const void * address) {
             || PAGE_EXECUTE_READWRITE == protection || PAGE_EXECUTE_WRITECOPY == protection);
 }
 
+static uintptr_t MirvPovHud_GetBuyZoneCallSite() {
+    // Resolve all three native HudMoney predicates from the same call site.
+    // The zone predicate also handles mp_buy_anywhere; a network flag alone
+    // does not describe native availability or the elapsed buy timer.
+    HMODULE clientDll = GetModuleHandleW(L"client.dll");
+    if(nullptr == clientDll) return 0;
+    static const auto site = getAddress(clientDll,
+        "48 8B 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 84 C0 74 ?? 48 8B CE E8 ?? ?? ?? ?? 84 C0 75 ?? 48 85 DB 74 ?? 33 D2 48 8B CB E8 ?? ?? ?? ?? 84 C0 74 ?? B3 01 EB ?? 32 DB");
+    return site;
+}
+
 static bool MirvPovHud_ShouldShowBuyZoneIcon(CEntityInstance * povPawn) {
     if(nullptr == povPawn) return false;
-
-    bool buyZoneAvailable = false;
-    const bool inBuyZone = povPawn->GetInBuyZone(buyZoneAvailable);
-    if(!buyZoneAvailable) return false;
-
-    // These are stable client.dll predicates for the native HudMoney update:
-    // the replicated pawn flag alone is not enough after the buy timer ends.
-    constexpr uintptr_t kGameRulesGlobalRva = 0x23A8BD8;
-    constexpr uintptr_t kBuyStatePredicateRva = 0x722660;
-    constexpr uintptr_t kBuyTimeElapsedPredicateRva = 0x731E00;
-    HMODULE clientDll = GetModuleHandleW(L"client.dll");
-    if(nullptr == clientDll) return false;
-
-    auto base = reinterpret_cast<uint8_t *>(clientDll);
-    auto buyState = reinterpret_cast<MirvPovHud_BuyStatePredicate_t>(
-        base + kBuyStatePredicateRva);
-    auto buyTimeElapsed = reinterpret_cast<MirvPovHud_BuyStatePredicate_t>(
-        base + kBuyTimeElapsedPredicateRva);
+    const auto site = MirvPovHud_GetBuyZoneCallSite();
+    if(!site) return false;
+    auto buyState = reinterpret_cast<MirvPovHud_BuyStatePredicate_t>(site + 12 + *reinterpret_cast<int32_t *>(site + 8));
+    auto buyTimeElapsed = reinterpret_cast<MirvPovHud_BuyStatePredicate_t>(site + 24 + *reinterpret_cast<int32_t *>(site + 20));
+    auto inBuyZone = reinterpret_cast<bool (__fastcall *)(void *, bool)>(site + 43 + *reinterpret_cast<int32_t *>(site + 39));
     if(!MirvPovHud_IsExecutableAddress(buyState)
-        || !MirvPovHud_IsExecutableAddress(buyTimeElapsed)) return false;
+        || !MirvPovHud_IsExecutableAddress(buyTimeElapsed)
+        || !MirvPovHud_IsExecutableAddress(inBuyZone)) return false;
 
     __try {
-        void * gameRules = *reinterpret_cast<void **>(base + kGameRulesGlobalRva);
+        void * gameRules = *reinterpret_cast<void **>(site + 7 + *reinterpret_cast<int32_t *>(site + 3));
         if(nullptr == gameRules) return false;
-        return inBuyZone && buyState(gameRules) && !buyTimeElapsed(gameRules);
+        return buyState(gameRules) && !buyTimeElapsed(gameRules) && inBuyZone(povPawn, false);
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
@@ -614,7 +613,7 @@ static bool MirvPovHud_ResolveFlashContexts(HMODULE clientDll) {
         "48 8B F2 48 8B E9 E8 ?? ?? ?? ?? 84 C0 0F 85");
     const size_t perViewPathMatch = getAddress(
         clientDll,
-        "84 C0 74 4C 8B 85 B0 02 00 00 49 8D 8D 48 03 00 00");
+        "84 C0 74 4C 8B 85 50 02 00 00 49 8D 8D 68 03 00 00");
     if(0 == compactPathMatch || 0 == perViewPathMatch) {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_flash] Flash render contexts were not found.\n");
         return false;

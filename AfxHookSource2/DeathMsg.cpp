@@ -1085,16 +1085,11 @@ struct DeathPanelReplayGateState {
 static DeathPanelReplayGateState DeathPanel_EnableReplayOthersGate()
 					{
 	DeathPanelReplayGateState state;
-	if(nullptr == g_MirvPovDeathPanelState.resolveReplayValue || nullptr == g_MirvPovDeathPanelState.replayObject) return state;
+	if(nullptr == g_MirvPovDeathPanelState.replayConVarSlot) return state;
 
 	__try {
-		state.value = g_MirvPovDeathPanelState.resolveReplayValue(g_MirvPovDeathPanelState.replayObject, -1);
-		if(nullptr == state.value
-			&& nullptr != g_MirvPovDeathPanelState.replayFallbackObject
-			&& nullptr != *g_MirvPovDeathPanelState.replayFallbackObject) {
-			state.value = *reinterpret_cast<unsigned char **>(
-				reinterpret_cast<unsigned char *>(*g_MirvPovDeathPanelState.replayFallbackObject) + 8);
-		}
+		void * convar = *g_MirvPovDeathPanelState.replayConVarSlot;
+		state.value = convar ? reinterpret_cast<unsigned char *>(convar) + 0x58 : nullptr;
 		if(nullptr != state.value) {
 			state.previous = *state.value;
 			*state.value = 1;
@@ -2074,7 +2069,8 @@ LAB_1809a7de1
 bool getPanoramaAddrs(HMODULE panoramaDll) {
 
 	// Refernces "CLayoutFile::LoadFromFile" string.
-	g_Org_Panorama_CLayoutFile_LoadFromFile = (Panorama_CLayoutFile_LoadFromFile_t)getAddress(panoramaDll,"48 89 5C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 48 8D 05 ?? ?? ?? ?? 48 C7 45 D0 F4 03 00 00 48");
+	g_Org_Panorama_CLayoutFile_LoadFromFile = (Panorama_CLayoutFile_LoadFromFile_t)getAddress(panoramaDll,
+		"48 89 5C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 48 8D 05 ?? ?? ?? ?? 48 C7 45 D0 ?? ?? 00 00 48 89 45 C8 48 8B F2 0F 10 45 C8");
 	if(nullptr == g_Org_Panorama_CLayoutFile_LoadFromFile) {
 		return false;
 	}

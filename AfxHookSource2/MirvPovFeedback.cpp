@@ -566,7 +566,7 @@ void MirvPovFeedback_Initialize(HMODULE clientDll)
     if(nullptr == g_AddDamageDirection) {
         g_AddDamageDirection = reinterpret_cast<AddDamageDirection_t>(getAddress(
             clientDll,
-            "48 89 5C 24 ?? 48 89 6C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 0F 29 7C 24 ?? 48 8B FA"));
+            "48 89 5C 24 08 48 89 6C 24 18 48 89 74 24 20 57 48 81 EC 90 00 00 00 0F 29 7C 24 70 48 8B FA 0F 57 FF"));
     }
 
     if(nullptr == g_OriginalDamageIndicatorConstructor) {

@@ -27,7 +27,6 @@ using MirvPovDeathPanelConstructor_t = unsigned char * (__fastcall *)(unsigned c
 using MirvPovDeathPanelDestructor_t = unsigned char * (__fastcall *)(
     unsigned char * deathPanel,
     unsigned int deleteFlags);
-using MirvPovDeathPanelResolveReplayValue_t = unsigned char * (__fastcall *)(void * object, __int64 index);
 using MirvPovDeathPanelSetVisible_t = __int64 (__fastcall *)(unsigned char * deathPanel, bool visible);
 using MirvPovDeathPanelHide_t = __int64 (__fastcall *)(unsigned char * deathPanel);
 using MirvPovDeathPanelShow_t = void (__fastcall *)(unsigned char * deathPanel);
@@ -40,9 +39,7 @@ struct MirvPovDeathPanelState {
     MirvPovDeathPanelHandlePlayerDeathListener_t originalHandlePlayerDeath = nullptr;
     MirvPovDeathPanelConstructor_t originalConstructor = nullptr;
     MirvPovDeathPanelDestructor_t originalDestructor = nullptr;
-    MirvPovDeathPanelResolveReplayValue_t resolveReplayValue = nullptr;
-    void * replayObject = nullptr;
-    void ** replayFallbackObject = nullptr;
+    void ** replayConVarSlot = nullptr;
     MirvPovDeathPanelSetVisible_t setMainVisible = nullptr;
     MirvPovDeathPanelSetVisible_t setSecondaryVisible = nullptr;
     MirvPovDeathPanelHide_t hide = nullptr;
