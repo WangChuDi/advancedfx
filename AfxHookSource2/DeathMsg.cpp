@@ -2069,6 +2069,7 @@ LAB_1809a7de1
 bool getPanoramaAddrs(HMODULE panoramaDll) {
 
 	// Refernces "CLayoutFile::LoadFromFile" string.
+	// The embedded source line number changes between game builds.
 	g_Org_Panorama_CLayoutFile_LoadFromFile = (Panorama_CLayoutFile_LoadFromFile_t)getAddress(panoramaDll,
 		"48 89 5C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 48 8D 05 ?? ?? ?? ?? 48 C7 45 D0 ?? ?? 00 00 48 89 45 C8 48 8B F2 0F 10 45 C8");
 	if(nullptr == g_Org_Panorama_CLayoutFile_LoadFromFile) {

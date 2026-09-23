@@ -271,3 +271,15 @@ mirv_pov_voice off    // 停止接管，恢复进入接管前的语音掩码
 本地 `diagnostics/agent-voice-20260923/` 保存本轮 items_game、28 个事件库、talker 规则、全体映射、各资源 SHA-256、声音文件清单和生成审计脚本；维护用资源表在 `doc/notes/cs2-agent-voice-catalog.md`。按用户先前要求不运行测试，不启动或重启游戏。未验证每个探员的实机听感、真实 demo 音频包可用性、模式启停/seek/手动静音交互；资源覆盖不等于这些运行效果已验证。
 
 Release x64 `AfxHookSource2` 编译成功（`diagnostics/agent-voice-20260923/build.log`）；此轮未替换 HLAE 当前 DLL，也未提交或推送。
+
+## 2026-09-23：同步官方 HLAE 2.192.3
+
+先将探员投掷语音与 team/all/enemy 修改提交为 `c2ad0f94`，再合并官方 `advancedfx/advancedfx` main 的 `88ce1ad2ab6732398cc275a3bd66d33208fd9f97`（HLAE 2.192.3）。引入 build 14182 的场景、颜色、相机、附件、比赛结束/天空盒适配及渲染回调顺序修复；contrib 子模块同步至 `bdecc6c056fe77afa87896e6cf554c59f9a80e89`。
+
+冲突处理：实体 pawn/controller 158/159 与 eye 173/174 槽位双方一致，保留上游版本注释；Panorama 双方均将源码行号通配，保留 fork 更完整的后续指令上下文；POV 的队伍 uint8 读取、独立功能和语音模式保留。
+
+**纠正本文件此前“GetClientClass 保持 slot 48”的记录**：同一 client SHA-256 `40bce8206f51b92ee05d6121c6e42c717bf3fa0cc0edeeb6698744b1c4799feb`、image base `0x180000000` 下，应按上游更新调用 slot **49**。本轮静态复核 pawn vtable RVA `0x1C82E78` 的 slot 49 为 `0xC7B300`，返回 record `0x2230E90`，record+0x10 指向 `C_CSPlayerPawn`；controller vtable `0x1C05330` 的 slot 49 为 `0x88A2C0`，返回 record `0x2216BB0`，+0x10 指向 `CCSPlayerController`。slot 48 的 `0xC79FF0/0x8897B0` 是依赖实例状态的另一条查询，不能继续当作已核验的直接类信息 getter。该接口仅被调用，未新增 detour；证据 `diagnostics/agent-voice-20260923/upstream-class-slot49.json`。
+
+本次合并不启动游戏或运行测试，也不替换已部署 DLL；先前未提交的队友切枪声调查及诊断文件仍留在本地。
+
+合并后的 Release x64 `AfxHookSource2` 编译成功（`diagnostics/agent-voice-20260923/build-upstream-merge.log`）。保留上游 CRLF 格式，差异检查使用命令级 `core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol`；清除上游新增的一处尾随 tab，不修改全局 Git 配置。运行兼容性仍未实测。
