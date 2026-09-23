@@ -32,6 +32,7 @@ static constexpr int kMirvPovVoiceSeekClearRenderPasses = 3;
 static constexpr float kMirvPovSyntheticSpeakingSeconds = 0.65f;
 
 static bool g_MirvPovVoiceEnabled = true;
+static MirvPovVoiceMode g_MirvPovVoiceMode = MirvPovVoiceMode::Team;
 static int g_MirvPovVoiceLastDemoTick = INT_MIN;
 static int g_MirvPovVoiceClearRenderPasses = 0;
 static bool g_MirvPovVoiceHadDemoFile = false;
@@ -164,18 +165,22 @@ void MirvPov_ClearSyntheticSpeaking() {
     MirvPov_ForceClearSyntheticSpeaking();
 }
 
-static bool MirvPov_IsVoicePlayerSlotOnWatchedTeam(unsigned int playerSlot) {
+static bool MirvPov_IsVoicePlayerSlotAllowed(unsigned int playerSlot) {
     if(64 <= playerSlot) return false;
+
+    CEntityInstance * voiceController = GetEntityFromIndex((int)playerSlot + 1);
+    if(nullptr == voiceController || !voiceController->IsPlayerController()) return false;
+    if(g_MirvPovVoiceMode == MirvPovVoiceMode::All) return true;
 
     CEntityInstance * watchedController = GetCurrentPovPlayerController();
     if(nullptr == watchedController || !watchedController->IsPlayerController()) return false;
     int watchedTeam = watchedController->GetTeam();
     if(watchedTeam != 2 && watchedTeam != 3) return false;
 
-    CEntityInstance * voiceController = GetEntityFromIndex((int)playerSlot + 1);
-    return nullptr != voiceController
-        && voiceController->IsPlayerController()
-        && voiceController->GetTeam() == watchedTeam;
+    const int voiceTeam = voiceController->GetTeam();
+    if(voiceTeam != 2 && voiceTeam != 3) return false;
+    return g_MirvPovVoiceMode == MirvPovVoiceMode::Enemy
+        ? voiceTeam != watchedTeam : voiceTeam == watchedTeam;
 }
 
 void MirvPov_UpdateVoiceTeam() {
@@ -183,17 +188,10 @@ void MirvPov_UpdateVoiceTeam() {
     MirvPov_CheckManualVoiceMute();
     if(!g_MirvPovVoiceEnabled) return;
 
-    CEntityInstance * watchedController = GetCurrentPovPlayerController();
-    if(nullptr == watchedController || !watchedController->IsPlayerController()) return;
-
-    int watchedTeam = watchedController->GetTeam();
-    if(watchedTeam != 2 && watchedTeam != 3) return;
-
     uint32_t lowMask = 0;
     uint32_t highMask = 0;
     for(unsigned int playerSlot = 0; playerSlot < 64; ++playerSlot) {
-        CEntityInstance * controller = GetEntityFromIndex((int)playerSlot + 1);
-        if(nullptr == controller || !controller->IsPlayerController() || controller->GetTeam() != watchedTeam) continue;
+        if(!MirvPov_IsVoicePlayerSlotAllowed(playerSlot)) continue;
         if(playerSlot < 32) lowMask |= uint32_t(1) << playerSlot;
         else highMask |= uint32_t(1) << (playerSlot - 32);
     }
@@ -239,7 +237,7 @@ static __int64 __fastcall New_MirvPov_ServerVoiceData(__int64 This, __int64 msg)
         && playerSlot < 64
         && g_MirvPovVoiceEnabled
         && MIRV_POV_FEATURE_ACTIVE("voice")
-        && MirvPov_IsVoicePlayerSlotOnWatchedTeam(playerSlot)) {
+        && MirvPov_IsVoicePlayerSlotAllowed(playerSlot)) {
         MirvPov_SetSyntheticSpeaking(playerSlot, true);
     }
     return result;
@@ -356,6 +354,21 @@ bool MirvPovVoice_IsEnabled()
     return g_MirvPovVoiceEnabled;
 }
 
+MirvPovVoiceMode MirvPovVoice_GetMode()
+{
+    return g_MirvPovVoiceMode;
+}
+
+const char * MirvPovVoice_GetModeName()
+{
+    if(!g_MirvPovVoiceEnabled) return "off";
+    switch(g_MirvPovVoiceMode) {
+    case MirvPovVoiceMode::All: return "all";
+    case MirvPovVoiceMode::Enemy: return "enemy";
+    default: return "team";
+    }
+}
+
 void MirvPovVoice_ResetDemoState()
 {
     // Resetting hadDemoFile first would bypass the disconnect clear in
@@ -373,9 +386,31 @@ void MirvPovVoice_SetEnabled(bool enabled)
     if(g_MirvPovVoiceEnabled == enabled) return;
 
     g_MirvPovVoiceEnabled = enabled;
+    if(MIRV_POV_FEATURE_ACTIVE("voice") && g_pEngineToClient) {
+        g_pEngineToClient->ExecuteClientCmd(0, "servervoice_clear", true);
+    }
     MirvPov_ResetVoiceHud();
 
     if(enabled && MIRV_POV_FEATURE_ACTIVE("voice")) {
+        MirvPov_HookVoiceHud(GetModuleHandleW(L"client.dll"));
+        MirvPov_UpdateVoiceTeam();
+    }
+}
+
+void MirvPovVoice_SetMode(MirvPovVoiceMode mode)
+{
+    MirvPov_CheckManualVoiceMute();
+    if(g_MirvPovVoiceMode == mode) {
+        MirvPovVoice_SetEnabled(true);
+        return;
+    }
+    g_MirvPovVoiceMode = mode;
+    g_MirvPovVoiceEnabled = true;
+    if(MIRV_POV_FEATURE_ACTIVE("voice") && g_pEngineToClient) {
+        g_pEngineToClient->ExecuteClientCmd(0, "servervoice_clear", true);
+    }
+    MirvPov_ResetVoiceHud();
+    if(MIRV_POV_FEATURE_ACTIVE("voice")) {
         MirvPov_HookVoiceHud(GetModuleHandleW(L"client.dll"));
         MirvPov_UpdateVoiceTeam();
     }

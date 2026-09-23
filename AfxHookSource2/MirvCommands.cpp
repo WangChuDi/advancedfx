@@ -393,14 +393,20 @@ CON_COMMAND(mirv_pov_scoreboard, "Sync demo POV scoreboard key to +showscores. D
 	);
 }
 
-CON_COMMAND(mirv_pov_voice, "Enable POV team voice routing and voice HUD synchronization. Enabled by default.")
+CON_COMMAND(mirv_pov_voice, "Select POV player voice routing: team (default), all, enemy, or off.")
 {
 	int argc = args->ArgC();
 	if(2 == argc) {
 		const char * arg1 = args->ArgV(1);
+		if(0 == _stricmp(arg1, "team") || 0 == _stricmp(arg1, "all") || 0 == _stricmp(arg1, "enemy")) {
+			MirvPovVoice_SetMode(0 == _stricmp(arg1, "all") ? MirvPovVoiceMode::All
+				: 0 == _stricmp(arg1, "enemy") ? MirvPovVoiceMode::Enemy : MirvPovVoiceMode::Team);
+			advancedfx::Message("mirv_pov_voice %s.\n", MirvPovVoice_GetModeName());
+			return;
+		}
 		if(0 == _stricmp(arg1, "true") || 0 == _stricmp(arg1, "1") || 0 == _stricmp(arg1, "on")) {
 			MirvPovVoice_SetEnabled(true);
-			advancedfx::Message("mirv_pov_voice enabled.\n");
+			advancedfx::Message("mirv_pov_voice %s.\n", MirvPovVoice_GetModeName());
 			return;
 		}
 		if(0 == _stricmp(arg1, "false") || 0 == _stricmp(arg1, "0") || 0 == _stricmp(arg1, "off")) {
@@ -410,12 +416,16 @@ CON_COMMAND(mirv_pov_voice, "Enable POV team voice routing and voice HUD synchro
 		}
 	}
 	advancedfx::Message(
-		"Usage: mirv_pov_voice true|false\n"
-		"  true  - Resume automatic POV team voice routing and synchronize the voice HUD\n"
-		"  false - Restore the original voice masks and disable synthetic speaking\n"
+		"Usage: mirv_pov_voice team|all|enemy|off\n"
+		"  team  - Listen to the current POV team (default)\n"
+		"  all   - Listen to all players\n"
+		"  enemy - Listen to the opposing playing team\n"
+		"  off   - Restore the original voice masks and disable synthetic speaking\n"
+		"  true/1/on resumes the selected mode; false/0 is an alias for off.\n"
+		"  The voice HUD follows the selected mode; agent radio lines are unaffected.\n"
 		"  Setting tv_listen_voice_indices to 0 while routing disables mirv_pov_voice and clears both voice masks.\n"
 		"Current: %s\n"
-			, MirvPovVoice_IsEnabled() ? "enabled" : "disabled"
+			, MirvPovVoice_GetModeName()
 	);
 }
 

@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "MirvPovRadio.h"
+#include "MirvPovAgentVoiceData.h"
 
 #include "ClientEntitySystem.h"
 #include "Globals.h"
@@ -1309,11 +1310,12 @@ bool IsSuppressedRadioToken(const char * text)
         || ContainsNormalizedRadioToken(text, "loosebomb");
 }
 
-bool IsLikelyAgentDefIndex(int value)
+const char * AgentFamilyFromDefIndex(int defIndex)
 {
-    // Agent item definitions occupy the 5xxx range.  Reject zero/garbage from
-    // a not-yet-replicated controller instead of treating it as a real family.
-    return 5000 <= value && value < 7000;
+    for(const auto & agent : MirvPovAgentVoice::kAgents) {
+        if(agent.definition == defIndex) return agent.family;
+    }
+    return nullptr;
 }
 
 int ReadPawnCharacterDefIndex(CEntityInstance * controller)
@@ -1324,58 +1326,28 @@ int ReadPawnCharacterDefIndex(CEntityInstance * controller)
     __try {
         unsigned char * address = reinterpret_cast<unsigned char *>(controller)
             + g_clientDllOffsets.CCSPlayerController.m_nPawnCharacterDefIndex;
-        value = *reinterpret_cast<int *>(address);
-        if(!IsLikelyAgentDefIndex(value)) {
-            // item_definition_index_t is 16-bit in some schema generations.
-            // Read the narrow form only after rejecting the wide value so a
-            // neighbouring field cannot be mistaken for an agent id.
-            value = static_cast<int>(*reinterpret_cast<uint16_t *>(address));
-        }
+        // The replicated item definition is uint16; adjacent bytes are not
+        // part of its identity. Valid agents also occupy the 46xx/47xx ranges.
+        value = static_cast<int>(*reinterpret_cast<uint16_t *>(address));
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         value = -1;
     }
-    // Some demo builds expose the field as a short item-definition value.  An
-    // invalid controller read is not useful, but a valid 5xxx value is safe to
-    // retain; this also prevents random entity bytes from selecting an agent.
-    return IsLikelyAgentDefIndex(value) ? value : -1;
-}
-
-const char * AgentFamilyFromDefIndex(int defIndex)
-{
-    if(!IsLikelyAgentDefIndex(defIndex)) return nullptr;
-
-    // Current items_game agent definitions.  Keep the ranges explicit because
-    // the compact ranges used by older builds mixed 5037 into Phoenix and
-    // mapped the CT families to the wrong voice directory.
-    if(5036 == defIndex
-        || (5038 <= defIndex && defIndex <= 5047)
-        || (5053 <= defIndex && defIndex <= 5057)
-        || (5200 <= defIndex && defIndex <= 5204)) return "phoenix";
-    if(5048 <= defIndex && defIndex <= 5052) return "professional";
-    if(5037 == defIndex
-        || (5079 <= defIndex && defIndex <= 5082)
-        || 5600 == defIndex) return "sas";
-    if(5058 <= defIndex && defIndex <= 5067) return "gsg9";
-    if(5068 <= defIndex && defIndex <= 5078)
-        return "swat";
-    if(5083 <= defIndex && defIndex <= 5087) return "swat";
-    if(5088 <= defIndex && defIndex <= 5096) return "balkan";
-    if(5097 == defIndex) return "fbihrt";
-    if(5100 <= defIndex && defIndex <= 5104) return "leet";
-    if(5300 <= defIndex && defIndex <= 5304) return "fbihrt";
-    return nullptr;
+    return AgentFamilyFromDefIndex(value) ? value : -1;
 }
 
 const char * FindVoiceFamilyInText(const char * text)
 {
     if(nullptr == text || '\0' == text[0]) return nullptr;
-    static const char * const families[] = {
-        "professional", "gsg9", "sas", "swat", "fbihrt",
-        "balkan", "phoenix", "leet", "separatist", "anarchist",
-        "pirate", "militia"
-    };
-    for(const char * family : families) {
-        if(ContainsInsensitive(text, family)) return family;
+    // Match a whole sound-event prefix or path component. A substring match
+    // collapses swat_fem/professional_epic into a different actor's voice.
+    for(const auto & voice : MirvPovAgentVoice::kThrows) {
+        const size_t length = strlen(voice.family);
+        for(const char * cursor = text; *cursor; ++cursor) {
+            if(cursor != text && cursor[-1] != '/' && cursor[-1] != '\\') continue;
+            if(0 != _strnicmp(cursor, voice.family, length)) continue;
+            const char end = cursor[length];
+            if(end == '.' || end == '/' || end == '\\' || end == '\0') return voice.family;
+        }
     }
     return nullptr;
 }
@@ -1879,15 +1851,19 @@ const char * PickVoiceVariant(const char * const * variants, size_t count, uint3
     return variants[seed % count];
 }
 
-bool UsesCtThrowVoiceNames(const char * prefix)
+const char * PickThrowVoiceStem(const char * family, int slot, uint32_t seed)
 {
-    // CS2 kept the legacy throw-callout families: SAS/SWAT/GSG9/FBIHRT use
-    // ct_* resources, while Professional and the T families use t_* resources.
-    return nullptr != prefix
-        && (0 == strcmp(prefix, "sas")
-            || 0 == strcmp(prefix, "swat")
-            || 0 == strcmp(prefix, "gsg9")
-            || 0 == strcmp(prefix, "fbihrt"));
+    const int column = slot == 101 ? 0 : slot == 102 ? 1 : slot == 103 ? 2
+        : (slot == 104 || slot == 105) ? 3 : slot == 106 ? 4 : -1;
+    if(nullptr == family || column < 0) return nullptr;
+    for(const auto & voice : MirvPovAgentVoice::kThrows) {
+        if(0 != strcmp(voice.family, family)) continue;
+        const auto & variants = voice.stems[column];
+        size_t count = 0;
+        while(count < sizeof(variants) / sizeof(variants[0]) && variants[count]) ++count;
+        return PickVoiceVariant(variants, count, seed);
+    }
+    return nullptr;
 }
 
 // Build the actual CS2 SoundEvent name used by the agent voice resources.
@@ -1920,37 +1896,12 @@ bool BuildSyntheticAudioCue(
 
     const bool isCt = 3 == ResolveControllerTeam(controller);
     const char * prefix = GetAgentVoicePrefix(controller);
-    if(nullptr == prefix) prefix = isCt ? "professional" : "balkan";
+    if(nullptr == prefix) prefix = isCt ? "sas" : "phoenix";
     const uint32_t seed = VoiceVariantSeed(controller, slot);
     const char * stem = nullptr;
 
-    static const char * const tSmoke[] = {"t_smoke01", "t_smoke02", "t_smoke03"};
-    static const char * const tFlash[] = {"t_flashbang01", "t_flashbang02", "t_flashbang03"};
-    static const char * const tHe[] = {"t_grenade01", "t_grenade02"};
-    static const char * const tMolotov[] = {"t_molotov01", "t_molotov02"};
-    static const char * const ctSmoke[] = {"ct_smoke01", "ct_smoke02"};
-    static const char * const ctFlash[] = {"ct_flashbang01", "ct_flashbang02"};
-    static const char * const ctHe[] = {"ct_grenade01"};
-    static const char * const ctMolotov[] = {"ct_molotov01", "ct_molotov02"};
-
-    if(101 == slot) {
-        stem = UsesCtThrowVoiceNames(prefix)
-            ? PickVoiceVariant(ctSmoke, sizeof(ctSmoke) / sizeof(ctSmoke[0]), seed)
-            : PickVoiceVariant(tSmoke, sizeof(tSmoke) / sizeof(tSmoke[0]), seed);
-    } else if(102 == slot) {
-        stem = UsesCtThrowVoiceNames(prefix)
-            ? PickVoiceVariant(ctFlash, sizeof(ctFlash) / sizeof(ctFlash[0]), seed)
-            : PickVoiceVariant(tFlash, sizeof(tFlash) / sizeof(tFlash[0]), seed);
-    } else if(103 == slot) {
-        stem = UsesCtThrowVoiceNames(prefix)
-            ? PickVoiceVariant(ctHe, sizeof(ctHe) / sizeof(ctHe[0]), seed)
-            : PickVoiceVariant(tHe, sizeof(tHe) / sizeof(tHe[0]), seed);
-    } else if(104 == slot || 105 == slot) {
-        stem = UsesCtThrowVoiceNames(prefix)
-            ? PickVoiceVariant(ctMolotov, sizeof(ctMolotov) / sizeof(ctMolotov[0]), seed)
-            : PickVoiceVariant(tMolotov, sizeof(tMolotov) / sizeof(tMolotov[0]), seed);
-    } else if(106 == slot) {
-        stem = "t_decoy01";
+    if(101 <= slot && slot <= 106) {
+        stem = PickThrowVoiceStem(prefix, slot, seed);
     } else if(isCt) {
         // Professional's resources use the radiobot* stem names.  The agent
         // family prefix still selects the actual operator voice; the filename

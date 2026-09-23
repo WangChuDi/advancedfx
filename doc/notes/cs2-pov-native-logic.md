@@ -231,3 +231,43 @@ UI engine 槽 `0x2729660`；cant-afford / cant-buy symbols `0x25BDDF4/0x25BDDF8`
 用户随后明确要求替换 DLL。Release x64 `AfxHookSource2` 构建成功；编译时发现 HUD buy-zone 函数的签名初始化与 SEH 共处触发 MSVC C2712，已将签名初始化移入独立 helper，保留原判断及异常保护。未运行测试，未启动或重启游戏。
 
 根据当前 HLAE 进程路径与 `hlaeconfig.xml` 的 `x64\AfxHookSource2.dll` 配置，确认 CS2 未运行后替换 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`。旧文件备份为同目录 `AfxHookSource2.dll.backup-20260923-194125`；新文件与构建产物 SHA-256 一致：`2f0231c620d46275deea04d977d878da6b5cf10a1ee69d80d9c367251f2e7453`。此为构建及文件部署核验，运行效果仍未验证。
+
+## 2026-09-23：非默认探员投掷语音与玩家语音范围
+
+### 身份、原生资源与确定的问题
+
+本轮重算安装的 client.dll，仍为 `40bce8206f51b92ee05d6121c6e42c717bf3fa0cc0edeeb6698744b1c4799feb`；image base `0x180000000`。没有增加二进制 hook 或改动既有调用地址。资源来自当前游戏 VPK，经本地 Source2Viewer CLI 提取；目录 VPK 哈希和全体探员覆盖见 [探员语音资源表](cs2-agent-voice-catalog.md)。原生资源响应逻辑与 POV 自行补播区别如下：
+
+- `items_game.txt` 的 `vo_prefix` 可以覆盖模型家族；`scripts/talker/shared.vrr` 的 model 条件再选择对应响应库。`ctm_st6` 对应 `seal`，`ctm_gsg9` 对应 `gsg9`。自定义库包括 `professional_epic`、`swat_fem`、`gendarmerie_male`、`seal_diver_01`、`jungle_fem` 等，不能通过短字符串包含判断折叠成默认声音。
+- 投掷采用各家族的 `Radio.Smoke/Flashbang/FireInTheHole/Molotov/Decoy` 响应组，实际文件名可以是 `ct_smoke01`、`throwing_smoke_01`、`fm1_throwing_smoke_01` 等。编号不保证连续，原生组还带上下文条件，POV 没有完整重建其冷却和随机权重。
+- 旧 `MirvPovRadio.cpp` 仅接受 `5000 <= id < 7000`，遗漏真实 `4613/4712/4751/4771` 等 ID；旧硬编码映射也遗漏 5105 以后多个可交易变体。找不到时 CT 被替代为 professional，而不是该探员真实声音。
+- `FindVoiceFamilyInText` 旧包含匹配会把 `professional_fem` 归为 `professional`，并完全遗漏 seal/gendarmerie/jungle。旧 fallback 拼接固定编号，例如 `professional.t_smoke02`、`leet.t_flashbang02`、`fbihrt.ct_molotov01`，这些事件不在当前对应声音库；CT 诱饵也被错误拼成 `t_decoy01`。这些是静态确认的错声/漏播路径，但没有用户具体 demo/tick，不能将其宣称为每次报告现象的唯一运行原因。
+
+### POV 修复与接入
+
+`MirvPovAgentVoiceData.h` 用完整定义 ID 表替代区间猜测；涵盖 141 个定义，其中 63 个非 legacy 可交易探员。`ReadPawnCharacterDefIndex` 使用动态 schema 偏移，窄读 uint16，避免邻接字段影响；保持该字段缺失或未知时的降级路径。`FindVoiceFamilyInText` 改为完整事件前缀或路径组件匹配，保留 epic/fem/diver 等身份。`PickThrowVoiceStem` 从 28 个库各自原生响应组与实际声音事件的交集中选择，不拼不存在的连续编号；共 456 个事件及其声音文件完成静态存在性核对。未知探员且无已观察声音时，按当前默认 CT=SAS、T=Phoenix 降级。
+
+真实 RawAudio 已观察 cue 仍优先，`weapon_fire/grenade_thrown` 仍先排队，等待原生音频后再补播；没有改变既有时间窗口、去重和声音空间化策略。既有 RawAudio typed formatter 为 client RVA `0x11A2830`（实际 detour）；直接声音 helper RVA `0x3EB040` 只被调用。此处地址沿用同哈希上一节静态记录，没有重新执行或声称实测通过。
+
+沿用 `mirv_pov_radio_audio 0/1`（默认 1）；关闭立即清空补播队列，重新开启只影响后续事件；主 POV 开关和 radio 模块门控仍有效。没有新增独立用户效果。
+
+### 玩家麦克风语音模式
+
+`MirvCommands.cpp` / `MirvPovVoice.cpp/.h` 的 `mirv_pov_voice` 支持：
+
+```text
+mirv_pov_voice team   // 默认，只听当前 POV 队伍（包含本人）的玩家语音
+mirv_pov_voice all    // 所有有效玩家，包括有语音数据的观察者
+mirv_pov_voice enemy  // 只听对立游戏队伍；T/CT 之外不算敌方
+mirv_pov_voice off    // 停止接管，恢复进入接管前的语音掩码
+```
+
+不带参数显示帮助和当前模式。保留 `true/1/on` 恢复上次所选模式、`false/0/off` 关闭；初始模式 team。模式对 `tv_listen_voice_indices` 的低/高 32 位与补充说话 HUD 使用同一筛选；team/enemy 在无有效 POV 队伍时写零掩码，避免残留旧队伍。切换模式清理 `servervoice_clear` 和说话 HUD，然后立即更新掩码；POV 关闭时只保存配置。模式在本进程跨 POV 开关和 demo 重置保留，不写用户配置。
+
+保留手动把 `tv_listen_voice_indices` 从插件非零值改为 0 时关闭接管、清高位且不恢复旧掩码的语义。`mirv_pov_debug_feature voice 0/1` 沿用既有模块控制；不增加每个阵营模式的独立开关。此命令只控制玩家麦克风语音，探员投掷无线电仍属于 radio 音效，不受该模式筛选。
+
+### 证据与未验证项
+
+本地 `diagnostics/agent-voice-20260923/` 保存本轮 items_game、28 个事件库、talker 规则、全体映射、各资源 SHA-256、声音文件清单和生成审计脚本；维护用资源表在 `doc/notes/cs2-agent-voice-catalog.md`。按用户先前要求不运行测试，不启动或重启游戏。未验证每个探员的实机听感、真实 demo 音频包可用性、模式启停/seek/手动静音交互；资源覆盖不等于这些运行效果已验证。
+
+Release x64 `AfxHookSource2` 编译成功（`diagnostics/agent-voice-20260923/build.log`）；此轮未替换 HLAE 当前 DLL，也未提交或推送。
