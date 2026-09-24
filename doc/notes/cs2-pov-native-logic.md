@@ -415,3 +415,11 @@ POV 实现调整：
 fork 已移除该函数及其 `g_Original_handlePlayerDeath` 全局入口，改由 `HookDeathMsg` 调用 `MirvPovDeathPanel_ResolveAddresses`，并 detour 外层事件监听器。因此此处是旧函数删除与上游修改的冲突，不是给现有监听器替换字节签名：保留 fork 删除和当前监听器调用链，合并上游祖先关系，不恢复旧内部 hook 或为不使用的函数添加扫描。最新 POV 修复已先独立提交为 `be5e5ded`。
 
 合并结果 Release x64 `AfxHookSource2` 构建成功，未运行游戏或测试，未替换用户已验证的安装 DLL。此节只记录源码合并决策，没有新增原生地址验证；之前的按构建分析边界继续有效。
+
+### 同日继续同步 HLAE 2.192.4
+
+上游 main 更新至 `55ebb712`（HLAE 2.192.4），包含 `b69a67f3`、`d355c74f` 的渲染回调/准星修复回退，以及 `a0c61bed` 的新准星捕获处理。采用上游在 CSGOHud SetupLightsAndViewConstants 阶段排队 BeforeUi 回调、BeforeUi 捕获隐藏 CSGOCrosshair 的实现，合入版本、安装包及 changelog 更新。
+
+唯一冲突在 `SceneSystem.cpp::new_InitDrawingData` 的旧 PostProcessing command-list 路径。按上游删除该跟踪和额外回调代码，将 commit hook 安装留在 scene filter 有效分支；五参数调用及可选 name suffix 转发仍保留。SceneSystem 与上游最终内容仅有一处尾随空白清理差异，POV 受击/死亡效果改动不被回退。此次没有新增二进制逆向或地址核验结论。
+
+Release x64 AfxHookSource2 构建成功（`diagnostics/hurt-death-native-20260924/build-upstream-21924.log`），合并无未解决冲突，diff whitespace 检查通过。未运行游戏或测试、未替换安装 DLL；旧队友声音调查及本地分析产物继续不纳入本次提交。
