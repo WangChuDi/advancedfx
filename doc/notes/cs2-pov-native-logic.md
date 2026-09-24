@@ -407,3 +407,11 @@ POV 实现调整：
 - 此为现有 `death_screen` 效果的生命周期修复，沿用其独立开关，没有添加新效果或控制。Release x64 构建与 diff whitespace 检查通过；输出 SHA-256 `DAC7FC9DE3FEFB8F5E159C4ACC959CAB2BF5F57B1CCE139A9105CE2D74C92433`。按用户要求未运行测试或游戏。本轮未安装 DLL，重复回放效果尚未实测。
 
 后续部署与用户验证：用户授权安装后，以上 SHA-256 的 DLL 已替换至 HLAE x64 安装目录，旧 DLL 备份为 `AfxHookSource2.dll.backup-20260924-152356`，源/目标哈希一致。用户随后反馈效果正常并要求提交、推送及同步上游；这是用户回放确认，不是代理自行执行游戏测试，也不代表覆盖全部地图、模式及开关组合。
+
+## 2026-09-24：同步上游 mirv_deathmsg 适配
+
+同步官方 `advancedfx/advancedfx` main 的 `efbca37e655e0a6276ccacc9710dd53a3945842e`（`fix: adjust mirv_deathmsg to cs2 update`）。该提交仅更新旧 `getDeathMsgAddrs` 中内部 player_death 处理器的签名。
+
+fork 已移除该函数及其 `g_Original_handlePlayerDeath` 全局入口，改由 `HookDeathMsg` 调用 `MirvPovDeathPanel_ResolveAddresses`，并 detour 外层事件监听器。因此此处是旧函数删除与上游修改的冲突，不是给现有监听器替换字节签名：保留 fork 删除和当前监听器调用链，合并上游祖先关系，不恢复旧内部 hook 或为不使用的函数添加扫描。最新 POV 修复已先独立提交为 `be5e5ded`。
+
+合并结果 Release x64 `AfxHookSource2` 构建成功，未运行游戏或测试，未替换用户已验证的安装 DLL。此节只记录源码合并决策，没有新增原生地址验证；之前的按构建分析边界继续有效。
