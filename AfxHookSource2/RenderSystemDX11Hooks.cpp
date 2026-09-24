@@ -43,6 +43,7 @@
 #include <DirectXMath.h>
 
 #include <cstdlib>
+#include <cstddef>
 #include <set>
 #include <map>
 #include <queue>
@@ -118,19 +119,16 @@ CViewEffects_Get_t g_CViewEffectsGet = nullptr;
 thread_local const char * g_NativeFadeApplySource = nullptr;
 
 std::mutex g_NativeFadeTemplateMutex;
-NativeFadeTemplate g_NativeHurtFadeTemplate;
 NativeFadeTemplate g_NativeDeathFadeTemplate;
 
 std::atomic<float> g_DeathFadeDueCurtime { -1.0f };
 std::atomic<int> g_DeathFadeDueTick { -1 };
 std::atomic<uint64_t> g_DeathFadeEpoch { 0 };
 std::atomic<uint64_t> g_DeathFadeScheduledEpoch { 0 };
-std::atomic<bool> g_DeathFadeHurtPending { false };
 std::atomic<float> g_LastDeathEventCurtime { -1.0f };
 std::atomic<int> g_LastDeathEventTick { -1 };
 std::atomic<float> g_ObservedDeathBlackDelay { -1.0f };
 std::atomic<int> g_ObservedDeathBlackDelayTicks { -1 };
-std::atomic<bool> g_HurtEventAwaitingFade { false };
 std::atomic<bool> g_DeathEventAwaitingBlack { false };
 std::atomic<bool> g_DeathFadeActive { false };
 std::atomic<bool> g_DeathFadeClearPending { false };
@@ -139,24 +137,17 @@ std::atomic<uint8_t> g_DeathFadeObserverMode { 0 };
 std::atomic<uint32_t> g_DeathFadeObserverTarget { 0xFFFFFFFFu };
 int g_DeathFadeLastDemoTick = -1;
 
-constexpr uint16_t kFadeIn = 0x0001;
 constexpr uint16_t kFadeOut = 0x0002;
 constexpr uint16_t kFadeStayOut = 0x0008;
 constexpr uint16_t kFadePurge = 0x0010;
 
-constexpr uint16_t kHurtFadeDuration = 64;  // fallback only: 0.125 s * 512
 constexpr uint16_t kDeathBlackFadeDuration = 307; // 0.60 s * 512
 
 // Used only until a real game Fade message has been observed. The normal
 // path below reuses the game's own duration/hold/flags/color instead.
-constexpr uint32_t kHurtFadeColor = 0x180000FF; // RGBA bytes: FF 00 00 18
 constexpr uint32_t kDeathBlackFadeColor = 0xFF000000; // RGBA bytes: 00 00 00 FF
 
-// Keep synthetic hurt/death entries replaceable. The native path uses -1 for
-// its first insertion, but repeatedly inserting our own hurt entry with -1
-// makes several full-screen fades accumulate and produces an overly dark red
-// screen. The first call still uses -1 and records the native effect id.
-std::atomic<int> g_HurtFadeEffectId { -1 };
+// Keep the owned death entry replaceable after its first insertion with -1.
 std::atomic<int> g_DeathBlackFadeEffectId { -1 };
 
 static bool NativeFade_ReadMessage(
@@ -178,11 +169,6 @@ static bool NativeFade_ReadMessage(
     }
 }
 
-static bool NativeFade_IsRed(uint32_t rgba) {
-    const uint8_t * c = reinterpret_cast<const uint8_t *>(&rgba);
-    return 0 < c[0] && c[0] > c[1] + 32 && c[0] > c[2] + 32 && 0 < c[3];
-}
-
 static bool NativeFade_IsBlack(uint32_t rgba, uint16_t flags) {
     const uint8_t * c = reinterpret_cast<const uint8_t *>(&rgba);
     return c[0] < 8 && c[1] < 8 && c[2] < 8
@@ -200,10 +186,7 @@ static void NativeFade_ObserveGameMessage(
     // themselves.
     if (nullptr != g_NativeFadeApplySource) return;
 
-    if (NativeFade_IsRed(rgba) && g_HurtEventAwaitingFade.exchange(false, std::memory_order_acq_rel)) {
-        std::lock_guard<std::mutex> lock(g_NativeFadeTemplateMutex);
-        g_NativeHurtFadeTemplate = { duration, hold, flags, rgba, true };
-    } else if (NativeFade_IsBlack(rgba, flags)
+    if (NativeFade_IsBlack(rgba, flags)
         && g_DeathEventAwaitingBlack.exchange(false, std::memory_order_acq_rel)) {
         std::lock_guard<std::mutex> lock(g_NativeFadeTemplateMutex);
         g_NativeDeathFadeTemplate = { duration, hold, flags, rgba, true };
@@ -226,9 +209,9 @@ static void NativeFade_ObserveGameMessage(
     }
 }
 
-static NativeFadeTemplate NativeFade_GetTemplate(bool death) {
+static NativeFadeTemplate NativeFade_GetDeathTemplate() {
     std::lock_guard<std::mutex> lock(g_NativeFadeTemplateMutex);
-    return death ? g_NativeDeathFadeTemplate : g_NativeHurtFadeTemplate;
+    return g_NativeDeathFadeTemplate;
 }
 
 static __int64 __fastcall NativeFade_Intercept(
@@ -268,17 +251,19 @@ bool NativeFade_Apply(
     }
 
 
-    // CViewEffects::AddFade consumes a compact 10-byte payload. Passing a
-    // fabricated CUserMessageFade_t here bypasses the native Fade queue and
-    // was the reason the red alpha and death timing diverged from the game.
+    // Since CS2 build 14182, AddFade expects color at +8 (12 bytes total).
+    // This is the native intermediate structure, not a CUserMessageFade_t.
 #pragma pack(push, 1)
     struct FadePayload {
         uint16_t duration;
         uint16_t hold;
         uint16_t flags;
+        uint16_t padding;
         uint32_t rgba;
-    } payload{ duration, hold, flags, rgba };
+    } payload{ duration, hold, flags, 0, rgba };
 #pragma pack(pop)
+    static_assert(sizeof(FadePayload) == 12, "Native Fade payload size changed");
+    static_assert(offsetof(FadePayload, rgba) == 8, "Native Fade color offset changed");
 
     const char * previousFadeApplySource = g_NativeFadeApplySource;
     g_NativeFadeApplySource = source;
@@ -379,26 +364,9 @@ void RenderSystemDX11_DeathFade_Initialize(void * clientDll) {
 
 }
 
-void RenderSystemDX11_DeathFade_Hurt() {
-    if(!MirvPov_IsEnabled()) return;
-    // Coalesce all hurt events observed before the next render pass. The
-    // native game path does not build a new full-screen overlay per event.
-    g_DeathFadeHurtPending.store(true, std::memory_order_release);
-}
-
-void RenderSystemDX11_DeathFade_ObserveHurtEvent() {
-    // Learn the red template only from a fade that follows an actual hurt
-    // event. This prevents unrelated red screen effects from becoming the
-    // synthetic hurt template.
-    g_HurtEventAwaitingFade.store(true, std::memory_order_release);
-}
-
 void RenderSystemDX11_DeathFade_Death() {
     if(!MirvPov_IsEnabled() || !MirvPov_IsDeathFeedbackEnabled()) return;
     const uint64_t epoch = g_DeathFadeEpoch.fetch_add(1, std::memory_order_acq_rel) + 1;
-    // Keep the last hurt Fade queued. Native CS2 can receive player_hurt and
-    // player_death in the same simulation step; dropping hurt here removed
-    // the red-to-black transition entirely.
     const float now = g_MirvTime.curtime_get();
     int tick = -1;
     const bool hasDemoTick = g_MirvTime.GetCurrentDemoTick(tick);
@@ -453,10 +421,7 @@ static void RenderSystemDX11_DeathFade_ClearOwned(const char * source, bool forc
     g_DeathFadeDueCurtime.store(-1.0f, std::memory_order_release);
     g_DeathFadeDueTick.store(-1, std::memory_order_release);
     g_DeathFadeEpoch.fetch_add(1, std::memory_order_acq_rel);
-    g_DeathFadeHurtPending.store(false, std::memory_order_release);
-    g_HurtEventAwaitingFade.store(false, std::memory_order_release);
     g_DeathEventAwaitingBlack.store(false, std::memory_order_release);
-    g_HurtFadeEffectId.store(-1, std::memory_order_release);
     g_DeathBlackFadeEffectId.store(-1, std::memory_order_release);
     const bool wasActive = g_DeathFadeActive.load(std::memory_order_acquire);
     if(!force && !wasActive) return;
@@ -554,24 +519,6 @@ void RenderSystemDX11_DeathFade_ProcessPending() {
         return;
     }
 
-    if(g_DeathFadeHurtPending.exchange(false, std::memory_order_acq_rel)) {
-        NativeFadeTemplate hurt = NativeFade_GetTemplate(false);
-        const bool learned = hurt.valid;
-        if(!learned) hurt = { kHurtFadeDuration, 0, kFadeIn, kHurtFadeColor, true };
-        uint32_t effectId = 0;
-        if (NativeFade_Apply(
-            "hurt",
-            hurt.duration,
-            hurt.hold,
-            hurt.flags,
-            hurt.rgba,
-            g_HurtFadeEffectId.load(std::memory_order_acquire),
-            &effectId)) {
-            g_HurtFadeEffectId.store(static_cast<int>(effectId), std::memory_order_release);
-            g_DeathFadeActive.store(true, std::memory_order_release);
-        }
-    }
-
     const uint64_t scheduledEpoch = g_DeathFadeScheduledEpoch.load(std::memory_order_acquire);
     if(scheduledEpoch != g_DeathFadeEpoch.load(std::memory_order_acquire)) return;
     const float dueCurtime = g_DeathFadeDueCurtime.load(std::memory_order_acquire);
@@ -600,7 +547,7 @@ void RenderSystemDX11_DeathFade_ProcessPending() {
             || g_DeathFadeScheduledEpoch.load(std::memory_order_acquire) != scheduledEpoch) {
             return;
         }
-        NativeFadeTemplate death = NativeFade_GetTemplate(true);
+        NativeFadeTemplate death = NativeFade_GetDeathTemplate();
         if(!death.valid) death = { kDeathBlackFadeDuration, 0, kFadeOut | kFadeStayOut, kDeathBlackFadeColor, true };
         uint32_t effectId = 0;
         if (NativeFade_Apply(

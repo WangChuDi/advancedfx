@@ -6,6 +6,7 @@ namespace SOURCESDK { namespace CS2 { class IGameEvent; } }
 
 void MirvPovFeedback_Initialize(HMODULE clientDll);
 void MirvPovFeedback_ResetDeafen();
+void MirvPovFeedback_ResetDirections();
 void MirvPovFeedback_UpdatePovSelection();
 void MirvPovFeedback_ResetPovSelection();
 void MirvPovFeedback_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event);

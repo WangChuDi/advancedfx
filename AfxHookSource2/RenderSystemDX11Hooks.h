@@ -27,9 +27,7 @@ void Hook_SceneSystem(void * hModule);
 void RenderSystemDX11_SupplyProjectionMatrix(const SOURCESDK::VMatrix & projectionMatrix);
 
 void RenderSystemDX11_DeathFade_Initialize(void * clientDll);
-void RenderSystemDX11_DeathFade_Hurt();
 void RenderSystemDX11_DeathFade_Death();
-void RenderSystemDX11_DeathFade_ObserveHurtEvent();
 void RenderSystemDX11_DeathFade_ObserveDeathEvent();
 void RenderSystemDX11_DeathFade_Reset();
 void RenderSystemDX11_DeathFade_ClearForObserverChange();

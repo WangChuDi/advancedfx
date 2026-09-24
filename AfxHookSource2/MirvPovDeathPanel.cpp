@@ -95,6 +95,14 @@ void MirvPovDeathPanel_ResolveAddresses(HMODULE clientDll)
     g_MirvPovDeathPanelState.originalGetLocalPawn = reinterpret_cast<MirvPovDeathPanelGetLocalPawn_t>(getAddress(clientDll,
         "48 83 EC 28 83 F9 FF 75 ?? 48 8B 0D ?? ?? ?? ?? 48 8D 54 24 ?? 48 8B 01 FF 90 ?? ?? ?? ?? 8B 08 48 63 C1 4C 8D 05 ?? ?? ?? ?? 33 D2 4D 8B 04 C0 4D 85 C0"));
 
+    auto animationCall = reinterpret_cast<unsigned char *>(getAddress(clientDll,
+        "33 C9 E8 ?? ?? ?? ?? 48 8B F8 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B 00 48 8B CF FF 90 F0 04 00 00 84 C0 0F 84 ?? ?? ?? ?? 48 8B 57 10 48 8D 8C 24 98 00 00 00"));
+    g_MirvPovDeathPanelState.animationPawnReturnAddress = nullptr;
+    if(animationCall && animationCall + 7 + *reinterpret_cast<int32_t *>(animationCall + 3)
+        == reinterpret_cast<unsigned char *>(g_MirvPovDeathPanelState.originalGetLocalPawn)) {
+        g_MirvPovDeathPanelState.animationPawnReturnAddress = animationCall + 7;
+    }
+
     auto replayGate = reinterpret_cast<unsigned char *>(getAddress(clientDll,
         "48 8B 05 ?? ?? ?? ?? 44 38 70 58 75 ?? 48 85 F6 0F 84 ?? ?? ?? ?? 48 39 B5 18 06 00 00 0F 85 ?? ?? ?? ?? 44 88 B7 A2 01 00 00"));
     if(nullptr != replayGate) {
@@ -328,6 +336,26 @@ bool MirvPovDeathPanel_Reapply(const char * source)
 
 			return showSucceeded || 0 != visibilityActions;
 	}
+
+CEntityInstance * MirvPovDeathPanel_GetAnimationPawn(void * returnAddress)
+{
+    const auto & state = g_MirvPovDeathPanelState;
+    if(!returnAddress || returnAddress != state.animationPawnReturnAddress
+        || !MIRV_POV_FEATURE_ACTIVE("deathcam")
+        || !MIRV_POV_FEATURE_ACTIVE("deathpanel_slide")
+        || !MirvPov_IsDeathFeedbackEnabled() || !state.reapplyArmed
+        || state.reapplyPawnHandle == 0xFFFFFFFFu) return nullptr;
+    __try {
+        uint32_t target = 0xFFFFFFFFu;
+        if(DeathPanel_TryGetObserverTarget(target) && target != 0xFFFFFFFFu
+            && target != state.reapplyPawnHandle) return nullptr;
+        auto pawn = GetEntityFromIndex(state.reapplyPawnHandle & 0x7FFFu);
+        if(pawn && pawn->IsPlayerPawn() && pawn->GetHandle().ToInt() == state.reapplyPawnHandle)
+            return pawn;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return nullptr;
+}
 
 void MirvPovDeathPanel_Update()
 	{

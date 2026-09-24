@@ -1,4 +1,4 @@
-#include "stdafx.h"
+﻿#include "stdafx.h"
 
 #include "MirvPovDeathCam.h"
 
@@ -21,7 +21,7 @@
 
 namespace {
 
-// Current client.dll (2026-08-04) entry point is sub_180CA4390. The
+// Verified client.dll 12e4a752 (2026-09-24): RVA 0xD0BC80. The
 // signature deliberately starts at the function prologue; all operands in
 // the stack allocation are wildcarded so the hook remains relocation-safe.
 constexpr char kNativeDeathCamPattern[] =
@@ -33,11 +33,27 @@ using NativeDeathCam_t = __int64 (__fastcall *)(void * This);
 NativeDeathCam_t g_OrgNativeDeathCam = nullptr;
 bool g_NativeDeathCamHooked = false;
 std::atomic_bool g_DeathActive { false };
+std::atomic_bool g_SawDeadSnapshot { false };
 std::atomic_bool g_EventHeadshot { false };
 std::atomic<float> g_EventDeathTime { -1.0f };
 std::atomic<uint32_t> g_EventTargetHandle { 0xFFFFFFFFu };
 std::atomic_int g_LastDemoTick { -1 };
+std::atomic_int g_EventDemoTick { -1 };
 thread_local bool g_InNativeDeathCam = false;
+thread_local CEntityInstance * g_EffectPawn = nullptr;
+void * g_EffectPawnReturnAddress = nullptr;
+std::atomic_uint64_t g_PresentationEpoch { 1 };
+// Accessed only by the native update thread; never dereference a saved object.
+void * g_OwnedEffects = nullptr;
+uint64_t g_OwnedEpoch = 0;
+bool g_HadOwnedWeights = false;
+
+void ClearOwnedWeights(void * effects)
+{
+    // The exact three stores are verified when resolving the native updater.
+    auto weights = reinterpret_cast<float *>(static_cast<unsigned char *>(effects) + 0x120);
+    weights[0] = weights[1] = weights[2] = 0.0f;
+}
 
 bool IsExecutableAddress(const void * address)
 {
@@ -74,6 +90,19 @@ CEntityInstance * SafeCurrentPovPawn()
 {
     __try {
         return GetCurrentPovPlayerPawn();
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
+CEntityInstance * ResolveDeathPawn()
+{
+    const uint32_t handle = g_EventTargetHandle.load(std::memory_order_acquire);
+    if(handle == 0xFFFFFFFFu) return nullptr;
+    __try {
+        auto pawn = GetEntityFromIndex(handle & 0x7FFFu);
+        return pawn && pawn->IsPlayerPawn() && pawn->GetHandle().ToInt() == handle
+            ? pawn : nullptr;
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         return nullptr;
     }
@@ -151,62 +180,59 @@ __int64 __fastcall New_NativeDeathCam(void * This)
 {
     NativeDeathCam_t original = g_OrgNativeDeathCam;
     if(nullptr == original) return 0;
+    if(g_InNativeDeathCam) return original(This);
 
-    if(g_InNativeDeathCam
-        || !MIRV_POV_FEATURE_ACTIVE("deathcam")
-        || !g_DeathActive.load(std::memory_order_acquire)) {
-        return original(This);
-    }
-
-    g_InNativeDeathCam = true;
-
-    CEntityInstance * povPawn = SafeCurrentPovPawn();
+    // Observer state can be incomplete inside the game's frame update. Keep
+    // the validated death handle until the post-frame lifecycle check commits
+    // a real target change; do not erase phase weights on a transient null.
+    CEntityInstance * povPawn = ResolveDeathPawn();
     const uint32_t expectedHandle = g_EventTargetHandle.load(std::memory_order_acquire);
-    const uint32_t povHandle = SafeEntityHandle(povPawn);
-    if(nullptr == povPawn || 0xFFFFFFFFu == expectedHandle || povHandle != expectedHandle) {
-        g_DeathActive.store(false, std::memory_order_release);
-        g_InNativeDeathCam = false;
-        return original(This);
+    const bool enabled = MIRV_POV_FEATURE_ACTIVE("deathcam")
+        && MIRV_POV_FEATURE_ACTIVE("death_screen") && MirvPov_IsDeathFeedbackEnabled()
+        && g_DeathActive.load(std::memory_order_acquire)
+        && povPawn && expectedHandle != 0xFFFFFFFFu
+        && SafeEntityHandle(povPawn) == expectedHandle
+        && povPawn != GetRealLocalPlayerPawn();
+    const uint64_t epoch = g_PresentationEpoch.load(std::memory_order_acquire);
+    if(g_OwnedEffects != This) {
+        g_OwnedEffects = This;
+        g_HadOwnedWeights = false;
     }
-
-    CEntityInstance * nativePawn = GetRealLocalPlayerPawn();
-    if(nullptr == nativePawn || nativePawn == povPawn) {
-        g_InNativeDeathCam = false;
-        return original(This);
+    if((g_HadOwnedWeights && (!enabled || g_OwnedEpoch != epoch))
+        || (enabled && !g_HadOwnedWeights)) {
+        ClearOwnedWeights(This);
+        g_HadOwnedWeights = false;
     }
+    if(!enabled) return original(This);
 
     float deathTime = 0.0f;
     bool pawnHeadshot = false;
     const bool readSource = ReadDeathFields(povPawn, deathTime, pawnHeadshot);
-    if(!readSource || !IsFiniteDeathTime(deathTime) || deathTime <= 0.0f) {
+    if(!readSource || !IsFiniteDeathTime(deathTime) || deathTime <= 0.0f)
         deathTime = g_EventDeathTime.load(std::memory_order_acquire);
-    }
-    if(!IsFiniteDeathTime(deathTime)) {
-        g_InNativeDeathCam = false;
-        return original(This);
-    }
-
-    // The event is the authoritative source for the headshot branch. The
-    // Pawn field is still read above as a diagnostic/fallback for demos where
-    // the event and entity update arrive on adjacent ticks.
-    const bool headshot = g_EventHeadshot.load(std::memory_order_acquire);
-    (void)pawnHeadshot;
+    if(!IsFiniteDeathTime(deathTime)) return original(This);
 
     float previousDeathTime = 0.0f;
     uint8_t previousHeadshot = 0;
-    if(!PatchDeathFields(
-        nativePawn,
-        deathTime,
-        headshot,
-        previousDeathTime,
-        previousHeadshot)) {
-        g_InNativeDeathCam = false;
+    if(!PatchDeathFields(povPawn, deathTime,
+        g_EventHeadshot.load(std::memory_order_acquire), previousDeathTime, previousHeadshot))
         return original(This);
-    }
 
-    const __int64 result = original(This);
-    RestoreDeathFields(nativePawn, previousDeathTime, previousHeadshot);
-    g_InNativeDeathCam = false;
+    // Supply the actual dead POV pawn at the selector's specific getter call.
+    // The native selector retains its type/life-state checks, entity clock,
+    // headshot branch, ConVars, low-violence variant and rendering behavior.
+    g_InNativeDeathCam = true;
+    g_EffectPawn = povPawn;
+    g_OwnedEpoch = epoch;
+    g_HadOwnedWeights = true;
+    __int64 result = 0;
+    __try {
+        result = original(This);
+    } __finally {
+        g_EffectPawn = nullptr;
+        g_InNativeDeathCam = false;
+        RestoreDeathFields(povPawn, previousDeathTime, previousHeadshot);
+    }
     return result;
 }
 
@@ -240,6 +266,27 @@ bool ResolveNativeDeathCam(HMODULE clientDll, NativeDeathCam_t & target)
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_deathcam] native death-camera target is not executable.\n");
         return false;
     }
+
+    // Fail closed if the known output layout or selector call has changed.
+    const auto body = Afx::BinUtils::MemRange(match.Start, match.Start + 0x4D2);
+    if(Afx::BinUtils::FindPatternString(body,
+        "89 B7 20 01 00 00 BB 24 01 00 00").IsEmpty()
+        || Afx::BinUtils::FindPatternString(body,
+        "F3 0F 11 BF 28 01 00 00").IsEmpty()) return false;
+    auto selector = Afx::BinUtils::FindPatternString(textRange,
+        "40 53 48 83 EC 20 33 C9 E8 ?? ?? ?? ?? 48 8B D8 48 85 C0 74 ?? 48 8B 00 48 8B CB FF 90 F0 04 00 00 "
+        "84 C0 74 ?? 48 8B 03 48 8B CB 48 89 7C 24 30 FF 90 C0 0A 00 00 33 FF 48 8B CB 84 C0 74 ?? E8 ?? ?? ?? ?? 83 F8 02");
+    if(selector.IsEmpty() || !Afx::BinUtils::FindPatternString(
+        Afx::BinUtils::MemRange(selector.Start + 1, textRange.End),
+        "40 53 48 83 EC 20 33 C9 E8 ?? ?? ?? ?? 48 8B D8 48 85 C0 74 ?? 48 8B 00 48 8B CB FF 90 F0 04 00 00 "
+        "84 C0 74 ?? 48 8B 03 48 8B CB 48 89 7C 24 30 FF 90 C0 0A 00 00 33 FF 48 8B CB 84 C0 74 ?? E8 ?? ?? ?? ?? 83 F8 02").IsEmpty()) return false;
+    // Ensure this is the selector called by this updater, not a similar helper.
+    auto selectorCall = Afx::BinUtils::FindPatternString(body,
+        "E8 ?? ?? ?? ?? 48 8B F0 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B 0D");
+    if(selectorCall.IsEmpty()
+        || selectorCall.Start + 5 + *reinterpret_cast<int32_t *>(selectorCall.Start + 1)
+            != selector.Start) return false;
+    g_EffectPawnReturnAddress = reinterpret_cast<void *>(selector.Start + 13);
 
     target = reinterpret_cast<NativeDeathCam_t>(match.Start);
     return true;
@@ -292,12 +339,14 @@ void MirvPovDeathCam_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
     }
     if(nullptr == name) return;
 
-    if(0 == strcmp(name, "round_start")
-        || 0 == strcmp(name, "player_spawn")
-        || 0 == strcmp(name, "spec_target_updated")) {
+    if(0 == strcmp(name, "round_start")) {
         MirvPovDeathCam_Reset();
         return;
     }
+
+    // spec_target_updated is a notification, not a new target identity, and
+    // player_spawn may belong to any player. Check committed pawn/observer
+    // state after FrameStageNotify instead of resetting from either event.
 
     if(0 != strcmp(name, "player_death")) return;
 
@@ -310,10 +359,16 @@ void MirvPovDeathCam_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
 
     float eventDeathTime = g_MirvTime.curtime_get();
     if(!IsFiniteDeathTime(eventDeathTime)) eventDeathTime = -1.0f;
+    int eventTick = -1;
+    g_MirvTime.GetCurrentDemoTick(eventTick);
 
+    g_PresentationEpoch.fetch_add(1, std::memory_order_acq_rel);
+    g_EventDemoTick.store(eventTick, std::memory_order_release);
+    g_LastDemoTick.store(eventTick, std::memory_order_release);
     g_EventTargetHandle.store(targetHandle, std::memory_order_release);
     g_EventHeadshot.store(headshot, std::memory_order_release);
     g_EventDeathTime.store(eventDeathTime, std::memory_order_release);
+    g_SawDeadSnapshot.store(false, std::memory_order_release);
     g_DeathActive.store(true, std::memory_order_release);
 }
 
@@ -325,19 +380,55 @@ void MirvPovDeathCam_UpdateDemoTick(int demoTick)
     }
 
     const int previous = g_LastDemoTick.exchange(demoTick, std::memory_order_acq_rel);
-    if(previous >= 0) {
-        const int delta = demoTick - previous;
-        if(delta < 0 || delta > 2) {
+    if(previous >= 0 && demoTick >= 0 && demoTick < previous) {
+        const int deathTick = g_EventDemoTick.load(std::memory_order_acquire);
+        if(deathTick < 0 || demoTick < deathTick) {
             MirvPovDeathCam_Reset();
-            g_LastDemoTick.store(demoTick, std::memory_order_release);
+        } else {
+            // Rewinding within this death keeps its identity but must release
+            // max-accumulated phase weights before recomputing native time.
+            MirvPovDeathCam_ResetPresentation();
         }
+        g_LastDemoTick.store(demoTick, std::memory_order_release);
+    }
+    // Forward tick gaps are normal at low FPS / accelerated playback. A seek
+    // forward is handled by the committed target and life-state checks too.
+}
+
+void MirvPovDeathCam_UpdateLifecycle()
+{
+    if(!g_DeathActive.load(std::memory_order_acquire)) return;
+    __try {
+        auto pawn = ResolveDeathPawn();
+        auto selected = SafeCurrentPovPawn();
+        const uint32_t expected = g_EventTargetHandle.load(std::memory_order_acquire);
+        bool ended = !pawn;
+        if(pawn) {
+            if(pawn->GetHealth() == 0) g_SawDeadSnapshot.store(true, std::memory_order_release);
+            else if(g_SawDeadSnapshot.load(std::memory_order_acquire)) ended = true;
+        }
+        if(selected && SafeEntityHandle(selected) != expected) ended = true;
+        if(GetFakePovRadarAutoSync()) {
+            uint8_t mode = 0;
+            uint32_t target = 0xFFFFFFFFu;
+            if(MirvPov_GetObserverState(mode, target)) {
+                if(target != 0xFFFFFFFFu && target != expected) ended = true;
+                if(mode == 6) ended = true; // committed roaming/free-camera mode
+            }
+        }
+        if(ended) MirvPovDeathCam_Reset();
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        // An incomplete snapshot is not evidence that the death has ended.
     }
 }
 
 void MirvPovDeathCam_Reset()
 {
+    g_PresentationEpoch.fetch_add(1, std::memory_order_acq_rel);
     g_LastDemoTick.store(-1, std::memory_order_release);
+    g_EventDemoTick.store(-1, std::memory_order_release);
     g_DeathActive.store(false, std::memory_order_release);
+    g_SawDeadSnapshot.store(false, std::memory_order_release);
     g_EventTargetHandle.store(0xFFFFFFFFu, std::memory_order_release);
     g_EventHeadshot.store(false, std::memory_order_release);
     g_EventDeathTime.store(-1.0f, std::memory_order_release);
@@ -346,4 +437,15 @@ void MirvPovDeathCam_Reset()
 bool MirvPovDeathCam_IsHooked()
 {
     return g_NativeDeathCamHooked;
+}
+
+void MirvPovDeathCam_ResetPresentation()
+{
+    g_PresentationEpoch.fetch_add(1, std::memory_order_acq_rel);
+}
+
+CEntityInstance * MirvPovDeathCam_GetEffectPawn(void * returnAddress)
+{
+    return g_InNativeDeathCam && returnAddress == g_EffectPawnReturnAddress
+        ? g_EffectPawn : nullptr;
 }

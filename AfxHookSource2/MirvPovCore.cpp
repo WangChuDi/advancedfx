@@ -58,6 +58,9 @@ MirvPovDebugFeatureState g_MirvPovDebugFeatures[] = {
     {"scoreboard", true, true},
     {"feedback", true, true},
     {"deafen", true, true, true},
+    {"damage_direction", true, true, true},
+    {"deathpanel_slide", true, true, true},
+    {"death_screen", true, true, true},
     {"deathcam", true, true},
     {"pickupprompt", true, true},
     {"killreward", true, true},
@@ -155,6 +158,8 @@ bool MirvPovDebug_SetFeatureEnabled(const char * name, bool enabled)
             if(feature.immediate) feature.active = enabled;
         }
         MirvPovFeedback_ResetDeafen();
+        MirvPovFeedback_ResetDirections();
+        MirvPovDeathCam_Reset();
         return true;
     }
     MirvPovDebugFeatureState * feature = FindMirvPovDebugFeature(name);
@@ -163,6 +168,8 @@ bool MirvPovDebug_SetFeatureEnabled(const char * name, bool enabled)
     if(feature->immediate) {
         feature->active = enabled;
         if(0 == _stricmp(feature->name, "deafen")) MirvPovFeedback_ResetDeafen();
+        if(0 == _stricmp(feature->name, "damage_direction")) MirvPovFeedback_ResetDirections();
+        if(0 == _stricmp(feature->name, "death_screen")) MirvPovDeathCam_ResetPresentation();
     }
     return true;
 }
@@ -355,6 +362,7 @@ void MirvPov_OnFrameStageAfter(int frameStage)
         // Run after the game's native FrameStageNotify. Observer target and
         // Pawn state are committed there; sampling them before the original
         // call shifts fade cleanup and replay timing by one frame.
+        if(MIRV_POV_FEATURE_ENABLED("deathcam")) MirvPovDeathCam_UpdateLifecycle();
         if(MIRV_POV_FEATURE_ENABLED("feedback")) {
             MirvPovFeedback_UpdatePovSelection();
             MirvPovDeathPanel_Update();

@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <intrin.h>
 #include <Windows.h>
 #include "../shared/binutils.h"
 #include "../deps/release/Detours/src/detours.h"
@@ -17,6 +18,7 @@
 
 #include "DeathMsg.h"
 #include "MirvPovDeathPanel.h"
+#include "MirvPovDeathCam.h"
 #include "Globals.h"
 #include "ClientEntitySystem.h"
 #include "SchemaSystem.h"
@@ -1044,7 +1046,10 @@ static CEntityInstance * DeathPanel_ResolveEventVictimPawn(
 }
 
 static CEntityInstance * __fastcall DeathPanel_GetLocalPawn(int slot)
-		{
+{
+    void * previous = MirvPov_PushHookReturnAddress(_ReturnAddress());
+    void * caller = MirvPov_GetHookReturnAddress();
+    MirvPov_PopHookReturnAddress(previous);
 	if(nullptr != g_MirvPovDeathPanelLocalPawnOverride && (0 == slot || -1 == slot)) {
 			if(false) {
 			advancedfx::Message(
@@ -1054,9 +1059,15 @@ static CEntityInstance * __fastcall DeathPanel_GetLocalPawn(int slot)
 		}
 		return g_MirvPovDeathPanelLocalPawnOverride;
 	}
-	return nullptr != g_MirvPovDeathPanelState.originalGetLocalPawn
-		? g_MirvPovDeathPanelState.originalGetLocalPawn(slot)
-		: nullptr;
+    if(0 == slot || -1 == slot) {
+        if(auto pawn = MirvPovDeathCam_GetEffectPawn(caller)) return pawn;
+        if(auto pawn = MirvPovDeathPanel_GetAnimationPawn(caller)) return pawn;
+    }
+    previous = MirvPov_PushHookReturnAddress(caller);
+    auto result = nullptr != g_MirvPovDeathPanelState.originalGetLocalPawn
+        ? g_MirvPovDeathPanelState.originalGetLocalPawn(slot) : nullptr;
+    MirvPov_PopHookReturnAddress(previous);
+    return result;
 }
 
 class DeathPanelLocalPawnOverrideGuard {

@@ -16,7 +16,6 @@
 #include <Windows.h>
 #include <cmath>
 #include <limits.h>
-#include <mutex>
 #include <stdint.h>
 
 namespace {
@@ -25,7 +24,6 @@ using PlayEntitySound_t = void (__fastcall *)(void * entity, void * filterEntity
 using HashString_t = unsigned int (__fastcall *)(const char * string, unsigned int length, unsigned int lengthXorSeed);
 using DamageMessage_t = __int64 (__fastcall *)(void * hudDamageIndicator, void * damageMessage);
 using AddDamageDirection_t = void (__fastcall *)(void * hudDamageIndicator, float * sourcePosition, CEntityInstance * victimPawn);
-using DamageIndicatorConstructor_t = void * (__fastcall *)(void * hudDamageIndicator);
 using TriggerSoundControl_t = void (__fastcall *)(void * soundSystem, uint32_t controlHash);
 using LocalPlayerFilterCtor_t = void (__fastcall *)(void * filter);
 using PlayLocalSound_t = void (__fastcall *)(
@@ -40,27 +38,67 @@ PlayEntitySound_t g_PlayEntitySound = nullptr;
 HashString_t g_HashString = nullptr;
 DamageMessage_t g_OriginalDamageMessage = nullptr;
 AddDamageDirection_t g_AddDamageDirection = nullptr;
-DamageIndicatorConstructor_t g_OriginalDamageIndicatorConstructor = nullptr;
-void * g_DamageIndicator = nullptr;
+using FindHudElement_t = void * (__fastcall *)(const char * name);
+FindHudElement_t g_FindHudElement = nullptr;
+struct DirectionEvent {
+    uint32_t pawnHandle;
+    int amount;
+    int frame;
+    float source[3];
+    bool message;
+    bool event;
+};
+DirectionEvent g_DirectionEvents[64] = {};
+size_t g_DirectionEventCount = 0;
+
+// Pair individual events/messages, in either arrival order. Do not suppress
+// separate hits merely because they share a frame, amount or position.
+void RecordDirection(uint32_t handle, int amount, const float * source, bool message)
+{
+    const int frame = g_MirvTime.framecount_get();
+    for(size_t i = 0; i < g_DirectionEventCount; ++i) {
+        auto & entry = g_DirectionEvents[i];
+        if(entry.pawnHandle == handle && entry.amount == amount && entry.frame == frame
+            && (message ? !entry.message : !entry.event)) {
+            if(message) entry.message = true;
+            else entry.event = true;
+            return;
+        }
+    }
+    if(g_DirectionEventCount >= 64) return;
+    auto & entry = g_DirectionEvents[g_DirectionEventCount++];
+    entry = {handle, amount, frame, {source[0], source[1], source[2]}, message, !message};
+}
+
+void FlushDirections()
+{
+    __try {
+        auto pawn = GetCurrentPovPlayerPawn();
+        if(MIRV_POV_FEATURE_ACTIVE("feedback") && MIRV_POV_FEATURE_ACTIVE("damage_direction")
+            && pawn && pawn->IsPlayerPawn() && pawn != GetRealLocalPlayerPawn()
+            && g_FindHudElement && g_AddDamageDirection) {
+            // FindHudElement returns the secondary HUD base, not the complete object.
+            auto hudBase = static_cast<unsigned char *>(g_FindHudElement("CCSGO_HudDamageIndicator"));
+            if(hudBase) {
+                for(size_t i = 0; i < g_DirectionEventCount; ++i) {
+                    auto & entry = g_DirectionEvents[i];
+                    if(entry.event && !entry.message && entry.frame == g_MirvTime.framecount_get()
+                        && entry.pawnHandle == pawn->GetHandle().ToInt())
+                        g_AddDamageDirection(hudBase - 0x20, entry.source, pawn);
+                }
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+    }
+    g_DirectionEventCount = 0;
+}
 bool g_DamageMessageHooked = false;
-bool g_DamageIndicatorConstructorHooked = false;
 void ** g_SoundSystemSlot = nullptr;
 LocalPlayerFilterCtor_t g_LocalPlayerFilterCtor = nullptr;
 PlayLocalSound_t g_PlayLocalSound = nullptr;
 uint32_t g_LastPovControllerHandle = 0xFFFFFFFFu;
 uint32_t g_PreviousPovControllerHandle = 0xFFFFFFFFu;
 int g_PreviousPovControllerFrame = INT_MIN;
-
-struct DamageDirectionClaim {
-    int frame = INT_MIN;
-    int victimEntityIndex = -1;
-    int amount = -1;
-    float sourcePosition[3] = {};
-    bool valid = false;
-};
-
-std::mutex g_DamageDirectionClaimMutex;
-DamageDirectionClaim g_LastDamageDirectionClaim;
 
 struct FlashSoundProfile {
     const char * ringSound;
@@ -88,44 +126,6 @@ struct FlashDetonation {
     float distance = 0.0f;
 };
 FlashDetonation g_LastFlashDetonation;
-
-bool ClaimDamageDirection(
-    int victimEntityIndex,
-    int amount,
-    const float sourcePosition[3])
-{
-    const int frame = g_MirvTime.framecount_get();
-    std::lock_guard<std::mutex> lock(g_DamageDirectionClaimMutex);
-
-    if(g_LastDamageDirectionClaim.valid
-        && g_LastDamageDirectionClaim.frame == frame
-        && g_LastDamageDirectionClaim.victimEntityIndex == victimEntityIndex
-        && (amount < 0 || g_LastDamageDirectionClaim.amount < 0
-            || amount == g_LastDamageDirectionClaim.amount)) {
-        const float dx = sourcePosition[0] - g_LastDamageDirectionClaim.sourcePosition[0];
-        const float dy = sourcePosition[1] - g_LastDamageDirectionClaim.sourcePosition[1];
-        const float dz = sourcePosition[2] - g_LastDamageDirectionClaim.sourcePosition[2];
-        if(dx * dx + dy * dy + dz * dz <= 4096.0f) return false;
-    }
-
-    g_LastDamageDirectionClaim.frame = frame;
-    g_LastDamageDirectionClaim.victimEntityIndex = victimEntityIndex;
-    g_LastDamageDirectionClaim.amount = amount;
-    g_LastDamageDirectionClaim.sourcePosition[0] = sourcePosition[0];
-    g_LastDamageDirectionClaim.sourcePosition[1] = sourcePosition[1];
-    g_LastDamageDirectionClaim.sourcePosition[2] = sourcePosition[2];
-    g_LastDamageDirectionClaim.valid = true;
-    return true;
-}
-
-void * __fastcall New_DamageIndicatorConstructor(void * hudDamageIndicator)
-{
-    void * result = nullptr != g_OriginalDamageIndicatorConstructor
-        ? g_OriginalDamageIndicatorConstructor(hudDamageIndicator)
-        : hudDamageIndicator;
-    g_DamageIndicator = nullptr != result ? result : hudDamageIndicator;
-    return result;
-}
 
 SOURCESDK::CS2::GameEventKeySymbol_t MakeKey(const char * name)
 {
@@ -237,11 +237,11 @@ void Play(CEntityInstance * victimPawn, const char * soundName)
 
 __int64 __fastcall New_DamageMessage(void * hudDamageIndicator, void * damageMessage)
 {
-    if(nullptr != hudDamageIndicator) g_DamageIndicator = hudDamageIndicator;
     __int64 result = nullptr != g_OriginalDamageMessage
         ? g_OriginalDamageMessage(hudDamageIndicator, damageMessage)
         : 0;
     if(!MIRV_POV_FEATURE_ACTIVE("feedback")
+        || !MIRV_POV_FEATURE_ACTIVE("damage_direction")
         || nullptr == hudDamageIndicator
         || nullptr == damageMessage
         || nullptr == g_AddDamageDirection) return result;
@@ -253,7 +253,8 @@ __int64 __fastcall New_DamageMessage(void * hudDamageIndicator, void * damageMes
         if(amount <= 0) return result;
 
         CEntityInstance * povPawn = GetCurrentPovPlayerPawn();
-        if(nullptr == povPawn || !povPawn->IsPlayerPawn()) return result;
+        if(nullptr == povPawn || !povPawn->IsPlayerPawn()
+            || !IsRemotePovPawn(povPawn)) return result;
         auto povHandle = povPawn->GetHandle();
         if(!povHandle.IsValid() || povHandle.GetEntryIndex() != victimEntityIndex) return result;
 
@@ -264,9 +265,15 @@ __int64 __fastcall New_DamageMessage(void * hudDamageIndicator, void * damageMes
             *reinterpret_cast<float *>(sourceMessage + 0x1C),
             *reinterpret_cast<float *>(sourceMessage + 0x20)
         };
-        if(ClaimDamageDirection(victimEntityIndex, amount, sourcePosition)) {
-            g_AddDamageDirection(hudDamageIndicator, sourcePosition, povPawn);
-        }
+        // Replay the actual server-provided inflictor position through the
+        // native HUD helper. It owns direction, intensity and accumulation;
+        // the native HUD owns presentation and decay. A player_hurt event's
+        // attacker position is not equivalent (e.g. a grenade's thrower).
+        if(!std::isfinite(sourcePosition[0])
+            || !std::isfinite(sourcePosition[1])
+            || !std::isfinite(sourcePosition[2])) return result;
+        g_AddDamageDirection(hudDamageIndicator, sourcePosition, povPawn);
+        RecordDirection(povHandle.ToInt(), amount, sourcePosition, true);
     } __except(EXCEPTION_EXECUTE_HANDLER) {
     }
     return result;
@@ -291,36 +298,23 @@ bool TryGetEventPawn(
     return nullptr != pawn && pawn->IsPlayerPawn();
 }
 
-void HandleVictimDamageDirection(SOURCESDK::CS2::IGameEvent * event)
+void QueueHurtDirection(SOURCESDK::CS2::IGameEvent * event, CEntityInstance * victim)
 {
-    if(!MirvPovFeedback_IsLocalPlayerVictim(event)) return;
-
-    CEntityInstance * victimPawn = nullptr;
-    CEntityInstance * attackerPawn = nullptr;
-    if(!TryGetEventPawn(event, "userid", victimPawn)) {
-        victimPawn = GetCurrentPovPlayerPawn();
-    }
-    if(nullptr == victimPawn || !victimPawn->IsPlayerPawn()) return;
-    if(!TryGetEventPawn(event, "attacker", attackerPawn)
-        || nullptr == attackerPawn
-        || attackerPawn == victimPawn) return;
-
-    float sourcePosition[3] = {};
-    attackerPawn->GetOrigin(sourcePosition[0], sourcePosition[1], sourcePosition[2]);
-    if(!std::isfinite(sourcePosition[0])
-        || !std::isfinite(sourcePosition[1])
-        || !std::isfinite(sourcePosition[2])) return;
-
-    if(nullptr == g_DamageIndicator || nullptr == g_AddDamageDirection) {
-        return;
-    }
-
-    const int victimEntityIndex = victimPawn->GetHandle().GetEntryIndex();
-    const auto damageKey = MakeKey("dmg_health");
-    const int amount = event->HasKey(damageKey) ? event->GetInt(damageKey) : -1;
-    if(ClaimDamageDirection(victimEntityIndex, amount, sourcePosition)) {
-        g_AddDamageDirection(g_DamageIndicator, sourcePosition, victimPawn);
-    }
+    if(!MIRV_POV_FEATURE_ACTIVE("damage_direction") || !IsRemotePovPawn(victim)) return;
+    const int amount = event->GetInt(MakeKey("dmg_health"));
+    if(amount <= 0) return;
+    const char * weapon = event->GetString(MakeKey("weapon"));
+    // Grenade/fire/world damage needs the inflictor position from Damage.
+    if(!weapon || !*weapon || strstr(weapon, "grenade") || strstr(weapon, "inferno")
+        || strstr(weapon, "molotov") || strstr(weapon, "incendiary")
+        || !strcmp(weapon, "world") || !strcmp(weapon, "worldspawn")
+        || !strcmp(weapon, "planted_c4")) return;
+    CEntityInstance * attacker = nullptr;
+    if(!TryGetEventPawn(event, "attacker", attacker) || attacker == victim) return;
+    float source[3] = {};
+    attacker->GetOrigin(source[0], source[1], source[2]);
+    if(!std::isfinite(source[0]) || !std::isfinite(source[1]) || !std::isfinite(source[2])) return;
+    RecordDirection(victim->GetHandle().ToInt(), amount, source, false);
 }
 
 void HandleHurt(SOURCESDK::CS2::IGameEvent * event)
@@ -569,42 +563,26 @@ void MirvPovFeedback_Initialize(HMODULE clientDll)
             "48 89 5C 24 08 48 89 6C 24 18 48 89 74 24 20 57 48 81 EC 90 00 00 00 0F 29 7C 24 70 48 8B FA 0F 57 FF"));
     }
 
-    if(nullptr == g_OriginalDamageIndicatorConstructor) {
-        // CCSGO_HudDamageIndicator constructor. Hooking this lets the
-        // player_hurt fallback use the real HUD instance even when demo
-        // playback does not dispatch CCSUsrMsg_Damage for the watched Pawn.
-        g_OriginalDamageIndicatorConstructor = reinterpret_cast<DamageIndicatorConstructor_t>(getAddress(
-            clientDll,
-            "48 89 5C 24 ?? 48 89 6C 24 ?? 56 41 56 41 57 48 83 EC ?? 48 8B F1 E8 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? 48 8D 4E 20"));
+    if(nullptr == g_FindHudElement) {
+        g_FindHudElement = reinterpret_cast<FindHudElement_t>(getAddress(clientDll,
+            "40 53 48 83 EC 20 48 8B 05 ?? ?? ?? ?? 48 8B D9 48 85 C0 74 ?? 48 89 5C 24 38 48 8D 88 58 02 00 00 48 85 DB 74 ?? 4C 8B C1 48 8D 54 24 38"));
     }
 
     const bool attachDamageMessage =
         !g_DamageMessageHooked
         && nullptr != g_OriginalDamageMessage
         && nullptr != g_AddDamageDirection;
-    const bool attachDamageConstructor =
-        !g_DamageIndicatorConstructorHooked
-        && nullptr != g_OriginalDamageIndicatorConstructor;
-    if(attachDamageMessage || attachDamageConstructor) {
+    if(attachDamageMessage) {
         LONG beginResult = DetourTransactionBegin();
         LONG updateResult = NO_ERROR;
         LONG messageAttachResult = NO_ERROR;
-        LONG constructorAttachResult = NO_ERROR;
         LONG transactionResult = -1;
         if(NO_ERROR == beginResult) updateResult = DetourUpdateThread(GetCurrentThread());
         if(NO_ERROR == beginResult && NO_ERROR == updateResult) {
-            if(attachDamageMessage) {
-                messageAttachResult = DetourAttach(
-                    &(PVOID &)g_OriginalDamageMessage,
-                    New_DamageMessage);
-            }
-            if(NO_ERROR == messageAttachResult && attachDamageConstructor) {
-                constructorAttachResult = DetourAttach(
-                    &(PVOID &)g_OriginalDamageIndicatorConstructor,
-                    New_DamageIndicatorConstructor);
-            }
+            messageAttachResult = DetourAttach(
+                &(PVOID &)g_OriginalDamageMessage,
+                New_DamageMessage);
             transactionResult = NO_ERROR == messageAttachResult
-                && NO_ERROR == constructorAttachResult
                 ? DetourTransactionCommit()
                 : DetourTransactionAbort();
         } else if(NO_ERROR == beginResult) {
@@ -613,17 +591,16 @@ void MirvPovFeedback_Initialize(HMODULE clientDll)
         const bool installed = NO_ERROR == beginResult
             && NO_ERROR == updateResult
             && NO_ERROR == messageAttachResult
-            && NO_ERROR == constructorAttachResult
             && NO_ERROR == transactionResult;
         if(installed) {
-            if(attachDamageMessage) g_DamageMessageHooked = true;
-            if(attachDamageConstructor) g_DamageIndicatorConstructorHooked = true;
+            g_DamageMessageHooked = true;
         }
     }
 }
 
 void MirvPovFeedback_UpdatePovSelection()
 {
+    FlushDirections();
     if(!MIRV_POV_FEATURE_ACTIVE("feedback")) return;
 
     CEntityInstance * controller = GetCurrentPovPlayerController();
@@ -640,15 +617,19 @@ void MirvPovFeedback_UpdatePovSelection()
     g_LastPovControllerHandle = rawHandle;
 }
 
+void MirvPovFeedback_ResetDirections()
+{
+    g_DirectionEventCount = 0;
+}
+
 void MirvPovFeedback_ResetPovSelection()
 {
+    g_DirectionEventCount = 0;
     g_LastFlashDetonation = FlashDetonation();
     g_LastPovControllerHandle = 0xFFFFFFFFu;
     g_PreviousPovControllerHandle = 0xFFFFFFFFu;
     g_PreviousPovControllerFrame = INT_MIN;
 
-    std::lock_guard<std::mutex> lock(g_DamageDirectionClaimMutex);
-    g_LastDamageDirectionClaim = DamageDirectionClaim();
 }
 
 bool MirvPovFeedback_IsCurrentPovVictim(
@@ -687,6 +668,7 @@ void MirvPovFeedback_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
         if(0 == strcmp(name, "flashbang_detonate")) {
             HandleFlashDetonate(event);
         } else if(0 == strcmp(name, "round_start")) {
+            g_DirectionEventCount = 0;
             g_LastFlashDetonation = FlashDetonation();
         } else if(0 == strcmp(name, "player_blind")) {
             CEntityInstance * victimPawn = nullptr;
@@ -697,8 +679,8 @@ void MirvPovFeedback_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event)
             CEntityInstance * victimPawn = nullptr;
             if(TryGetEventPawn(event, "userid", victimPawn)) {
                 HandleHeGrenadeHurt(victimPawn, event);
+                QueueHurtDirection(event, victimPawn);
             }
-            HandleVictimDamageDirection(event);
             HandleHurt(event);
         } else if(0 == strcmp(name, "player_death")) {
             HandleDeath(event);

@@ -283,3 +283,127 @@ Release x64 `AfxHookSource2` 编译成功（`diagnostics/agent-voice-20260923/bu
 本次合并不启动游戏或运行测试，也不替换已部署 DLL；先前未提交的队友切枪声调查及诊断文件仍留在本地。
 
 合并后的 Release x64 `AfxHookSource2` 编译成功（`diagnostics/agent-voice-20260923/build-upstream-merge.log`）。保留上游 CRLF 格式，差异检查使用命令级 `core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol`；清除上游新增的一处尾随 tab，不修改全局 Git 配置。运行兼容性仍未实测。
+
+
+## 2026-09-24：受击蓝色染屏的 Fade 参数布局诊断
+
+- 当前 client.dll SHA-256：`40bce8206f51b92ee05d6121c6e42c717bf3fa0cc0edeeb6698744b1c4799feb`；本机安装文件哈希已核对。旧版对照：`a0c195f0b6ec00915ef08c548200a010ebbe7982d3a4bc468cad939b67c8c4e3`。两者 image base 为 `0x180000000`。
+- 原生行为：当前 Fade 消息回调 RVA `0xC1DD40` 将 duration/hold/flags 写至栈 `+0x20/+0x22/+0x24`，颜色写至 `+0x28`（VA `0x180C1DD68`），再将 `rsp+0x20` 作为参数传给 `CViewEffects` vtable slot 6（VA `0x180C1DDC5`）。颜色在紧凑参数内的偏移为 `+8`，有效范围至少 12 字节。旧版回调 RVA `0xBD1C60` 的 VA `0x180BD1C88` 写至 `rsp+0x26`，对应旧偏移 `+6`。回调定位使用源码现有 `48 83 EC 38 0F B7 41 48 66 89 44 24 ?? ... 8B 41 54 8B 0D ?? ?? ?? ??` 签名，各版本唯一匹配。
+- POV 实现：`RenderSystemDX11Hooks.cpp:271` 的 `NativeFade_Apply` 仍声明 pack(1) 的 10 字节 FadePayload，颜色在 `+6`；它直接调用未挂钩的原生 AddFade helper（vtable slot 6）。另一个独立挂钩是原生消息回调，用来学习原生模板。消息字段 `+0x48/+0x4C/+0x50/+0x54` 此次未变，变化发生在传给 AddFade 的中间结构。
+- 后果：当前原生接口按 `+8` 取色时会错读颜色最后两字节，并读取旧 10 字节结构末尾之外的两个字节。因此受击回退红色 `0x180000FF` 不能按预期显示，蓝色和透明度受相邻栈数据影响；死亡 Fade 也共用此路径。用户截图与这一确定的布局错误相符，但未运行游戏逐帧验证截图中的具体栈值。
+- 本次为原因诊断：静态比较当前/旧版 DLL 指令，未运行游戏或测试，未改动实现或部署 DLL。修复应使颜色偏移为 8、结构大小为 12，并用编译期布局断言约束，不应仅交换红蓝通道。
+
+### 同日修复：参数布局与额外受击染色分开处理
+
+- `NativeFade_Apply` 采用显式零初始化的两字节 padding，使颜色位于 `+8`，总大小 12 字节；`sizeof` 和 `offsetof` 编译期断言固定当前 ABI。上述当前/旧版 DLL 身份和调用点证据继续适用，未重新引入旧偏移。
+- 源码此前将当前 POV 的每个 `player_hurt` 转为全屏 Fade；没有已学习模板时使用 0.125 秒、alpha 24/255 的固定红色。仅修正布局仍会保留这一额外全屏红色效果。
+- 已移除上述合成受击 Fade 的事件入口、队列、红色模板学习和固定参数；原生 Fade 消息仍由拦截器原样转发。受击方向提示及其他反馈不受本次修改影响。死亡渐黑继续使用独立的原生模板/既有调度和修正后的 AddFade 参数布局。
+- 证据边界：现有资料未确认原生服务器对不同伤害类型发送 Fade 的完整条件，也未证明每个受伤事件都应发送红色 Fade。因此本次不宣称游戏绝无全屏红色效果，仅停止 POV 根据受伤事件自行制造它。没有新增用户可见效果，未增加调试开关。
+- 验证：Release x64 AfxHookSource2 编译成功，源码差异检查通过；按用户要求未运行游戏或自动测试。本次尚未部署 DLL，实际画面待用户验证。
+
+### 同日继续核对：使用原生伤害消息还原受击反馈
+
+原生证据（此处补充证据，不把上一节的未知条件继续视为已验证）：
+
+- 当前安装 server.dll SHA-256 为 `4f5c59c1153eb5f455f9131f80458bc2b9a6d1d7f30d170a2030d800685c00e8`，client.dll 仍为本节 `40bce820...`，image base 均为 `0x180000000`。本次对安装文件重新校验哈希，静态反汇编保存在 `diagnostics/agent-voice-20260923/native-hurt-evidence.json`；复现脚本对这两个完整哈希作检查后才读取版本专用 RVA。
+- 服务端伤害效果函数 RVA `0xCE71B0` 同时出现在 `CBasePlayerPawn`/`CCSPlayerPawn` 主 vtable slot 357。从伤害信息 `+0x4C` 读位掩码：bit 0 为真时使用颜色 `0x80000080`；否则仅 bit 14 为真时使用 `0x80800000`。二者经 VA `0x180CE72E7` 调用 Fade wrapper RVA `0xFE4D10`，duration=1.0 秒、hold=0.1 秒、flags=1。bit 1 的分支位于 VA `0x180CE7369`，不调用上述 Fade wrapper。这里证明普通 bullet 分支与这两种带色 Fade 分支不同，不将结论外推为所有地图/脚本都不会发送 Fade。
+- wrapper 将秒数转换为原生定点时长，颜色位于中间参数 `+8`，再调 sender RVA `0xFE4FF0`；sender VA `0x180FE50F0` 从 `+8` 读取颜色，构造 `CUserMessageFade_t` 后发送。它们是分析对象，POV 不调用 server.dll，也不挂钩这些发送函数。
+- 服务端实际伤害消息 sender RVA `0xA8E430` 构造 `CCSUsrMsg_Damage_t`：伤害量来自 result `+0x20` 的整数化值，victim index 来自受害者，source 是 damage info `+0x38` handle 对应 inflictor 的虚函数 `+0x2C8` 返回位置。VA `0x180A8E519` 开始解析该 handle，VA `0x180A8E575` 读取来源位置。这不是把 `player_hurt.attacker` 的坐标直接当作来源；投掷者和爆炸位置尤其不能互换。
+- 客户端 Damage 回调 RVA `0xE80390` 校验目标/amount 后，在 VA `0x180E8049B` 调用方向 helper RVA `0xE75B70`，本函数没有 Fade/AddFade 调用。helper 拒绝零来源/空 pawn，从真实来源与 pawn 位置计算方向，并对 HUD `+0x60/+0x64/+0x68/+0x6C` 的四方向强度取 max；近距离分支可设为 1。无需 POV 另写颜色、强度或动画时长，也无需用帧数/64 单位距离猜测合并哪些原生伤害消息。
+
+POV 实现调整：
+
+- `MirvPovFeedback.cpp::New_DamageMessage` 保留原生回调，再仅对远端当前 POV 且 victim index 匹配、amount>0、来源有限的真实消息补调上述未挂钩原生方向 helper。本地真实玩家交给原生回调；原生 helper 的 max 累积语义保留。Damage 回调签名仍为 `48 89 5C 24 ?? 48 89 6C 24 ?? 57 48 81 EC ?? ?? ?? ?? 80 3D ?? ?? ?? ?? ?? 48 8B FA 48 8B E9`，helper 签名仍为源码中的 `48 89 5C 24 08 48 89 6C 24 18 ... 48 8B FA 0F 57 FF`。
+- 移除 `player_hurt` 按 attacker origin 推测方向的 fallback，以及仅为该 fallback 存在的 HUD 构造器 hook、缓存和帧/距离去重。这样既不为普通受击制造全屏红色，也不把 HE 等间接伤害指向投掷者。原生 `CUserMessageFade` 继续原样转发，保留游戏实际发送的特殊染色。
+- 现有 `mirv_pov_debug_feature feedback 0|1` 继续控制 POV 的伤害消息补偿；主开关关闭或该功能关闭时只执行原生回调。本次没有新增效果或开关，也没有追加需要清理的状态。投掷语音、闪光/HE 失聪和死亡渐黑未改变。
+- 边界：如果某个 demo 根本没有对应 Damage/Fade 消息，仅有 `player_hurt` 不足以恢复原生来源和伤害类型；此次不伪造缺失信息。尚未做运行时逐帧对比，因此不声称全部 demo 的画面已实测一致。
+- 本轮验证：Release x64 AfxHookSource2 编译成功（`diagnostics/agent-voice-20260923/build-native-hurt.log`），CRLF-aware `git diff --check` 通过；未运行测试、未部署 DLL、未提交或推送。
+
+## 2026-09-24：受击圆回归与死亡面板下落动画的最小 hook 调查
+
+本轮用户要求检查原生实现并寻找最小 hook 方案；仅更新调查记录/分析产物，尚未实现以下方案，也未构建、部署或运行游戏。用户澄清横幅指死亡后显示凶手信息的 DeathPanel。
+
+### 新构建身份
+
+- 本机 client.dll 已再次变化：SHA-256 `12e4a7522678a582b085e404b7bfa32f9290f7fcd045716642daa61c43e7c96f`，image base `0x180000000`。已 dry-run 并 prepare-only 保存至 `diagnostics/hurt-death-native-20260924/client-analysis/12e4a7522678a582/`；未将该静态局部调查标为 IDA 全量分析完成。
+- 当前游戏 VPK 中重新提取 `panorama/styles/hud/huddeathpanel.css` 和 `panorama/scripts/hud/huddeathpanel.js`，不是直接复用 9 月 21 日的资源。模块 SHA、VPK index SHA、资源 SHA、原生汇编及唯一签名记录在 `diagnostics/hurt-death-native-20260924/native-hud-evidence.json`。跨构建函数比较见 `build-mapping.json`。
+- 下述函数与 `40bce820...` 对应函数的标准化汇编一致，但地址已重新确认：Damage callback `0xE80390 -> 0xE80930`；方向 helper `0xE75B70 -> 0xE76110`；HUD lookup `0xE7B7A0 -> 0xE7BD40`；Damage HUD constructor `0xE71350 -> 0xE718F0`；DeathPanel OnThink `0xE85D10 -> 0xE862C0`；local pawn getter `0x9698F0 -> 0x969900`。这不是对其他 POV 偏移或签名的全面兼容性背书。
+
+### 受击圆
+
+- 上轮删除 `player_hurt` fallback 后，`MirvPovFeedback.cpp::New_DamageMessage` 成了唯一方向提示补偿入口。用户现报告方向圆消失，说明仅依赖消息不能满足该 demo 的实际效果；没有运行时消息捕获，因此“缺少或未派发 Damage”仍是与源码相符的解释，不能声称已实测消息不存在。此前为避免猜测而直接移除 fallback 的处理过于激进。
+- 当前原生 constructor RVA `0xE718F0` 以 `this+0x20`、名称 `CCSGO_HudDamageIndicator` 调用 HUD 基类 constructor `0xBA0C30`；该函数注册 HUD，注册函数为 `0xE75A30`。RTTI 主表/次表 RVA `0x1CCFD80` / `0x1CD0028`，次表 offset=32。可用原生 `FindHudElement("CCSGO_HudDamageIndicator")` 取得 HUD 子对象，确认类型后减 `0x20` 作为方向 helper 的 this，无须 detour 构造函数或跨地图缓存裸指针。
+- lookup 唯一签名：`40 53 48 83 EC 20 48 8B 05 ?? ?? ?? ?? 48 8B D9 48 85 C0 74 ?? 48 89 5C 24 38 48 8D 88 58 02 00 00 48 85 DB 74 ?? 4C 8B C1 48 8D 54 24 38`，当前匹配 RVA `0xE7BD40`。此函数是只调用的原生 helper，不需要挂钩。
+- 最小方案：复用已有 GameEvents hook，在当前 POV 的 `player_hurt` 事件后补调原生方向 helper；真实 Damage 消息优先，并避免事件与消息重复补偿。方向强度、绘制、衰减仍由游戏完成，不能恢复固定全屏红色。
+- 方向数据边界：普通枪击可以由攻击者实体补来源，但仍须注明与原生 inflictor 的取点/时序差异；HE 等间接伤害应使用已有爆炸事件/投射物信息或真实 Damage 来源，不应把投掷者位置当作爆炸位置。若 demo 不包含足够信息，无法承诺逐像素完全等价。
+
+### 死亡面板从上方向中央移动
+
+- 当前 CSS `.DeathPanel` 是水平居中、垂直顶部对齐；`.DeathPanel--FadeIn` 的 `DeathPanelFadeInAnim` 只有 0.3 秒 opacity 动画。只看 CSS 会漏掉用户描述的真实纵向运动。
+- 位移在原生 OnThink RVA `0xE862C0`。DeathPanel 的 HUD 次表 offset=32（RVA `0x1CCDA78`）slot 5 经 thunk 进入该更新函数；`+0x1A1` 为主面板可见状态，`+0x198` 缓存纵向位置，`+0x60` 为子面板对象。这些为原生读写证据，不是新增写入方案。
+- 动态位置分支在 VA `0x180E86306` 调用 local pawn getter `0x180969900`，返回地址 `0x180E8630B`；随后读取 pawn `+0x1458` 的死亡时间，结合该 pawn 的游戏时钟计算 elapsed。`death_panel_delay_time` / `death_panel_travel_time` 的注册默认值均为 0.25 秒（运行时仍尊重实际 ConVar 值），`cl_deathcampanel_position_dynamic` 默认 1。
+- 普通动态分支纵向位置为 `H * (clamp((elapsed-delay)/travel,0,1)-0.5)`，位置为负时原生隐藏面板，到正值后从顶部进入、最终停在半屏高度。另有动态关闭时 `H/2`、replay 状态启用时 `H*spec_death_panel_replay_position` 的分支；因此不得靠强写位置或改全局 ConVar 抹平这些原生条件。
+- 动画 getter 调用点唯一签名：`33 C9 E8 ?? ?? ?? ?? 48 8B F8 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B 00 48 8B CF FF 90 F0 04 00 00 84 C0 0F 84 ?? ?? ?? ?? 48 8B 57 10 48 8D 8C 24 98 00 00 00`，匹配 RVA `0xE86304`，返回地址为匹配点 `+7`。应检查 call 目标与已解析 getter 相同，避免把唯一字节匹配当作完整 ABI 验证。
+- 现状：`DeathMsg.cpp::DeathPanel_GetLocalPawn` 仅在 `g_MirvPovDeathPanelLocalPawnOverride` 临时设置期间返回死者；guard 在死亡事件/Show 之后恢复。`MirvPovDeathPanel.cpp::MirvPovDeathPanel_Update` 只修复可见性，没有把死者上下文提供给引擎之后自然调用的 OnThink。因此每帧动画可能读取真实观战者的死亡时间，跳过或错过下落过程；这是明确的上下文覆盖缺口，实际哪一分支发生仍需运行时确认。
+- 最小方案：不 hook OnThink，不自写 CSS 动画；扩展现有 local pawn getter hook，仅在上述返回地址且 POV death panel armed 时，解析并校验保存的死者 handle 后返回该 pawn。沿用现有 hook return-address 传递机制，防止多层 getter detour 丢失最外层调用点；其他调用点原样返回。切视角/seek/round reset 继续清理 armed 状态，原生 Show 只负责开始显示，避免每帧重启淡入。
+- Hook 数量：上述方案需要新增 0 个 detour；受击圆新增 lookup/helper 调用，横幅扩展已有 getter 的一个明确调用点白名单。若实施时新增独立调试项，应使用 `mirv_pov_debug_feature` 注册受击圆补偿和面板位移两个控制，不应让一个控制影响另一个效果；本轮未新增控制或修改实现。
+
+验证范围：只做源码、当前 VPK 资源和 PE 指令核验；未运行游戏、未测试、未替换 DLL。最小方案已经具备当前构建的具体接入位置，不能表述为已实施或已在 demo 中验证。
+
+### 同日后续实施：恢复受击方向与 DeathPanel 原生位移
+
+用户随后授权实施并替换 DLL。以下实施基于上节同一 `12e4a752...` client.dll、image base 和已重新定位的签名，不改变此前调查时尚未实施的事实。
+
+- `MirvPovFeedback.cpp::QueueHurtDirection/RecordDirection/FlushDirections` 复用现有游戏事件入口，将普通直接攻击的 `player_hurt` 来源保存为攻击者当前 origin。帧渲染阶段后、当前 POV handle 仍相同时才补调原生方向 helper。每帧最多保留 64 项；按完整 pawn handle、伤害值和帧一对一匹配实际 Damage，支持两种到达顺序，不以同帧/相同方向粗略吞掉多次命中。消息照常即时补偿，已匹配事件不再补偿。跨帧事件/消息顺序及伤害值不一致的情况未经运行时验证。
+- `FindHudElement("CCSGO_HudDamageIndicator")` 每次补偿重新查询注册名称，返回 HUD base 减 `0x20`；不缓存跨地图裸指针。FindHudElement 和 AddDamageDirection 均是只调用的原生 helper。保留已有 Damage callback hook，新增 detour 数为零。没有重新加入全屏红色 Fade。
+- 事件 fallback 不把 HE、火焰、C4 或 world 的攻击者当作 inflictor；这些伤害依赖真实 Damage 来源。直接攻击的 origin 仍属于缺消息时的近似信息，不能保证与原生 inflictor 逐像素一致。
+- `MirvPovDeathPanel_ResolveAddresses` 解析 OnThink 中的专用 call，并检查相对 call 目标确实为已解析 local pawn getter。`DeathMsg.cpp::DeathPanel_GetLocalPawn` 沿用返回地址传递，只对该调用点提供当前 armed 面板的死者；`MirvPovDeathPanel_GetAnimationPawn` 重新按 handle 查找并核对序列号、pawn 类型与观察目标。其他 getter 调用保留原行为，未增加 OnThink hook、CSS 动画或全局 ConVar 修改。
+- 独立 Release 控制均默认开启、即时生效：`mirv_pov_debug_feature damage_direction 0|1` 控制 POV 方向消息补偿和事件 fallback；`mirv_pov_debug_feature deathpanel_slide 0|1` 控制动画专用死者替换。前者切换及 all 切换清空待补偿项；已交给游戏的方向强度按原生规律衰减，不强行清零游戏自身状态。后者关闭后立即恢复原 getter，重新开启使用仍有效的 armed 死者及原生时间轴，不重播死亡事件。主 POV 关闭、seek/关卡重置沿用既有清理流程；两项互不关闭彼此。
+- 验证：Release x64 AfxHookSource2 构建通过，源码静态复核及 diff whitespace 检查通过。遵照用户“不要测试”，未启动游戏、未做 off/on/re-enable 或 demo 效果测试；实际呈现仍待用户观察。DLL 部署另以备份和源/目标 SHA-256 一致核对。
+
+## 2026-09-24：非爆头死亡过早黑屏的原生阶段调查
+
+用户已确认上一轮受击圆/死亡面板正常，随后报告非爆头死亡也立即进入黑屏。本节仅调查、记录，不修改功能代码、不构建、不替换 DLL、不运行游戏或测试。
+
+### 当前二进制证据
+
+- 安装 client.dll SHA-256 仍为 `12e4a7522678a582b085e404b7bfa32f9290f7fcd045716642daa61c43e7c96f`，image base `0x180000000`。本轮局部指令证据保存在 `diagnostics/hurt-death-native-20260924/death-phase-evidence.json` 和 `death-phase-current.asm.txt`。先前 `0xD0BC70` 重新映射为当前 `0xD0BC80`，两构建该函数标准化指令相同。最初检索工具用错更早版本作为 OLD 导致无候选，不能据此断言入口失效；明确使用 Sept23 `40bce820...` 为 OLD 后核对成功。
+- 原生死亡后处理更新函数 RVA `0xD0BC80` 是已有 `MirvPovDeathCam.cpp::New_NativeDeathCam` 的 detour 目标；本轮未新增 hook。入口签名 `40 55 53 56 57 41 56 48 8B EC 48 81 EC ?? ?? ?? ?? 0F 29 74 24`，完整局部签名/唯一匹配见 JSON。
+- 更新函数在 `0xD0BE03` 调用死亡 pawn 选择 helper `0xC79860`（未 hook 的原生 helper）。后者从 local pawn getter `0x969900` 开始，经虚调用和 observer mode==2/target 等门控选择候选，最终还检查生死条件；不是无条件使用真实 local pawn。仅临时改 local pawn 的两个字段并不等于已证明原生选择器一定返回该 pawn。
+- 当前 schema 静态字段描述表 `0x22311A0` 将 `m_bKilledByHeadshot` 映射至 `+0x1EC9`，`0x21EE8A0` 将 `m_flDeathTime` 映射至 `+0x1458`。原生 `0xD0BE35` 读取死亡时间，结合实体时钟求 elapsed；`0xD0BE57` 直接判断 headshot 字节。这证明爆头分支确实存在，不能把额外 Fade 路径不读 headshot 误写成整个 POV 系统不读 headshot。
+- `cl_instant_death_anim` 注册函数 `0xECC50` 默认 false；更新函数 `0xD0BE14` 读取其槽 `0x256F788` 后判断对象 `+0x58`。开启时有直接设第一阶段强度为 1 的特殊分支，绕过下述普通时间计算。
+- 普通路径第一阶段候选强度为 `clamp(4*t, 0, 1)`，在 `0xD0BF0C` 通过 max helper `0x1B93E0` 与已有强度合并。低暴力模式分别选择对象 `+0x120` 或 `+0x124`。因此第一阶段从死亡时刻开始，约 0.25 秒达到 1；爆头并非简单“不计算第一阶段”。
+- 第二阶段：爆头 `clamp(2*t, 0, 1)`；非爆头 `clamp(2*(t-(spec_freeze_time-0.5)), 0, 1)`。分支 RVA `0xD0BE7B`；非爆头读取 ConVar 的位置 `0xD0BEB9`，减 0.5 于 `0xD0BED8`；共同乘 2 / clamp 在 `0xD0BEE4` / `0xD0BEF9`，一般路径结果写入对象 `+0x128`（`0xD0BF5D`），另有模式/观战条件会走回落分支，不能把公式外推至所有模式。
+- `spec_freeze_time` 注册函数 `0xACEE0`，名称 RVA `0x1C02408`，默认常量 RVA `0x1ABF07C` 为 3.0 秒。默认非爆头第二阶段在 2.5 秒开始、3.0 秒到 1；爆头从 0 秒开始、0.5 秒到 1。这里是游戏时间，非墙钟时间，运行时 ConVar 可改变非爆头间隔。
+- 当前模块资源注册函数 `0xF0EC0` 包含 `lighting/postprocessing/effects/death_cam_phase1.vpost`、`death_cam_phase1_low_violence.vpost`、`death_cam_phase2.vpost`，字符串 RVA 分别 `0x1C9A0F0/0x1C9A130/0x1C9A178`。上述更新函数按强度提交后处理对象（`0xD0C0A1` 起），属于死亡后处理链，而不是向 CViewEffects 添加一条普通受伤红色 Fade。资源的具体色彩曲线本轮未解码，红/黑的视觉对应结合用户观察，不声称已逐帧或逐像素验证。
+
+### 与现有 POV 的冲突及修复方向
+
+- `MirvPovDeathCam.cpp:150-210,283-317` 已读取死亡事件 headshot，并在原生更新调用期间暂存/替换/恢复真实 local pawn 的 deathTime/headshot；这条链存在原生阶段复用意图。但原生 helper 的实体选择/生死门控仍需审查，不能仅凭 hook 安装成功认定阶段已正常执行。
+- 另一路 `GameEvents.cpp::UpdateDeathFadeFromEvent` 无条件为 POV 死亡调用 `RenderSystemDX11_DeathFade_Death`。后者（当前源码 367-397 行）使用观测延迟，缺省只等一个 tick；不区分 headshot，也不读取 spec_freeze_time。渲染前 `RenderSystemDX11_DeathFade_ProcessPending`（550-562 行）调用 CViewEffects AddFade，fallback 是 duration=307/512 秒、hold=0、flags=FadeOut|StayOut、RGBA=0xFF000000。
+- 确定的实现差异：额外黑 Fade 的调度独立于上述原生两阶段时间轴，会远早于默认非爆头第二阶段到期。它足以提前遮住原生第一阶段；这与用户表现相符。未经运行时捕获，不能将某一帧是否实际加载 fallback、原生 selector 返回哪个 pawn、真实后处理是否运行等推断写成实测结论。
+- 正确方向是让原生死亡后处理控制两个阶段，先核实并补齐其 POV pawn 上下文，再取消/约束重复黑色覆盖；不应恢复“所有 player_hurt 均添加全屏红 Fade”的旧做法，也不应仅随意延迟固定红黑模板。本轮没有实施该修复，未更改任何已有开关。
+
+### 后续实施：原生死亡阶段接管
+
+用户随后要求修复。此变更继续使用上节 SHA-256 `12e4a752...`、base `0x180000000` 的当前局部核验结果；未把其他构建地址当成已验证。
+
+- `GameEvents.cpp::HandleDeathFadeEvent` 不再因 POV 的 player_death 排队 `RenderSystemDX11_DeathFade_Death`，去除独立黑色 AddFade 对原生第一阶段的提前覆盖。原生 Fade 消息转发不受影响，亦未恢复普通 player_hurt 全屏红色。
+- `MirvPovDeathCam.cpp::New_NativeDeathCam` 复用已有 `0xD0BC80` detour，在有效死亡事件、当前完整 pawn handle 一致、POV/death feedback/独立效果开关均开启时，暂存并设置实际 POV pawn 的死亡字段。原生调用结束后用 SEH `__finally` 恢复字段及线程局部上下文；不再把死亡字段写到真实观战者并假设 selector 会使用它。
+- 原生 selector `0xC79860` 的 getter call 位于 `0xC79868`，返回地址 `0xC7986D`，目标经当前 PE 核对为 `0x969900`。通过现有 `DeathMsg.cpp::DeathPanel_GetLocalPawn` detour 和 return-address 传递，在 native death updater 的线程局部作用域内只对该返回地址提供 POV 死者。后续原生类型、生死门控、实体时钟、headshot 分支、ConVar/低暴力处理及渲染提交照常执行。新增 detour 数为零，selector 本身没有被 hook。
+- 原先选取的短 selector 签名匹配七处，静态核验后已扩展至 observer mode==2 分支，使当前构建只匹配 `0xC79860`。初始化另检查 updater 内相对 call 确实指向该 selector，以及本轮清理涉及的三项权重字段指令存在；失败时不安装该 updater hook。最终签名与匹配记录在 `death-phase-implementation-patterns.json`。
+- 原生 phase1 使用 max 累积，故新死亡、seek/重置、关闭效果及目标变更时需要清理上次 POV 的权重。只在收到当前原生 updater 的有效 This 时清理 `+0x120/+0x124/+0x128`，不解引用跨调用保存的对象地址；随后仍执行原生更新。状态 epoch 区分新的死亡/重置，避免上一段 phase2 覆盖下一段非爆头 phase1。
+- 新独立 Release 控制：`mirv_pov_debug_feature death_screen 0|1`，默认 1，即时配置、下一次原生 updater 调用生效。关闭仅停用 POV 死亡后处理补偿并清理其权重，保留原生普通观战行为；不影响受击圆或死亡信息面板。重新开启时保留当前死亡事件，从原生死亡时间轴继续，不从零重播；主 POV/关卡/seek 重置沿用事件清理。实际红黑时序由原生函数及运行时 ConVar 决定，未硬编码 2.5/3 秒。
+- 验证：最终 Release x64 AfxHookSource2 编译通过；当前 DLL 的入口、selector、权重布局与 call 关系已做静态核对。遵照用户“不要测试”，未运行游戏、demo 或开关 off/on 生命周期测试。此轮只完成源码与构建，未替换已安装 DLL；视觉效果及特殊观战模式仍需实际观察。
+
+### 死亡 phase 偶发被清除：POV 生命周期修正
+
+用户报告同一次死亡重复播放时，红/黑后处理偶发消失，而死亡横幅正常。本轮是 POV 源码生命周期排查，不新增原生二进制结论；沿用上述 `12e4a752...` 的原生函数与字段记录，未修改原生地址、偏移、签名或 hook 数量。
+
+- 确认的代码路径：旧 `MirvPovDeathCam_HandleGameEvent` 对所有 `spec_target_updated` 和所有玩家的 `player_spawn` 无条件 Reset；旧 `UpdateDemoTick` 把相邻渲染采样的正向 tick 差大于 2 当作 seek；这些 Reset 都清除 active、死者 handle 与事件字段。DeathPanel 对目标更新通知不会同样无条件隐藏，故两种效果生命周期不一致。这些是足以解释症状的确定代码路径，未做事件捕获，不能指定用户某次播放究竟命中了哪一条。
+- 修正：不再从上述通知事件直接重置；`MirvPovDeathCam_UpdateLifecycle` 在原生 FrameStageNotify 完成后检查已提交状态。保存的完整死者 handle 失效、有效选择目标变更、自动跟随时的有效 observer target 变更或 roaming 模式会终止；观察到死亡快照后重新出现正健康值才认定重生，避免死亡事件先到、实体健康值下一帧才更新时误清理。其他玩家重生不再影响当前死亡阶段。
+- 原生 updater 使用完整 handle 重新解析死者，不缓存裸指针；帧更新中的临时 GetCurrentPovPlayerPawn=null 不再直接清除 phase weights。正式目标切换由后帧检查决定，阶段权重在随后原生 updater 中清理。地图/断开/主开关关闭仍保留原有 Reset 路径。
+- 正向 tick 间隔不再作为死亡效果 seek 判据，因此低 FPS/快放的正常推进不会取消阶段。死亡事件同时记录 demo tick 并更新采样基线，避免新死亡事件被上一渲染帧的时间跳变再次清除。负向跳转到死亡之前时 Reset；回退但仍位于本次死亡之后时保留事件身份，只清理 max 累积权重让原生时间轴重新求值。前向跳转依赖已提交目标、实体身份和生死状态结束无效的死亡生命周期。
+- 此为现有 `death_screen` 效果的生命周期修复，沿用其独立开关，没有添加新效果或控制。Release x64 构建与 diff whitespace 检查通过；输出 SHA-256 `DAC7FC9DE3FEFB8F5E159C4ACC959CAB2BF5F57B1CCE139A9105CE2D74C92433`。按用户要求未运行测试或游戏。本轮未安装 DLL，重复回放效果尚未实测。
+
+后续部署与用户验证：用户授权安装后，以上 SHA-256 的 DLL 已替换至 HLAE x64 安装目录，旧 DLL 备份为 `AfxHookSource2.dll.backup-20260924-152356`，源/目标哈希一致。用户随后反馈效果正常并要求提交、推送及同步上游；这是用户回放确认，不是代理自行执行游戏测试，也不代表覆盖全部地图、模式及开关组合。

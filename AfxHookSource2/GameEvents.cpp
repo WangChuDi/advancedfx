@@ -104,7 +104,6 @@ extern bool g_b_on_game_event;
 static bool IsDeathFadeEvent(const char * name) {
     return name
         && (0 == strcmp(name, "round_start")
-            || 0 == strcmp(name, "player_hurt")
             || 0 == strcmp(name, "player_death")
             || 0 == strcmp(name, "player_spawn")
             || 0 == strcmp(name, "spec_target_updated"));
@@ -130,14 +129,12 @@ static void HandleDeathFadeEvent(
 
     // Learn only from a real local victim. Watched-player events in POV are
     // not the local player's native Fade source and must never overwrite the
-    // normal hurt/death template or its timing sample.
-    if((0 == strcmp(name, "player_hurt") || 0 == strcmp(name, "player_death"))
+    // normal death template or its timing sample. A player_hurt event alone
+    // does not establish that the game sent a full-screen Fade: leave native
+    // hurt visuals alone instead of synthesizing a red overlay for every hit.
+    if(0 == strcmp(name, "player_death")
         && MirvPovFeedback_IsRealLocalPlayerVictim(event)) {
-        if(0 == strcmp(name, "player_hurt")) {
-            RenderSystemDX11_DeathFade_ObserveHurtEvent();
-        } else {
-            RenderSystemDX11_DeathFade_ObserveDeathEvent();
-        }
+        RenderSystemDX11_DeathFade_ObserveDeathEvent();
     }
 
     if(!MirvPov_IsEnabled() || !IsDeathFadeEvent(name)) return;
@@ -145,12 +142,9 @@ static void HandleDeathFadeEvent(
     if(0 == strcmp(name, "round_start")) {
         MirvPovDeathPanel_Clear();
         RenderSystemDX11_DeathFade_Reset();
-    } else if(0 == strcmp(name, "player_hurt")) {
-        bool localVictim = MirvPovFeedback_IsLocalPlayerVictim(event);
-        if(localVictim) RenderSystemDX11_DeathFade_Hurt();
     } else if(0 == strcmp(name, "player_death")) {
-        bool localVictim = MirvPovFeedback_IsLocalPlayerVictim(event);
-        if(localVictim && MirvPov_IsDeathFeedbackEnabled()) RenderSystemDX11_DeathFade_Death();
+        // The native death-camera postprocess owns both death phases. An
+        // additional black Fade here covered the non-headshot first phase.
     } else if(0 == strcmp(name, "player_spawn")) {
         bool localVictim = MirvPovFeedback_IsLocalPlayerVictim(event);
         if(localVictim) {

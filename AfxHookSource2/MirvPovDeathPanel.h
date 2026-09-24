@@ -45,6 +45,7 @@ struct MirvPovDeathPanelState {
     MirvPovDeathPanelHide_t hide = nullptr;
     MirvPovDeathPanelShow_t show = nullptr;
     MirvPovDeathPanelGetLocalPawn_t originalGetLocalPawn = nullptr;
+    void * animationPawnReturnAddress = nullptr;
 
     bool localPawnHooked = false;
     bool hideHooked = false;
@@ -83,6 +84,7 @@ size_t MirvPovDeathPanel_ResolveEntityTokenAddress(HMODULE clientDll);
 void MirvPovDeathPanel_Clear();
 bool MirvPovDeathPanel_Reapply(const char * source);
 void MirvPovDeathPanel_Update();
+CEntityInstance * MirvPovDeathPanel_GetAnimationPawn(void * returnAddress);
 __int64 __fastcall MirvPovDeathPanel_HideWhileAlive(unsigned char * deathPanel);
 bool DeathPanel_ForceVisibility(
     unsigned char * deathPanel,
