@@ -95,7 +95,7 @@ Run `mirv_pov_debug_feature` without arguments to inspect active/configured stat
 
 ## License
 
-`mirv_pov` and its integration modifications are **AGPL-3.0-only**; a combined DLL containing them is distributed under that license. Separate AdvancedFX and third-party sources retain their original licenses. See [NOTICE.md](NOTICE.md) and the [POV license scope](AfxHookSource2/MIRV_POV_LICENSE.md). Each release includes a matching `*-source.zip` with corresponding source.
+`mirv_pov` and its integration modifications are **AGPL-3.0-only**; a combined DLL containing them is distributed under that license. Separate AdvancedFX and third-party sources retain their original licenses. See the [license overview](LICENSE), [AGPL text](LICENSE-AGPL-3.0.txt), [NOTICE.md](NOTICE.md) and the [POV license scope](AfxHookSource2/MIRV_POV_LICENSE.md). Each release includes a matching `*-source.zip` with corresponding source.
 
 ## Original HLAE documentation
 

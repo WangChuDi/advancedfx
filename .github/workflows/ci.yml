@@ -78,6 +78,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $binaryRoot | Out-Null
           Copy-Item -LiteralPath $source -Destination (Join-Path $binaryRoot "AfxHookSource2.dll")
           Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "LICENSE") -Destination $binaryRoot
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "LICENSE-AGPL-3.0.txt") -Destination $binaryRoot
           Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "NOTICE.md") -Destination $binaryRoot
           Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "LICENSES") -Destination $binaryRoot -Recurse
           Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "AfxHookSource2/MIRV_POV_LICENSE.md") -Destination $binaryRoot

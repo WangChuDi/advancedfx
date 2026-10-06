@@ -95,7 +95,7 @@ mirv_pov_debug_feature deafen 1
 
 ## 许可证
 
-`mirv_pov` 及其集成修改为 **AGPL-3.0-only**；包含它的组合 DLL 按该许可证分发，原 AdvancedFX 和第三方独立源码保留各自许可证。完整范围见 [NOTICE.md](NOTICE.md) 与 [POV 许可证说明](AfxHookSource2/MIRV_POV_LICENSE.md)。每次发布均提供同提交的 `*-source.zip` 对应源码。
+`mirv_pov` 及其集成修改为 **AGPL-3.0-only**；包含它的组合 DLL 按该许可证分发，原 AdvancedFX 和第三方独立源码保留各自许可证。见[许可范围总览](LICENSE)、[AGPL 全文](LICENSE-AGPL-3.0.txt)、[NOTICE.md](NOTICE.md) 与 [POV 许可证说明](AfxHookSource2/MIRV_POV_LICENSE.md)。每次发布均提供同提交的 `*-source.zip` 对应源码。
 
 ## 原版 HLAE 文档
 

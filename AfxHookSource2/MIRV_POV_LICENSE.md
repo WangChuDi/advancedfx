@@ -2,7 +2,9 @@
 
 The `mirv_pov` feature implementation is licensed under the GNU Affero General
 Public License version 3 only (`AGPL-3.0-only`). The license text is available
-at `../LICENSES/MulNX-AGPL-3.0.txt`.
+at `../LICENSE-AGPL-3.0.txt`; the provenance copy is preserved at
+`../LICENSES/MulNX-AGPL-3.0.txt`. See `../LICENSE` for the repository's mixed
+license scope.
 
 This scope includes:
 

@@ -1,21 +1,33 @@
-MIT License
+Licensing of this AdvancedFX fork
+================================
 
-Copyright (c) 2021 advancedfx.org
+This repository contains material under different licenses. It is not
+licensed entirely under MIT, and the licenses below are not alternative
+choices for the same code.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+mirv_pov and combined binaries
+-----------------------------
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+The mirv_pov implementation and its integration modifications are licensed
+under the GNU Affero General Public License version 3 only
+(SPDX-License-Identifier: AGPL-3.0-only). The full license text is in
+LICENSE-AGPL-3.0.txt. AfxHookSource2/MIRV_POV_LICENSE.md defines the source
+scope, and NOTICE.md records provenance and distribution requirements.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+A distributed AfxHookSource2.dll containing mirv_pov is a combined work
+conveyed under AGPL-3.0-only. Each binary release provides a matching
+corresponding-source archive on the same release page.
+
+AdvancedFX and third-party material
+----------------------------------
+
+Separate AdvancedFX source material retains its original MIT license,
+including Copyright (c) 2021 advancedfx.org. The complete original copyright
+and permission notice is preserved in LICENSES/AdvancedFX-MIT.txt and must
+be retained when distributing that material.
+
+Separate third-party material retains its applicable licenses and notices.
+Inclusion in an AGPL-covered combined binary does not remove those notices
+or revoke the original licenses of separable source material.
+
+See NOTICE.md for further licensing and provenance information.

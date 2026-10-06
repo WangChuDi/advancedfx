@@ -6,8 +6,9 @@ The repository is licensed under the AdvancedFX MIT license by default. The
 `mirv_pov` feature implementation and its integration modifications are the
 exception: they are licensed under GNU Affero General Public License version 3
 only (`AGPL-3.0-only`). The exact source scope is defined in
-`AfxHookSource2/MIRV_POV_LICENSE.md`, and the AGPL text is preserved in
-`LICENSES/MulNX-AGPL-3.0.txt`.
+`AfxHookSource2/MIRV_POV_LICENSE.md`. The root `LICENSE` explains the mixed
+license scope; the full AGPL text is in `LICENSE-AGPL-3.0.txt`, with the
+provenance copy preserved in `LICENSES/MulNX-AGPL-3.0.txt`.
 
 A distributed `AfxHookSource2.dll` containing `mirv_pov` combines that feature
 with other AfxHookSource2 code in one binary. That combined binary is conveyed
