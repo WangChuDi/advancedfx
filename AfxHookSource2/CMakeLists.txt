@@ -338,6 +338,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 
     RenderCommands.cpp
     RenderCommands.h
+    CaptureTexturePolicy.h
 
     RenderServiceHooks.cpp
     RenderServiceHooks.h

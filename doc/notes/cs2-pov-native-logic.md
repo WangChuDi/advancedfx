@@ -820,3 +820,21 @@ client image size `0x2994000`；独立输入、manifest 和基线报告在 `diag
 Release x64完整依赖构建成功。首轮只构建DLL遗漏新增scale shader；补齐依赖后NuGet临时缓存沙箱权限不足，提升构建权限后成功，保留两次失败日志。审计修正旧Capstone normalization对16-bit RIP memory operand误把disp32当disp16的问题，不修改游戏代码。未启动、关闭或重启CS2/HLAE；未运行demo、音视频/off-on/re-enable矩阵。构建及静态核验不等于实际加载/游戏呈现通过。本次未提交或推送，保留工作区已有调查改动。
 
 部署：确认CS2未运行、已运行的HLAE启动器未加载目标DLL后，安装到 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`。原DLL备份为同目录 `.backup-20261009-123603-client-update`，旧SHA-256 `14F4A703B255CF485C605FFDF3C804B77208795A5A6C1AE9BCC425B68C78D343`；构建/安装SHA-256均为 `A4FB7DF208162DDE8AD75E7F23E51E598171A225E51CC4F503BE5BF469DDFA95`。`installation.json`记录部署值，`git diff --check`通过。IDA save前台请求也在300秒超时，但新 `client.i64` 已实际落盘（620425819 bytes），后续finalize完成；只关闭本轮分析worker，不操作游戏进程。
+
+## 2026-10-09：回合结算期间录制冻结的捕获链修复
+
+本轮是源码与D3D11资源契约审计，没有新增二进制逆向、RVA、签名或游戏detour，也不把之前的MVP静态契约当作录制故障的运行证明。用户报告：回合结尾游戏显示和声音正常、录制图像不更新，下一回合恢复；给定Purple-CSGO预设默认 `normal raw`、深度关闭、x264 `c1`。raw使用 `BeforePresent`。原生结算实际渲染目标身份尚未采集；MVP音乐只是同时发生，未证明音频冲突。
+
+上游变化：`2c2aabd2`（10月7日）将BeforePresent源从swapchain buffer改为检测的RT；`fccc2f19`（10月8日）把ClearDepth条件改成 `>=1`，导致状态到3后后续清除仍可替换RT。CPU staging仅首次按源描述创建、复用不校验，以及Present状态更新依赖纹理队列，是此前已存在的设计，可能被新源选择暴露。独立WARP实验中，不兼容尺寸的复制保留旧像素，恢复兼容源后更新恢复；这是契约故障机制实验，不是CS2结算根因实测。
+
+捕获链修复（无新增用户可见效果，不改变POV/MVP功能或配置）：
+
+- `RenderSystemDX11Hooks.cpp::OnBeforeCsgoHud` 只锁定当前render pass首个可复制/resolve到display buffer的RT；尺寸/格式不兼容的辅助目标拒绝，不被后续深度清除反复覆盖。首个同规格辅助目标仍可能误判，HUD/CMAA表现需用户实录验证。
+- `Before_Present` 缺少有效目标时，主画面通道回退swapchain buffer；extra pass抑制Present，禁止回退以免录到上一主帧。保留新的帧/音频同步边界及两级GPU/CPU readback，不恢复旧录制时序。
+- `RenderCommands.h::BeforePresentReliable` 独立执行纯Present策略，不依赖context/texture；`FinalizeReliable` 总是复位force/suppress，队列在帧结束清理。
+- `CaptureTexturePolicy.h` 逐次检查几何、mip/array、格式族及copy/resolve采样契约。`CAfxCpuTexture` 仅在本轮确实发出兼容复制后允许Map，MSAA状态逐次刷新，支持BGRA显示缓冲读回；输出编码尺寸保持首次创建值。不兼容源跳过并警告，窗口录制中实际改尺寸仍需结束后重新开始。
+- 失败readback删除对象时归还三纹理池计数并唤醒等待者，避免连续失败耗尽池；AfterPostProcessing门控改为自身队列并释放OMGetRenderTargets取得的RTV。
+
+验证：提取实际生产 `CAfxCpuTexture` 到独立WARP harness，确认尺寸/格式变化不提交旧像素、恢复原源后更新、1x↔MSAA转换、BGRA读回；实际RenderCommands队列确认无纹理/无context策略执行、finalize复位及废弃帧不泄漏。shader scaling未覆盖；系统D3D debug layer未安装，使用普通WARP。证据与脚本位于 `diagnostics/record-freeze-20261009/`。Release x64增量构建成功（依赖复用同日已成功完整构建版本）；用户随后试用并确认本次报告的回合结尾录制冻结已修复；具体原生RT身份仍未采集，完整HUD/CMAA与音画同步组合矩阵未由本轮自动化测试覆盖。
+
+试用部署（北京时间15:26）：复查CS2未运行、HLAE启动器未加载目标DLL后，备份为 `AfxHookSource2.dll.backup-20261009-152634-roundend-capture`，旧SHA-256 `A4FB7DF208162DDE8AD75E7F23E51E598171A225E51CC4F503BE5BF469DDFA95`。构建及安装到 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll` 的SHA-256一致：`D720B746C569C8E44DF1CCB6862BD53E5204724646E88628EC8B98832066D4F1`。部署过程未启动、关闭或重启游戏/HLAE，未更改cfg。用户试用后反馈“确实修好了”，并要求将修复提交到fork的PR。

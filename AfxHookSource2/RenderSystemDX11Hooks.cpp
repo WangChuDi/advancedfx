@@ -16,6 +16,7 @@
 #include "MirvTime.h"
 
 #include "RenderCommands.h"
+#include "CaptureTexturePolicy.h"
 #include "StreamSettings.h"
 
 #include "../shared/AfxDetours.h"
@@ -856,6 +857,7 @@ public:
     // viewportWidth / viewportHeight: area at the top-left of pTexture that holds the image,
     // if smaller than pTexture it's upscaled to pTexture's size (bLinearScale = false for point sampling).
     void OnBeforeGpuPresent(ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture, UINT * pViewportWidth, UINT * pViewportHeight, float depthScale, float depthOfs, bool bLinearScale) {
+        if(!pDeviceContext || !pTexture) return;
         if(nullptr == m_CurrentCpuTexture) {            
             ID3D11Device * pDevice = nullptr;
             pDeviceContext->GetDevice(&pDevice);
@@ -881,9 +883,9 @@ public:
                     m_CurrentCpuTexture->CpuEndAccess(pDeviceContext); // re-use
                 }                
             }
-            pDevice->Release();
+            if(pDevice) pDevice->Release();
         }
-        m_CurrentCpuTexture->GpuCopyResource(pDeviceContext, pTexture, pViewportWidth, pViewportHeight, depthScale, depthOfs, bLinearScale);
+        if(m_CurrentCpuTexture) m_CurrentCpuTexture->GpuCopyResource(pDeviceContext, pTexture, pViewportWidth, pViewportHeight, depthScale, depthOfs, bLinearScale);
     }
 
     void OnAfterGpuPresent(ID3D11DeviceContext * pDeviceContext) {
@@ -896,6 +898,10 @@ public:
                 StartProcess(nullptr);
                 delete m_CurrentCpuTexture2;
                 m_CurrentCpuTexture2 = nullptr;
+                // Failed readbacks must release their pool slot as well as the object.
+                std::unique_lock<std::mutex> lock(m_DoneTexturesMutex);
+                --m_NumCpuTextures;
+                m_DoneTexturesCv.notify_all();
             }
         }
         if(m_CurrentCpuTexture){
@@ -953,11 +959,15 @@ private:
         }
 
         void GpuCopyResource(ID3D11DeviceContext * pContext, ID3D11Texture2D * pTexture, UINT * pViewportWidth, UINT * pViewportHeight, float depthScale, float depthOffset, bool bLinearScale) {
+            m_CopyIssued = false;
+            if(!pContext || !pTexture) return;
+            D3D11_TEXTURE2D_DESC sourceDesc;
+            pTexture->GetDesc(&sourceDesc);
             m_DepthScale = depthScale;
             m_DepthOfs = depthOffset;
             if(m_pCpuTexture == nullptr && pTexture) {
                 D3D11_TEXTURE2D_DESC desc;
-                pTexture->GetDesc(&desc);
+                desc = sourceDesc;
                 m_bMultiSampled = 1 < desc.SampleDesc.Count;
                 desc.BindFlags = 0;
                 desc.MiscFlags = 0;
@@ -979,8 +989,15 @@ private:
                 format = advancedfx::ImageFormat::RGBA;
                 desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
                 break;
+                case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+                case DXGI_FORMAT_B8G8R8A8_UNORM:
+                case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+                    format = advancedfx::ImageFormat::BGRA;
+                    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+                    break;
                 default:
                     advancedfx::Warning("AFXERROR: GpuCopyResource - unspported DXGI_FORMAT: %i\n",desc.Format);
+                    return;
                 }
                 m_IntermediateDesc = desc;
                 m_IntermediateDesc.Usage = D3D11_USAGE_DEFAULT;
@@ -1000,6 +1017,22 @@ private:
             }
 
             if(m_pCpuTexture && pTexture) {
+                D3D11_TEXTURE2D_DESC cpuDesc;
+                m_pCpuTexture->GetDesc(&cpuDesc);
+                if(!AfxCapture::CanCopyOrResolve(sourceDesc, cpuDesc)) {
+                    if(!m_SourceMismatchReported) {
+                        advancedfx::Warning("AFXWARNING: Capture source changed to an incompatible texture (%ux%u format=%u samples=%u); skipping stale readback.\n",
+                            sourceDesc.Width, sourceDesc.Height, (unsigned)sourceDesc.Format, sourceDesc.SampleDesc.Count);
+                        m_SourceMismatchReported = true;
+                    }
+                    return;
+                }
+                // Sampling can change even when the staging dimensions stay fixed.
+                m_bMultiSampled = sourceDesc.SampleDesc.Count > 1;
+                if(m_bMultiSampled && !m_pIntermediateTexture) {
+                    m_pIntermediateTexture = m_pCapture->AquireIntermediate(0, m_pDevice, m_IntermediateDesc);
+                    if(!m_pIntermediateTexture) return;
+                }
                 UINT width = (UINT)m_ImageFormat.Width;
                 UINT height = (UINT)m_ImageFormat.Height;
                 if(pViewportWidth && pViewportHeight
@@ -1008,6 +1041,7 @@ private:
                     && (*pViewportWidth < width || *pViewportHeight < height)
                     && advancedfx::ImageFormat::Unknown != m_ImageFormat.Format
                     && GpuScaleResource(pContext, pTexture, *pViewportWidth, *pViewportHeight, bLinearScale)) {
+                    m_CopyIssued = true;
                     return;
                 }
                 if(m_pIntermediateTexture && m_bMultiSampled) {
@@ -1016,12 +1050,13 @@ private:
                 } else {
                     pContext->CopyResource(m_pCpuTexture, pTexture);
                 }
+                m_CopyIssued = true;
             }
         }
 
         advancedfx::IImageBufferThreadSafe * CpuBeginAccess(ID3D11DeviceContext * pContext) {
             m_MappedResource.pData = nullptr;
-            if(m_pCpuTexture) {
+            if(m_pCpuTexture && m_CopyIssued) {
                 if(SUCCEEDED(pContext->Map(m_pCpuTexture, 0, D3D11_MAP_READ , 0, &m_MappedResource))) {
                     m_ImageFormat = advancedfx::CImageFormat(m_ImageFormat.Format, m_ImageFormat.Width, m_ImageFormat.Height, m_MappedResource.RowPitch);
                     return this;
@@ -1148,6 +1183,8 @@ private:
         ID3D11Device * m_pDevice;
         ID3D11Texture2D * m_pCpuTexture = nullptr;
         bool m_bMultiSampled = false;
+        bool m_CopyIssued = false;
+        bool m_SourceMismatchReported = false;
         D3D11_TEXTURE2D_DESC m_IntermediateDesc = {};
         ID3D11Texture2D * m_pIntermediateTexture = nullptr; // resolve / scale source or scale target.
         ID3D11ShaderResourceView * m_pIntermediateTextureSrv = nullptr;
@@ -2528,6 +2565,17 @@ void MaybeCaptureSmokeDepth() {
     }
 }
 
+bool IsPresentCaptureTexture(ID3D11Texture2D * pTexture) {
+    if(!pTexture || !g_pSwapChain) return false;
+    ID3D11Texture2D * pBackBuffer = nullptr;
+    if(FAILED(g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer)) || !pBackBuffer) return false;
+    D3D11_TEXTURE2D_DESC sourceDesc, targetDesc;
+    pTexture->GetDesc(&sourceDesc);
+    pBackBuffer->GetDesc(&targetDesc);
+    pBackBuffer->Release();
+    return AfxCapture::CanCopyOrResolve(sourceDesc, targetDesc);
+}
+
 void OnBeforeCsgoHud(ID3D11DeviceContext * pDeviceContext);
 
 void STDMETHODCALLTYPE New_ClearDepthStencilView( ID3D11DeviceContext * This, 
@@ -2693,11 +2741,7 @@ private:
             pSrcTexture->GetDesc(&srcDesc);
             pDstTexture->GetDesc(&dstDesc);
 
-            if(srcDesc.Width == dstDesc.Width
-                && srcDesc.Height == dstDesc.Height
-                && srcDesc.ArraySize == dstDesc.ArraySize
-                && srcDesc.MipLevels == dstDesc.MipLevels
-            ) {
+            if(AfxCapture::CanCopyOrResolve(srcDesc, dstDesc)) {
                 g_bInOwnDraw = true;
                 if(srcDesc.SampleDesc.Count == dstDesc.SampleDesc.Count) {
                     pContext->CopyResource(pDstTexture, pSrcTexture);
@@ -2791,12 +2835,23 @@ void OnBeforeUi(ID3D11DeviceContext * pDeviceContext) {
 }
 
 void OnBeforeCsgoHud(ID3D11DeviceContext * pDeviceContext) {
+    // Latch the first full-size display target for this render pass. Later
+    // depth clears can belong to auxiliary/settlement views.
+    if(g_BeforeUiRT) return;
     if(auto pRenderPassCommands = g_RenderCommands.RenderThread_GetCommands()) {
             ID3D11RenderTargetView* pRenderTargetViews[1] = {nullptr};
             pDeviceContext->OMGetRenderTargets(1, &pRenderTargetViews[0], nullptr);
             if (pRenderTargetViews[0]) {
-                if(g_BeforeUiRT) g_BeforeUiRT->Release();
-                g_BeforeUiRT = pRenderTargetViews[0];
+                ID3D11Resource * pResource = nullptr;
+                pRenderTargetViews[0]->GetResource(&pResource);
+                ID3D11Texture2D * pTexture = nullptr;
+                if(pResource) {
+                    pResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&pTexture);
+                    pResource->Release();
+                }
+                if(IsPresentCaptureTexture(pTexture)) g_BeforeUiRT = pRenderTargetViews[0];
+                else pRenderTargetViews[0]->Release();
+                if(pTexture) pTexture->Release();
             }
     }
 }
@@ -2866,7 +2921,7 @@ public:
             if (pRenderTargetViews[0]) {
                 if(auto pRenderPassCommands = g_RenderCommands.RenderThread_GetCommands())
                 {
-                    if(!pRenderPassCommands->AfterPresent.Empty())
+                    if(!pRenderPassCommands->AfterPostProcessing.Empty())
                     {
                         ID3D11Resource* pRenderTargetViewResource = nullptr;
                         pRenderTargetViews[0]->GetResource(&pRenderTargetViewResource);
@@ -2882,6 +2937,7 @@ public:
                         }
                     }
                 }
+                pRenderTargetViews[0]->Release();
             }
         }
         g_bDetectSmoke = false;
@@ -3176,6 +3232,10 @@ HRESULT WINAPI New_D3D11CreateDevice(
 
 void Before_Present() {
     g_bInOwnDraw = true;
+    if(auto pRenderPassCommands = g_RenderCommands.RenderThread_GetCommands()) {
+        // Present policy applies even if the HUD texture was not detected.
+        pRenderPassCommands->OnBeforePresentReliable();
+    }
 
     g_CampathDrawer.OnRenderThread_Present();
 
@@ -3186,19 +3246,31 @@ void Before_Present() {
     if(auto pRenderPassCommands = g_RenderCommands.RenderThread_GetCommands())
     {
         if(!pRenderPassCommands->BeforePresent.Empty()) {
+            ID3D11Texture2D * pSrcTexture = nullptr;
             if(g_BeforeUiRT) {
                 ID3D11Resource * pSrcResource = nullptr;
                 g_BeforeUiRT->GetResource(&pSrcResource);
                 if(pSrcResource) {
-                    ID3D11Texture2D * pSrcTexture = nullptr;
                     pSrcResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&pSrcTexture);
-                    if(pSrcTexture) {
-                        pRenderPassCommands->OnBeforePresent(pSrcTexture);
-                        pSrcTexture->Release();
-                    }
                     pSrcResource->Release();
                 }
             }
+            if(!IsPresentCaptureTexture(pSrcTexture)) {
+                if(pSrcTexture) pSrcTexture->Release();
+                pSrcTexture = nullptr;
+                // Settlement/menu frames may not take the world post-process
+                // path. Their actual display buffer remains a valid fallback.
+                // Extra passes are never copied to the display buffer: using it
+                // here would record the previous main pass instead of this one.
+                if(g_pSwapChain && !g_Present_Suppress) g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&pSrcTexture);
+                static unsigned int fallbackReports = 0;
+                if(pSrcTexture && fallbackReports < 4) {
+                    ++fallbackReports;
+                    advancedfx::Message("[mirv_streams] BeforePresent capture uses display-buffer fallback (HUD target unavailable).\n");
+                }
+            }
+            pRenderPassCommands->OnBeforePresent(pSrcTexture);
+            if(pSrcTexture) pSrcTexture->Release();
         }
     }
 }
@@ -4660,18 +4732,17 @@ private:
     void EngineThread_SetupPresent(bool bForcePresent, bool bSuppressPresent) {
         auto & pRenderPassCommands = g_RenderCommands.EngineThread_GetCommands();
         {
-            auto & queue = pRenderPassCommands.BeforePresent;
-            CAfxCapture * capture = g_ActiveCapture;
-            queue.Push([capture,bForcePresent,bSuppressPresent](ID3D11DeviceContext * pDeviceContext, ID3D11Texture2D * pTexture){
+            auto & queue = pRenderPassCommands.BeforePresentReliable;
+            queue.Push([bForcePresent,bSuppressPresent](){
                 g_bExpectPresent = bForcePresent;
                 g_Present_Suppress = bSuppressPresent;
             }); 
         }
         {
-            auto & queue = pRenderPassCommands.AfterPresent;
-            CAfxCapture * capture = g_ActiveCapture;
-            queue.Push([capture](ID3D11DeviceContext * pDeviceContext){
+            auto & queue = pRenderPassCommands.FinalizeReliable;
+            queue.Push([](){
                 g_bExpectPresent = false;
+                g_Present_Suppress = false;
             }); 
         }        
     }

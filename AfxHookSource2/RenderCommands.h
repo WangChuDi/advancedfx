@@ -64,6 +64,7 @@ public:
             AfterPostProcessing.Clear();
             BeforeUiTexture.Clear();
             BeforeUi.Clear();
+            BeforePresentReliable.Clear();
             BeforePresent.Clear();
             AfterPresent.Clear();
 
@@ -84,6 +85,8 @@ public:
         CQueue<FnContextTexture> BeforeUiTexture;
         
         CQueue<FnContextTarget> BeforeUi;
+
+        CQueue<Fn> BeforePresentReliable;
 
         CQueue<FnContextTexture> BeforePresent;
 
@@ -133,6 +136,13 @@ public:
             }
         }
         
+        void OnBeforePresentReliable() {
+            while(!BeforePresentReliable.Empty()) {
+                BeforePresentReliable.Front()();
+                BeforePresentReliable.Pop();
+            }
+        }
+
         void OnBeforePresent(ID3D11Texture2D * pTexture) {
             if(Context && pTexture) {
                 while(!BeforePresent.Empty()) {
