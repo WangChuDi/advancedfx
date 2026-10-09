@@ -761,3 +761,62 @@ POV 行为：继续尊重原生音乐总音量，不自动将其改成1，也不
 专项静态断言通过：完整hash/schema、20组归一化一致函数、8-byte leaf、creator注册身份、语音字段、闪光共同target；82条POV源码签名在当前安装模块扫描均有匹配（该总扫描不等同每个模块所有语义均完成验证）。拾取active caller唯一匹配且rel32指向新builder。item refresh原生指令语义保持、CanAcquire只有jump-table布局迁移；model新增slot41原生逻辑保留，仍需观察实际preview。Release x64构建成功，`git diff --check`通过。首轮构建因进程环境同时含PATH/Path而失败；仅在构建子进程环境去重后成功，没有更改系统环境。
 
 确认CS2未运行、HLAE启动器未加载目标DLL后，备份并安装到 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`；备份后缀 `.backup-20261003-152249-client-update`，旧hash `3F76FEC1DAFBDE97020659E343D69B618D4B68D8A687AEB9B476D59F15AF93D4`，新构建/安装hash均为 `E8B722FADCC3373DDC4150C959F08125B967F2A10FE0DE16BD7A8B59C040DF3C`。未启动、关闭或重启CS2/HLAE，未提交/推送。尚未完成游戏内闪光/玩家语音、BuyMenu开关矩阵、preview或拾取提示回放验证；安装hash一致不能替代实际加载模块和游戏行为证据。
+
+## 2026-10-09：CS2 新构建的 POV DLL 同步
+
+### 构建身份与证据
+
+重新发现并复制本机 Steam 安装文件，未以历史地址代替新版验证。以下模块 image base 均为 `0x180000000`；本节地址为 RVA，analysis VA = base + RVA。
+
+| 模块 | SHA-256 |
+| --- | --- |
+| client.dll | `44af2aa0d2c64f90d273444cb393b8b679094f0b02136dbdb89d4ec82a560008` |
+| panorama.dll | `4b3eb751f78bcbea82b146dcc5e2668d8fa19263c82dd35321441feb2be43c24` |
+| engine2.dll | `4b8fe29ecdef4f492a602d9013cbfe5226561c9c0ba4361ce82e6f46d4f9bc04` |
+| schemasystem.dll | `f362c13aada09ee03c402e3a0de2b66bdebfe57bbb15d23c437971b21f32b6e8` |
+| soundsystem.dll | `4517ee246256f9720ad2a2c0c5d0d7b231c3207e8644753efefef363e7105155` |
+
+client image size `0x2994000`；独立输入、manifest 和基线报告在 `diagnostics/client-dll-analysis/44af2aa0d2c64f90/`。IDA baseline 识别 106837 functions / 66311 strings，warmup 确认 auto-analysis 和 Hex-Rays ready。open 前台请求300秒超时，但 worker 已完成，后续复用同一 session；没有重新启动重复分析。定向反编译 EventOpenBuyMenu 注册器/creator、default loadout 和 model；其余通过 PE/unwind/Capstone 及独立只读核验。此范围不代表全模块手工语义分析。
+
+### 游戏原生逻辑与迁移
+
+原生 BuyMenu open → refresh/full refresh → think/select/model → close 顺序保持，menu 字段、preview 2284/2288/2296 与160-byte records、控制器 inventory `0x820`、pawn services `0x12F0/0x12F8` 和 buy bit `0x15EA` 均有新版依据。schema descriptors 分别为 `0x2217840/0x21EC1F0/0x21EC210/0x2230FD0`；运行期继续按类限定查询。
+
+原生库存管理器的本地库存成员从 `+0x52900` 变为 `+0x528D0`，loadout/hover/model 指令除该成员及重定位外保持。default loadout helper 仍校验 slot<=57、team<=3，58 slots、1456-byte stride，但对象中的表起点从 `+0x180` 变为 `+0x150`。POV 调用新版 helper，不自行索引这些管理器字段。稀疏服务器56-byte loadout records 的 `+48/+50/+52` 及 inventory `+0x88/+0x90` 保持。
+
+`EventOpenBuyMenu` 注册器 `0xFE450` 引用字符串 `0x1CAF400`、symbol `0x223962C`、creator **`0xDAFBF0`**。creator 分配32 bytes、写同一symbol、从 UI engine global `0x272ABC0` 调用 slot33 取得 weak handle。creator 未 hook，仅由 POV Dispatch 调用；注册器也未 hook。身份由注册字符串与symbol交叉核验，不用同形函数直接迁移。
+
+| 用途 | 新 RVA | 接入 |
+| --- | --- | --- |
+| open / close | `0xDB4FC0 / 0xD9E230` | detour |
+| refresh / full refresh | `0xDB8310 / 0xDB83B0` | detour |
+| hover / think | `0xDBF660 / 0xDA6580` | detour；hover名称不代表真实mouseover |
+| local pawn / controller | `0x969A30 / 0x9699F0` | scope内detour |
+| loadout / hover loadout | `0x903280 / 0x9031E0` | scope内detour |
+| buy bit / purchase / sell | `0xC94090 / 0xDA7490 / 0xDA77D0` | detour |
+| model / select / SetPlayerModel | `0xDBDE70 / 0xDB4860 / 0xE5BEA0` | detour |
+| symbol / item lookup / pawn model | `0x177FAA0 / 0x1130860 / 0x21C550` | helper，仅调用 |
+| inventory manager / default loadout | `0x838DD0 / 0x83B980` | helper，仅调用 |
+| acquire / owned weapon | `0x8BFE20 / 0x8FE210` | 状态诊断helper，仅调用 |
+| UI engine / cant-afford / cant-buy / promoted ref | `0x272ABC0 / 0x25BF4D4 / 0x25BF4D8 / 0x2524BB0` | 原生globals，经RIP引用核验 |
+
+`MirvPovBuyMenu.cpp:21` 更新完整hash、image范围、上述detour/helper/globals；未知版本仍拒绝安装，不放宽门禁。Panorama诊断更新完整hash及 CUIPanel slots100/103/115/117 的 getters 为 `0x111AD0/0x111A90/0x112860/0x111970`，四者指令/布局与旧版一致，实际vtable RVA `0x4CCFF8`。这些仅是诊断读回依据，不 hook；style/body/default布局修正策略没有改变。
+
+### 其他 POV 关键契约
+
+- 闪光 compact/per-view calls `0x11C3DDB/0x11DA825` 均到 predicate `0xCE19A0`；玩家语音入口 `0xB45A80` 仍读 has-bits `+0x40` 与entity `+0x6C`，内部slot数组地址迁移由原生函数处理。保留现有动态签名。
+- 拾取 active builder `0xEAFC70`，caller `0xEAB27A` 目标一致。pickup updater `0xC9E300` 的 pawn 内部成员由 `+0x36E8` 移到 `+0x36F8`，插件只调用原函数，不直接读写该成员。
+- SoundCircle producer/queue calls `0xEAE005/0xEBAD55` 到 `0xC7B070`，position call `0xED03C9` 到另一getter `0xC7B720`。声音入口 `0x3D0370 +0xEC` 到 `0x3AE8B0`，后者 `+0xB8` 的SoundSystem load及固定尾字节保持。
+- TeamHealth builder/presentation `0xEB61D0/0xEC9310` 的4处pawn、2处slot、5处visibility、3处observer目标各组一致；publish点 `0xEC9639` 与member hash保持。
+- MVP listener `0xCEA0C3`、player getter `0xC7B720`、mute call `0xEC4348` 的目标关系保持；playback `0xCEA835` 到 music `0x76C9F0`，gate/submit仍为其 `+0x60/+0x306`。死亡 updater `0xD0C9A0` 到 selector `0xC7A4A0`，selector和DeathPanel animation `0xE88036` 都经 `0x969A30` 共享getter。无额外detour或播放路径。
+- entity add/remove slots15/16 为 `0x9F6E40/0x9F78C0`；client FrameStageNotify slot36 `0xB6C780`；engine IsPlayingDemo/GetDemoFile slots42/69 为 `0x760C0/0x763B0`。相关类型/eye/class/style槽位保留当前源码用法，未发现必须整体平移的依据。
+
+### 控制、验证和边界
+
+无新增效果或控制。保留所有既有Release feature默认值与生效/清理关系，尤其 `buymenu`、`buymenu_promo_hide`、`buymenu_layout` 及默认关闭的 `mirv_pov_buymenu`。关闭/seek/换图/目标切换仍关闭菜单、恢复样式、清理句柄；真实purchase/sell/buy bit隔离及共享getter caller传递保持。未重新验证server端闪光/HE阈值，不将历史server结论当成本轮新build实测。
+
+证据目录 `diagnostics/pov-update-20261009/`：pattern-audit、function-comparison、mappings、buy-references、native-evidence、static-audit及脚本。82条POV签名均命中；其中77条client唯一匹配可比较，19组BuyMenu函数在去重定位后相同，另核验leaf/三个库存成员变化/default table变化及事件身份；51个schema字段名找到descriptor候选。候选不替代运行时类限定schema查询，签名命中不代表所有ABI已验证。
+
+Release x64完整依赖构建成功。首轮只构建DLL遗漏新增scale shader；补齐依赖后NuGet临时缓存沙箱权限不足，提升构建权限后成功，保留两次失败日志。审计修正旧Capstone normalization对16-bit RIP memory operand误把disp32当disp16的问题，不修改游戏代码。未启动、关闭或重启CS2/HLAE；未运行demo、音视频/off-on/re-enable矩阵。构建及静态核验不等于实际加载/游戏呈现通过。本次未提交或推送，保留工作区已有调查改动。
+
+部署：确认CS2未运行、已运行的HLAE启动器未加载目标DLL后，安装到 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`。原DLL备份为同目录 `.backup-20261009-123603-client-update`，旧SHA-256 `14F4A703B255CF485C605FFDF3C804B77208795A5A6C1AE9BCC425B68C78D343`；构建/安装SHA-256均为 `A4FB7DF208162DDE8AD75E7F23E51E598171A225E51CC4F503BE5BF469DDFA95`。`installation.json`记录部署值，`git diff --check`通过。IDA save前台请求也在300秒超时，但新 `client.i64` 已实际落盘（620425819 bytes），后续finalize完成；只关闭本轮分析worker，不操作游戏进程。
