@@ -51,6 +51,7 @@ MirvPovDebugFeatureState g_MirvPovDebugFeatures[] = {
     {"teamid", true, true},
     {"soundcircle", true, true},
     {"hud", true, true},
+    {"buyzone", true, true, true},
     {"teamhealth", true, true},
     {"buymenu", true, true},
 	{"buymenu_promo_hide", true, true, true},
@@ -163,6 +164,7 @@ bool MirvPovDebug_SetFeatureEnabled(const char * name, bool enabled)
         MirvPovFeedback_ResetDeafen();
         MirvPovFeedback_ResetDirections();
         MirvPovDeathCam_Reset();
+        MirvPovHud_ReapplyPanelState();
         return true;
     }
     MirvPovDebugFeatureState * feature = FindMirvPovDebugFeature(name);
@@ -173,6 +175,7 @@ bool MirvPovDebug_SetFeatureEnabled(const char * name, bool enabled)
         if(0 == _stricmp(feature->name, "deafen")) MirvPovFeedback_ResetDeafen();
         if(0 == _stricmp(feature->name, "damage_direction")) MirvPovFeedback_ResetDirections();
         if(0 == _stricmp(feature->name, "death_screen")) MirvPovDeathCam_ResetPresentation();
+        if(0 == _stricmp(feature->name, "buyzone")) MirvPovHud_ReapplyPanelState();
     }
     return true;
 }

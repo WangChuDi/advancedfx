@@ -57,6 +57,7 @@ mirv_pov_debug_feature deafen 1
 | Feature | 功能 / 作用范围 | 生效时机 |
 | --- | --- | --- |
 | `hud` | 隐藏观战面板/热键提示，恢复 POV 生命/弹药、买区提示与顶部玩家名字显示/动画 | 重新开启 |
+| `buyzone` | 仅在当前 POV 玩家可购买时显示左下角购物车图标；依赖 `hud` | 立即 |
 | `teamid` | 按观察玩家修正队友/敌方标识，遵循 `spec_show_xray` | 重新开启 |
 | `teamhealth` | 隐藏顶部 HUD 的敌方血条，清理残留观战目标标记 | 重新开启 |
 | `radar` | 队友竞技颜色、敌方红色、烟雾内队友可见性，以及 CT POV 的红色 C4 雷达表现 | 重新开启 |
@@ -71,6 +72,8 @@ mirv_pov_debug_feature deafen 1
 | `killreward` | 击杀奖励 HUD 通知，优先原生消息，缺失时使用事件回退 | 重新开启 |
 | `buymenu_promo_hide` | 隐藏多出的 `PROMOTED Knife` 促销项；依赖购买菜单模拟 | 立即 |
 | `buymenu_layout` | 调整购买列与人物预览间距；依赖购买菜单模拟 | 立即 |
+
+关闭 `buyzone` 会清除购物车图标，不影响其他 HUD 效果；重新开启时按当前 POV 玩家重新计算。关闭 POV 或换图会清理其 class 与缓存，再由原生 HUD 继续更新。
 
 死亡画面与面板动画属于可分别控制的子效果，并不重复替代 `mirv_pov_death_feedback` 总开关。Radio 只作为一个完整功能介绍，正常使用无需配置其内部细分路径。
 

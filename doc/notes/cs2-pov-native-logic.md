@@ -820,3 +820,29 @@ client image size `0x2994000`；独立输入、manifest 和基线报告在 `diag
 Release x64完整依赖构建成功。首轮只构建DLL遗漏新增scale shader；补齐依赖后NuGet临时缓存沙箱权限不足，提升构建权限后成功，保留两次失败日志。审计修正旧Capstone normalization对16-bit RIP memory operand误把disp32当disp16的问题，不修改游戏代码。未启动、关闭或重启CS2/HLAE；未运行demo、音视频/off-on/re-enable矩阵。构建及静态核验不等于实际加载/游戏呈现通过。本次未提交或推送，保留工作区已有调查改动。
 
 部署：确认CS2未运行、已运行的HLAE启动器未加载目标DLL后，安装到 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`。原DLL备份为同目录 `.backup-20261009-123603-client-update`，旧SHA-256 `14F4A703B255CF485C605FFDF3C804B77208795A5A6C1AE9BCC425B68C78D343`；构建/安装SHA-256均为 `A4FB7DF208162DDE8AD75E7F23E51E598171A225E51CC4F503BE5BF469DDFA95`。`installation.json`记录部署值，`git diff --check`通过。IDA save前台请求也在300秒超时，但新 `client.i64` 已实际落盘（620425819 bytes），后续finalize完成；只关闭本轮分析worker，不操作游戏进程。
+
+## 2026-10-11：离开购买区后购物车图标常驻
+
+### 当前构建与原生行为
+
+同步器 dry-run 再次计算安装 client.dll 的完整 SHA-256 为 `44af2aa0d2c64f90d273444cb393b8b679094f0b02136dbdb89d4ec82a560008`，与10月9日库一致，复用已有 `client.i64`。image base `0x180000000`、image size `0x2994000`；下列地址为本构建 RVA，analysis VA = base + RVA，不沿用其他构建地址作为当前证据。当前安装 `pak01_dir.vpk` 中定向提取的 hud.xml/hudmoney.xml/hudmoney.css 保存到 `diagnostics/buyzone-20261011/assets/`；HUD 左下角实例 id 为 `HudMoney`，购物车图片 class 为 `money-text-buy-icon`，CSS 在祖先含 `money__in-buy-zone` 时将 opacity 从0改为1。
+
+IDA 确认 `CCSGOMoneyPanel` 构造器 `0xEA73C0`、vtable `0x1CD52D0`，UI panel 在 client+8；构造器注册 class symbol `0x223CA0A` 并初始化 client+`0x28` 为0。原生更新 `0xEC7410` 先取控制器/账户并更新余额，再由控制器解析 pawn、检查其原生 virtual slot343；购买状态链从 `0xEC769D` 开始：GameRules slot `0x255BE80`，call `0xEC76A4 -> 0x7595B0`（购买开启）、`0xEC76B0 -> 0x7690A0`（购买时间已过）、`0xEC76C3 -> 0x8D7F40`（区域，第二参数0）。三个 predicate 本轮仍为未 hook 的原生 helper，仅调用。区域 helper 读取 pawn+`0x15E0`，并允许 `mp_buy_anywhere=1` 或等于 pawn 队伍时返回true；不把“在实体买区外”直接等同于任何模式都不可购买。GameRules购买状态和时间门槛保持原函数。
+
+原生 `0xEC76D2` 比较缓存 client+`0x28`；**仅状态改变时**，经 panel vtable slot160 / +`0x500` 写 class（call `0xEC76E9`），随后 `0xEC76EF` 写回缓存。原生 Panorama listener `0xEAC680` 在面板可见时调用此更新函数（call `0xEAC72A`）。更新函数是本次新增的 detour；上述三个判断 helper、构造器和 listener 均没有新增 detour。
+
+### POV 修复与控制
+
+用户明确反馈是走出购买区就常驻。源码的确定缺口：旧 `MirvPovHud_RefreshBuyZoneIcon` 只改 Panorama class，不同步原生 client 缓存；并且只在 FRAME_RENDER_PASS 之后更新，没有覆盖后续原生 Panorama 更新。存在“POV先清除，原生随后按观战者重新添加”的覆盖窗口；该先后顺序在回归模拟中复现，实际用户回放的调用时间尚未采样，不能称为已经实机证明的唯一根因。
+
+`MirvPovHud.cpp` 通过唯一更新入口签名、现有唯一购买判断链、`RtlLookupFunctionEntry` 的同一函数边界、完整 cache compare/store 指令及 RTTI vtable 联合验证后安装 `New_MoneyUpdate`，不硬编码本构建 RVA。每次原生更新先完整执行，再仅对 HUD 当前 money panel按当前 POV pawn重算class并同步 client+`0x28`；其他 money实例保持原样。每帧重应用也同步该缓存。client 由当前 panel 的 slot8重新取得，校验RTTI类型和client+8反向关联，不保留跨seek/换图的对象指针。没有找到有效目标时清除；主POV关闭和level init显式清理class/cache，后续原生更新可重新建立正常状态。入口/布局校验失败时不写未知client缓存。
+
+新增独立普通Release控制 `mirv_pov_debug_feature buyzone 0|1`，默认1、即时生效、受主POV和hud控制。0只清除购物车class/cache，不关闭其他HUD效果；1立即按当前目标重算，设置在主POV启停间保留。沿用共享feature registry，不依赖诊断宏。区域判定继续尊重原生 `mp_buy_anywhere`，没有修改ConVar、网络字段、地图或购买逻辑。
+
+### 验证与限制
+
+当前IDB中入口及购买链签名均唯一匹配，cache+`0x28`和panel+8布局经反编译/反汇编核实；证据 `diagnostics/buyzone-20261011/native-evidence.json`。从生产源码抽取client校验、class/cache setter、refresh和native wrapper的C++回归通过21项断言：入区/出区、晚到的原生状态覆盖、buyzone off/on/re-enable、目标为空、清理后主POV恢复原生状态、hud关闭透传、其他panel透传、setter失败不写cache、无效client类型拒绝。模拟不等于游戏显示验证。Release x64构建通过；沙箱内NuGet配置读取受限，提升构建权限后成功，没有修改用户NuGet或系统环境。未启动、关闭或重启CS2/HLAE，实际demo走出买区的图标、原生callback命中和加载模块仍待用户回放验证。
+
+专项PE静态断言 `static-audit.json` 通过。原生函数使用CHAININFO分段展开记录，覆盖购买链的段从 `0xEC768A` 开始，经链 `0xEC742F -> 0xEC7410` 回到入口；初版直接比较段入口会拒绝安装，最终校验有界跟踪CHAININFO并核对各记录位于本模块映像内。当前目录VPK SHA-256为 `48018be3f8da306ce9b48bf746bce08ceff19fe4dff15c9d5e2e53b3c3e9bbad`，只标识目录包，不代表全部分卷。
+
+部署前再次确认CS2未运行、HLAE未加载目标DLL，原子替换 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`；备份 `.backup-20261011-132935-buyzone` SHA-256为 `5511B587C075547AD358EECD8D9286445DDAB00F108BB0BACA1D8C0B328887E0`，最终构建/安装SHA-256均为 `003B4268991E1DBF1544FBE7129E4F217010FCB3AD0B2836BFE3BEA06C26E529`。安装记录在 `diagnostics/buyzone-20261011/installation.json`；没有启动或重启游戏。按用户后续要求，提交范围仅包含购物车修复、独立控制及对应文档；原有队友武器声音调查保留为未提交改动。

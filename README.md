@@ -57,6 +57,7 @@ All features below default to **on**, subject to the main switch and any parent 
 | Feature | Effect / scope | Applies |
 | --- | --- | --- |
 | `hud` | Removes spectator panels/hotkey hints; restores POV health/ammo, buy-zone indicators and top-HUD player-name presentation/animation | Re-enable |
+| `buyzone` | Shows the lower-left shopping-cart icon only when buying is available for the POV player; requires `hud` | Immediate |
 | `teamid` | POV-relative teammate/enemy identifiers, respecting `spec_show_xray` | Re-enable |
 | `teamhealth` | Hides enemy health bars in the top HUD and clears stale observer markers | Re-enable |
 | `radar` | Competitive teammate colors, red enemies, smoke-visible teammates and red C4 from the CT POV | Re-enable |
@@ -71,6 +72,8 @@ All features below default to **on**, subject to the main switch and any parent 
 | `killreward` | POV kill-reward HUD notices, preferring native messages with event-derived fallback | Re-enable |
 | `buymenu_promo_hide` | Hides the spurious `PROMOTED Knife` entry; requires buy-menu replay | Immediate |
 | `buymenu_layout` | Separates the purchase column from the agent preview; requires buy-menu replay | Immediate |
+
+Disabling `buyzone` clears the shopping-cart icon without changing other HUD effects. Re-enabling recalculates it from the current POV player; disabling POV or changing maps clears its class and cached state before native HUD updates resume.
 
 The death-screen and banner switches control separate effects, not duplicates of the broader `mirv_pov_death_feedback` command. Radio is presented as one user-facing module; internal radio paths are not needed for normal use.
 

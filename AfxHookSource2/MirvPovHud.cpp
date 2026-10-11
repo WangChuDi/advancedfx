@@ -354,6 +354,10 @@ static void MirvPovHud_SetSpectatorHotKeyLabelsVisible(bool visible) {
 }
 
 using MirvPovHud_BuyStatePredicate_t = bool (__fastcall *)(void *);
+using MirvPovHud_MoneyUpdate_t = void (__fastcall *)(void *);
+static MirvPovHud_MoneyUpdate_t g_OrgMoneyUpdate = nullptr;
+static void * g_MoneyPanelClientVtable = nullptr;
+static bool g_MoneyUpdateHooked = false;
 
 static bool MirvPovHud_IsExecutableAddress(const void * address) {
     if(nullptr == address) return false;
@@ -377,7 +381,7 @@ static uintptr_t MirvPovHud_GetBuyZoneCallSite() {
 }
 
 static bool MirvPovHud_ShouldShowBuyZoneIcon(CEntityInstance * povPawn) {
-    if(nullptr == povPawn) return false;
+    if(!MIRV_POV_FEATURE_ACTIVE("buyzone") || nullptr == povPawn) return false;
     const auto site = MirvPovHud_GetBuyZoneCallSite();
     if(!site) return false;
     auto buyState = reinterpret_cast<MirvPovHud_BuyStatePredicate_t>(site + 12 + *reinterpret_cast<int32_t *>(site + 8));
@@ -396,22 +400,113 @@ static bool MirvPovHud_ShouldShowBuyZoneIcon(CEntityInstance * povPawn) {
     }
 }
 
-static void MirvPovHud_RefreshBuyZoneIcon() {
-    if(!MIRV_POV_FEATURE_ACTIVE("hud")) return;
-
+static unsigned char * MirvPovHud_GetMoneyPanel() {
     auto hudPanel = MirvPovHud_GetHudPanel();
-    if(!hudPanel) return;
+    if(!hudPanel) return nullptr;
 
     auto moneyPanel = MirvPovHud_FindPanelById(hudPanel, "HudMoney");
     if(nullptr == moneyPanel) {
         moneyPanel = MirvPovHud_FindPanelById(hudPanel, "HudMoneyPanel");
     }
-    if(nullptr == moneyPanel) return;
+    return moneyPanel;
+}
 
-    MirvPovHud_SetNativePanelClass(
-        moneyPanel,
-        "money__in-buy-zone",
-        MirvPovHud_ShouldShowBuyZoneIcon(GetCurrentPovPlayerPawn()));
+static void * MirvPovHud_GetMoneyPanelClient(unsigned char * panel) {
+    if(!panel || !g_MoneyPanelClientVtable) return nullptr;
+    auto vtable = *reinterpret_cast<void ***>(panel);
+    if(!vtable || !vtable[8]) return nullptr;
+    auto client = reinterpret_cast<void * (__fastcall *)(void *)>(vtable[8])(panel);
+    // Resolve afresh instead of retaining a client/panel pointer across seeks
+    // or layout teardown. Only touch the verified CCSGOMoneyPanel cache.
+    if(!client || *reinterpret_cast<void **>(client) != g_MoneyPanelClientVtable
+        || *reinterpret_cast<void **>(static_cast<unsigned char *>(client) + 8) != panel) return nullptr;
+    return client;
+}
+
+static void MirvPovHud_SetBuyZoneIcon(void * client, unsigned char * panel, bool visible) {
+    if(!client || !panel) return;
+    if(MirvPovHud_SetNativePanelClass(panel, "money__in-buy-zone", visible)) {
+        // Native HudMoney only writes the class when this cached byte changes.
+        // Keep it consistent with our class so later native updates can clear
+        // the icon, including after POV is disabled.
+        *reinterpret_cast<uint8_t *>(static_cast<unsigned char *>(client) + 0x28) = visible ? 1 : 0;
+    }
+}
+
+static void MirvPovHud_RefreshBuyZoneIcon(bool clear = false) {
+    if(!clear && !MIRV_POV_FEATURE_ACTIVE("hud")) return;
+    __try {
+        auto panel = MirvPovHud_GetMoneyPanel();
+        auto client = MirvPovHud_GetMoneyPanelClient(panel);
+        MirvPovHud_SetBuyZoneIcon(client, panel,
+            !clear && MirvPovHud_ShouldShowBuyZoneIcon(GetCurrentPovPlayerPawn()));
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+static void __fastcall New_MoneyUpdate(void * client) {
+    g_OrgMoneyUpdate(client);
+    if(!MIRV_POV_FEATURE_ACTIVE("hud")) return;
+    __try {
+        auto panel = *reinterpret_cast<unsigned char **>(static_cast<unsigned char *>(client) + 8);
+        if(panel && panel == MirvPovHud_GetMoneyPanel()) {
+            // A native Panorama update can run after our frame-stage refresh.
+            // Correct its final class AND cache, not just the earlier frame.
+            MirvPovHud_SetBuyZoneIcon(client, panel,
+                MirvPovHud_ShouldShowBuyZoneIcon(GetCurrentPovPlayerPawn()));
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+static void MirvPovHud_InstallMoneyUpdateHook(HMODULE clientDll) {
+    if(g_MoneyUpdateHooked) return;
+    const auto site = MirvPovHud_GetBuyZoneCallSite();
+    const auto entry = getAddress(clientDll,
+        "40 56 57 48 83 EC 48 48 8B 35 ?? ?? ?? ?? 48 8B F9 48 89 74 24 70 48 85 F6 0F 84 ?? ?? ?? ?? 48 89 6C 24 40 4C 89 74 24");
+    DWORD64 imageBase = 0;
+    auto function = site ? RtlLookupFunctionEntry(site, &imageBase, nullptr) : nullptr;
+    bool entryMatches = false;
+    if(function && imageBase == reinterpret_cast<uintptr_t>(clientDll)
+        && site + 85 <= imageBase + function->EndAddress) {
+        auto dos = reinterpret_cast<IMAGE_DOS_HEADER *>(clientDll);
+        auto nt = reinterpret_cast<IMAGE_NT_HEADERS64 *>(imageBase + dos->e_lfanew);
+        const auto imageSize = nt->OptionalHeader.SizeOfImage;
+        // MSVC can split one function into several chained unwind records.
+        // Follow those records back to the prologue instead of treating a
+        // mid-function fragment as a different HudMoney implementation.
+        for(int depth = 0; depth < 8; ++depth) {
+            if(imageBase + function->BeginAddress == entry) {
+                entryMatches = true;
+                break;
+            }
+            const auto unwindRva = function->UnwindData;
+            if((unwindRva & 1) || imageSize < 4 || unwindRva > imageSize - 4) break;
+            auto unwind = reinterpret_cast<const uint8_t *>(imageBase + unwindRva);
+            if(0 == ((unwind[0] >> 3) & UNW_FLAG_CHAININFO)) break;
+            const auto chainOffset = (4u + 2u * unwind[2] + 3u) & ~3u;
+            if(imageSize - unwindRva < chainOffset + sizeof(RUNTIME_FUNCTION)) break;
+            function = reinterpret_cast<PRUNTIME_FUNCTION>(imageBase + unwindRva + chainOffset);
+        }
+    }
+    // Bind the entry to the predicate chain and the +0x28 cache/class writer.
+    static const uint8_t cacheCompare[] = {0x38, 0x5F, 0x28, 0x74, 0x1B, 0x48, 0x8B, 0x4F, 0x08};
+    static const uint8_t cacheStore[] = {0x88, 0x5F, 0x28};
+    auto panelVtable = reinterpret_cast<void *>(Afx::BinUtils::FindClassVtable(
+        clientDll, ".?AVCCSGOMoneyPanel@@", 0, 0));
+    if(!entry || !entryMatches
+        || memcmp(reinterpret_cast<void *>(site + 53), cacheCompare, sizeof(cacheCompare))
+        || memcmp(reinterpret_cast<void *>(site + 82), cacheStore, sizeof(cacheStore)) || !panelVtable) {
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_hud] HudMoney update/cache validation failed.\n");
+        return;
+    }
+    g_OrgMoneyUpdate = reinterpret_cast<MirvPovHud_MoneyUpdate_t>(entry);
+    if(NO_ERROR != DetourTransactionBegin()) return;
+    if(NO_ERROR != DetourUpdateThread(GetCurrentThread())
+        || NO_ERROR != DetourAttach(&(PVOID &)g_OrgMoneyUpdate, New_MoneyUpdate)) {
+        DetourTransactionAbort();
+        return;
+    }
+    g_MoneyUpdateHooked = NO_ERROR == DetourTransactionCommit();
+    if(g_MoneyUpdateHooked) g_MoneyPanelClientVtable = panelVtable;
 }
 
 static void MirvPovHud_ResetPanelState() {
@@ -492,6 +587,7 @@ static int g_ScoreboardSeekSuppressFrames = 0;
 static int g_LastDemoTick = -1;
 
 void MirvPovHud_OnLevelInitPreEntity() {
+    MirvPovHud_RefreshBuyZoneIcon(true);
     g_GameRulesEntityIndex = -1;
     MirvPovHud_ResetPanelState();
     g_ScoreboardSeekSuppressFrames = 0;
@@ -659,6 +755,7 @@ void MirvPovHud_ApplyPatches(HMODULE clientDll) {
 
     MirvPovHud_InstallFlashPredicateHook(clientDll);
     MirvPovHud_InstallObserverModeHook(clientDll);
+    MirvPovHud_InstallMoneyUpdateHook(clientDll);
     g_FlashHooksActive = true;
 
     MirvPovHud_ResetPanelState();
@@ -669,6 +766,7 @@ void MirvPovHud_ApplyPatches(HMODULE clientDll) {
 
 void MirvPovHud_RemovePatches() {
     g_FlashHooksActive = false;
+    MirvPovHud_RefreshBuyZoneIcon(true);
     // TeamHealth hooks this same predicate. Keep the detour chain installed;
     // inactive wrappers pass through instead of detaching beneath another hook.
     __try {
