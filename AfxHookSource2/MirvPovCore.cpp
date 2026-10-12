@@ -52,6 +52,7 @@ MirvPovDebugFeatureState g_MirvPovDebugFeatures[] = {
     {"soundcircle", true, true},
     {"hud", true, true},
     {"buyzone", true, true, true},
+    {"round_damage", true, true, true},
     {"teamhealth", true, true},
     {"buymenu", true, true},
 	{"buymenu_promo_hide", true, true, true},
@@ -165,6 +166,7 @@ bool MirvPovDebug_SetFeatureEnabled(const char * name, bool enabled)
         MirvPovFeedback_ResetDirections();
         MirvPovDeathCam_Reset();
         MirvPovHud_ReapplyPanelState();
+        MirvPovHud_UpdateRoundDamage();
         return true;
     }
     MirvPovDebugFeatureState * feature = FindMirvPovDebugFeature(name);
@@ -176,6 +178,7 @@ bool MirvPovDebug_SetFeatureEnabled(const char * name, bool enabled)
         if(0 == _stricmp(feature->name, "damage_direction")) MirvPovFeedback_ResetDirections();
         if(0 == _stricmp(feature->name, "death_screen")) MirvPovDeathCam_ResetPresentation();
         if(0 == _stricmp(feature->name, "buyzone")) MirvPovHud_ReapplyPanelState();
+        if(0 == _stricmp(feature->name, "round_damage")) MirvPovHud_UpdateRoundDamage();
     }
     return true;
 }
@@ -198,6 +201,7 @@ void MirvPovDebug_PrintFeatureStates()
             feature.configured ? 1 : 0,
             feature.active != feature.configured ? " (pending)" : feature.immediate ? " (immediate)" : "");
     }
+    MirvPovHud_PrintRoundDamageState();
 }
 bool MirvPov_IsEnabled()
 {
@@ -364,6 +368,7 @@ void MirvPov_OnFrameStageBefore(int frameStage)
 void MirvPov_OnFrameStageAfter(int frameStage)
 {
     if(SOURCESDK::CS2::FRAME_RENDER_PASS == frameStage) {
+        MirvPovHud_UpdateRoundDamage();
         if(!MIRV_POV_FEATURE_ENABLED("framestage")) return;
         // Run after the game's native FrameStageNotify. Observer target and
         // Pawn state are committed there; sampling them before the original

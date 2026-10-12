@@ -58,6 +58,7 @@ All features below default to **on**, subject to the main switch and any parent 
 | --- | --- | --- |
 | `hud` | Removes spectator panels/hotkey hints; restores POV health/ammo, buy-zone indicators and top-HUD player-name presentation/animation | Re-enable |
 | `buyzone` | Shows the lower-left shopping-cart icon only when buying is available for the POV player; requires `hud` | Immediate |
+| `round_damage` | Shows damage dealt/received, hit counts and kill icons under the top-HUD avatars after a demo round ends; requires `hud` | Immediate |
 | `teamid` | POV-relative teammate/enemy identifiers, respecting `spec_show_xray` | Re-enable |
 | `teamhealth` | Hides enemy health bars in the top HUD and clears stale observer markers | Re-enable |
 | `radar` | Competitive teammate colors, red enemies, smoke-visible teammates and red C4 from the CT POV | Re-enable |
@@ -74,6 +75,8 @@ All features below default to **on**, subject to the main switch and any parent 
 | `buymenu_layout` | Separates the purchase column from the agent preview; requires buy-menu replay | Immediate |
 
 Disabling `buyzone` clears the shopping-cart icon without changing other HUD effects. Re-enabling recalculates it from the current POV player; disabling POV or changing maps clears its class and cached state before native HUD updates resume.
+
+`round_damage` uses the game's native damage records and presentation. When GOTV has no native records, it reads the demo's damage/death events in the background and publishes the reconstructed values to the same native panels. The fallback counts damage events as hits and removes lethal overkill; special damage types may differ from live hit-count rules. Seeking and switching POV use the current round and playback tick. Disabling the effect immediately hides its panels without affecting other HUD effects; re-enabling restores the current report. Leaving the demo or changing maps clears owned UI state and cancels the old index.
 
 The death-screen and banner switches control separate effects, not duplicates of the broader `mirv_pov_death_feedback` command. Radio is presented as one user-facing module; internal radio paths are not needed for normal use.
 

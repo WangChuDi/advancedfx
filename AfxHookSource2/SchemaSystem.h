@@ -70,7 +70,13 @@ struct ClientDllOffsets_t {
 		ptrdiff_t m_nPawnCharacterDefIndex = -1; // item_definition_index_t
 		ptrdiff_t m_bHasCommunicationAbuseMute = -1; // bool
 		ptrdiff_t m_pActionTrackingServices = -1; // CCSPlayerController_ActionTrackingServices*
+		ptrdiff_t m_pDamageServices = -1; // CCSPlayerController_DamageServices*
 	} CCSPlayerController;
+
+	struct CCSPlayerController_DamageServices {
+		ptrdiff_t m_nSendUpdate = -1;
+		ptrdiff_t m_DamageList = -1;
+	} CCSPlayerController_DamageServices;
 
 	struct CCSPlayerController_ActionTrackingServices {
 		ptrdiff_t m_perRoundStats = -1; // CUtlVectorEmbeddedNetworkVar<CSPerRoundStats_t,...>

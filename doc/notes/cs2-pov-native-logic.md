@@ -846,3 +846,93 @@ IDA 确认 `CCSGOMoneyPanel` 构造器 `0xEA73C0`、vtable `0x1CD52D0`，UI pane
 专项PE静态断言 `static-audit.json` 通过。原生函数使用CHAININFO分段展开记录，覆盖购买链的段从 `0xEC768A` 开始，经链 `0xEC742F -> 0xEC7410` 回到入口；初版直接比较段入口会拒绝安装，最终校验有界跟踪CHAININFO并核对各记录位于本模块映像内。当前目录VPK SHA-256为 `48018be3f8da306ce9b48bf746bce08ceff19fe4dff15c9d5e2e53b3c3e9bbad`，只标识目录包，不代表全部分卷。
 
 部署前再次确认CS2未运行、HLAE未加载目标DLL，原子替换 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`；备份 `.backup-20261011-132935-buyzone` SHA-256为 `5511B587C075547AD358EECD8D9286445DDAB00F108BB0BACA1D8C0B328887E0`，最终构建/安装SHA-256均为 `003B4268991E1DBF1544FBE7129E4F217010FCB3AD0B2836BFE3BEA06C26E529`。安装记录在 `diagnostics/buyzone-20261011/installation.json`；没有启动或重启游戏。按用户后续要求，提交范围仅包含购物车修复、独立控制及对应文档；原有队友武器声音调查保留为未提交改动。
+
+## 2026-10-12：回合结束顶部头像伤害统计
+
+### 构建身份与原生逻辑
+
+同步器 dry-run 核验安装 client.dll SHA-256 仍为 `44af2aa0d2c64f90d273444cb393b8b679094f0b02136dbdb89d4ec82a560008`；复用该完整哈希的 `client.i64`，image base 为 `0x180000000`。以下 RVA 的 analysis VA = base + RVA，只对本构建有效。本轮从当前安装 VPK 重新提取 hudteamcounter XML/CSS/TS，保存在 `diagnostics/round-damage-20261012/assets/`，资源哈希见 manifest.json，未修改游戏资源。
+
+- 默认开启的 `sv_dev_damage_use_netvars` 决定数据路径（注册器 RVA `0xB46A0`，reference data 槽 `0x252C608`，bool 为对象 +0x58）。网络路径使用 **CCSPlayerController_DamageServices**，不是 ActionTrackingServices 的累计伤害。
+- `OnDamageListUpdate` 回调 `0x90F9D0` 比较 services+0x40 的更新序号，更新后仅在 GameRules 存在且 round win reason 非零时调用 TeamCounter reporter `0xEB8B10`。服务 schema 字段为 `m_nSendUpdate=0x40`、`m_DamageList=0x48`；controller 的 `m_pDamageServices=0x830`。静态 descriptors 为 `0x221A4B0/0x221A4D0/0x2217880`，运行期仍按类限定查询。
+- Reporter 在 call `0xEB8B3F` / return `0xEB8B44` 取得真实本地 controller（getter `0x9699F0`），要求其为 T/CT。观战者不能提供当前观看玩家的数据，且仅依赖网络回调不能补齐启用 POV、切换目标或 demo seek 后的显示。这是源码/原生控制流的确定缺口，尚未采样用户原失败时的实际分支。
+- Reporter 首先调用属性清理 `0xEBD8E0`，然后遍历 damage services 的 count+0x48、data+0x50；`CDamageRecord` stride 为120字节。记录 attacker/victim 的完整 entity handles 为 +0x38/+0x3C，通过 helpers `0x903D00/0x903D60` 校验序列号并解析；按当前 controller 选择 given/taken，匹配顶部20个 avatar rows（TeamCounter+0xF0，stride0xE0，client panel+0x10）。
+- `0xEC9000` 负责将记录发布为 avatar 属性 `health_removed`/`num_hits` 或 `return_health_removed`/`return_num_hits`，并选择原生 default/headshot/blast/burn/slash/shock killtype。Reporter 写 order_index，再经 UI engine slots33/47 派发 `RevealPostRoundDamageReportPanel`。本轮没有手写伤害累加、100点截断、命中计数或图标映射。
+- 当前原生 TS 从 avatar 读取这四个属性，写入 `PostRoundDamageReport` 的 dialog variables、given/taken/friendlyfire 与 won/lost class；仅任一 damage>0 时按 `order_index*0.1s` 延迟加入 `show-prdr`。原生 CSS 保留绿色 given、红色 taken，以及图标与布局。
+- 旧消息路径 `0xED3F30 -> 0xEC5800` 在 netvars=false 时处理 PostRoundDamageReport，保持原样；本轮只实现当前默认网络记录路径，未伪造缺失记录。某 demo 没有目标玩家的网络 DamageList 或使用旧消息路径时，不能承诺恢复本图统计。
+
+### POV 实现、接入与控制
+
+`MirvPovHud.cpp` 新增 reporter 与 controller getter 两个 detour。Reporter 在主 POV、hud、round_damage 开启、有效 demo、回合结束且非新回合冻结期、有效当前 T/CT controller 和已校验 DamageList 时，保存完整 controller handle 到线程局部作用域，仍完整执行原生 reporter；getter 仅对 slot0、上述唯一返回地址、当前 handle 完全一致时替换 controller。其它调用与 inactive reporter 透传，`__finally` 恢复上下文，兼容嵌套和异常。`MirvPovBuyMenu.cpp::GetController` 透传分支补齐共享 return-address Push/Pop/SEH 恢复，防止 getter detour 链丢掉外层原生 caller；购买菜单自身 scope 不变。
+
+Reporter入口由唯一完整签名定位，并检查实际 services load、vector count/data、record stride、row起点/stride/20项上限等指令；另验证 getter E8 目标处于本模块 text、TeamCounter RTTI 和现有 FindHudElement 签名。运行期 schema 不符合上述布局时不接管。入口字节和签名见源码及 static-audit.json；本轮修正了初版两项相对偏移，在当前 PE 上重新断言通过后才用于最终构建。
+
+每个 render pass 完成后，重新查询注册 HUD 并校验其 RTTI，不缓存跨图/seek 的裸对象。比较完整 controller handle、更新序号、记录指纹及20行slot/panel identity，变化时才调用 reporter；稳定帧不重发 Reveal 动画。反向 demo tick 强制重建；前向大间隔不当作生命周期终止。记录 count 必须在0..256、有记录时指针非空；这是 POV 的防御边界，不声称原生限制为256。
+
+新独立普通 Release 控制为 `mirv_pov_debug_feature round_damage 0|1`，默认1，即时影响下一次 callback/render pass；关闭命令立即清理本功能拥有的 `show-prdr`，其它HUD/受击/音效独立。重新开启或重开主POV使用当前网络快照恢复，不依赖从回合开头重新累计。feature 配置跨主POV启停及换图保留，不写用户配置。无有效目标、新回合冻结/实战阶段、断开、主POV关闭和关卡初始化会清理；清理只作用于 `afx-pov-round-damage` 标记的行。
+
+原生 JS 已排队的0.1秒逐行 Reveal 没有取消接口，也没有卡顿下的硬执行期限。最终实现取消初版2.2秒清理超时：关闭后将自有 `PostRoundDamageReport` 的 visibility 置为 collapse，保留所有权至重新启用或 demo/关卡结束，迟到 callback 即使加入 show-prdr 也不能穿过该可见性屏障。恢复时调用既有已核验的 CPanelStyle slot151 单属性清理，只清除本功能 visibility 覆盖并恢复原生 CSS（包括底部布局的 collapse 条件），不强制 visible。该清理也在主POV/framestage关闭时运行。没有清空真实 DamageList、改网络字段、ConVar或用户账户数据。
+
+### 验证与边界
+
+当前完整 client 哈希、唯一签名、getter call/return、四组布局指令、三个 schema descriptor 和本轮提取 TS 的四个属性/延迟事件断言通过。使用实际生产 reporter/getter/snapshot/update/clear 函数的 C++ mock 回归通过34项断言：稳定帧不重播、数据/序号变化、off/on/re-enable、迟到Reveal清理和不依赖帧/超时的可见性屏障、目标切换/handle重用、反向tick、正向正常推进、回合开始/结束、hud/主POV/无demo/无目标、未知schema、超大vector拒绝、其它caller/slot透传、过期handle拒绝、异常恢复TLS、覆盖释放和inactive reporter透传。模拟不等于游戏面板/网络回调实测。独立只读复核指出初版UI preparation在native入口缺乏异常捕获，现已将新增的panel遍历/写入单独置于 SEH 捕获，失败时不进入POV作用域并回退原 reporter；原 reporter 自身的异常保持原生传播语义，__finally仍恢复TLS。
+
+首轮沙箱构建因读取 NuGet.Config 受限失败；提升构建权限后修正缺失 extern，最终 Release x64 构建成功，34项生产控制流断言、PE专项核验和CRLF-aware `git diff --check`通过。未启动、关闭或重启 CS2/HLAE；尚未进行游戏内截图、音视频、不同模式/分辨率或真实 off/on/seek 矩阵，不将构建与 mock 结果冒充实际显示通过。
+
+部署：再次核验当前client完整hash、确认CS2未运行、HLAE未加载目标文件后，将旧DLL备份至 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll.backup-20261012-170917-round-damage`，旧hash为 `003B4268991E1DBF1544FBE7129E4F217010FCB3AD0B2836BFE3BEA06C26E529`。原子替换同目录 `AfxHookSource2.dll` 后，构建/安装hash均为 `F9C2E07C6BB61378D45A241CC6208AC1761F0C880B94ED0582B6FF27D9C1AA69`；见 `diagnostics/round-damage-20261012/installation.json`。首次Replace因PowerShell将空backup参数传为空路径而未执行，目标未改动；使用实际备份路径重试成功并验证原子备份hash。未提交或推送，原有调查文档及分析产物保留在工作区。
+
+### 2026-10-12 后续：自动跟随下 controller getter 递归修复
+
+用户运行后反馈卡死。Windows Application Error 1000 实际记录 17:14:43 和17:15:35 两次 `0xc0000005` 崩溃，fault module 均为上述 F9C2E07C 构建的 AfxHookSource2.dll。使用当时构建的匹配PDB和PE，RVA `0x3630BD` 映射至 BuyMenu `GetController` 的 PushHookReturnAddress 调用，RVA `0x368D0A` 映射至 `New_RoundDamageController` 同一调用；没有可读取的本次dump，不能将具体运行期栈耗尽视为已实证。事件、console、符号映射和反汇编保存在 `diagnostics/round-damage-crash-20261012/`。console最后一次seek到tick58232后结束；检查时CS2已退出、HLAE仍在。
+
+源码缺陷已确认：原生 reporter 作用域设置目标handle后，getter又调用 `GetCurrentPovPlayerController`。默认auto-sync经 `ResolveObservedPlayerController -> ResolveObservedPlayerPawn -> GetRealSplitScreenPlayer(0)` 回到已经hook的native entry；共享return-address与目标handle尚有效，导致同一条件反复成立。先前34项mock将POV解析简化为固定指针，因此遗漏此路径。购买菜单wrapper仅转发并保留上下文，两个崩溃位置与递归路径一致，但运行期异常链尚缺dump核验。
+
+修复保留原生reporter/getter接入和唯一caller限制：在reporter进入前解析当前POV，getter内部仅将已保存完整handle构造为SDK `CEntityHandle`，通过 `GetEntityFromIndex(handle.GetEntryIndex())` 找实体，再检查controller类型和完整handle（含serial）。这三个查询不经过本地controller getter；getter不再重新解析观战目标。失效实体、序列号变化、其他caller/slot和关闭功能均回退原getter；作用域仍用 `__finally` 恢复。没有缓存跨seek/换图的裸controller指针，也没有修改买菜单scope。
+
+原生/live边界：本轮client完整SHA-256再次核验仍为 `44af2aa0d2c64f90d273444cb393b8b679094f0b02136dbdb89d4ec82a560008`，image base `0x180000000`，上述本构建RVA与call/return不变。真正的reporter证据位于 `native-evidence.json` 顶层 `0x180eb8b10`；旧键名 `report` 实际保存 `0xEBD8E0` 属性清理helper，`clear` 保存 `0xEC9000` 逐记录发布helper，不能按键名误认函数。本实现已经完整调用正常对局的原生 `0xEB8B10` reporter、原生 `0xEC9000` 发布和Panorama显示；DamageList数值与命中数来自游戏，不由DLL重新累计或生成。`OnDamageListUpdate(0x90F9D0)` 的原生网络触发保留；DLL只为demo观战替换reporter的本地controller视角，补偿开关/换目标/seek后的重新发布和清理。完全撤掉这一适配时，原生live逻辑仍查询真实本地controller，而不是被观看目标；它也不会因POV开关或目标切换自然重发。缺少目标DamageList的demo仍无法只靠HUD原生函数补出记录。
+
+验证：回归从实际生产round_damage函数和BuyMenu controller wrapper抽取代码，POV解析模拟回到被hook的真实本地getter入口。旧getter确定触发递归深度9的受控异常；修复版最大深度1、50项断言通过，包括原有开关/清理/seek测试、真实getter转发链、完整serial验证、缺失实体/错误类型、嵌套scope恢复以及auto-sync模式下独立和主POV off/on。当前PE唯一签名/布局/schema/资源专项校验通过；Release x64构建成功，SDK原有代码页警告仍存在。未启动、关闭或重启CS2/HLAE，未进行真实面板截图或游戏内数轮回放，不将mock和编译通过视为游戏回归已通过。独立Release控制仍为默认开启的 `mirv_pov_debug_feature round_damage 0|1`，作用范围及清理与上一节一致。
+
+修复版部署：安装前确认CS2未运行，当前仍打开的HLAE未加载目标DLL；原子备份旧F9C2E07C构建至 `AfxHookSource2.dll.backup-20261012-174132-round-damage-recursion-fix`，然后替换同目录DLL。构建和安装SHA-256均为 `E7639F4E6A00D4F1D00EC562E9E2880AEBEF11180AC261B2D04F3D3F5C19DA24`，完整路径、时间和hash见 `diagnostics/round-damage-crash-20261012/installation-fix.json`。没有控制游戏/HLAE生命周期，未提交或推送。
+
+### 2026-10-12 后续：GOTV 可见性与面板创建时序
+
+用户测试E7639F4E版后仍无显示，并明确测试为GOTV；本轮授权为“只分析和修改，不启动游戏”。console核验加载构建时间09:38:25Z，17:44:03启用POV，seek58232后tick58361的原生MVP音乐命中。原日志没有round_damage入口、记录或面板证据，不能仅凭MVP出现确认伤害统计入口执行，也不能把随后播放结束误称为崩溃。
+
+离线解析当前 `inferno_test.dem`（286101252字节）获得GOTV/SourceTV类型、network protocol14174、build10847，并能解析伤害事件。SendTables command4经Snappy解压后含 `CCSPlayerController_DamageServices`、`CDamageRecord`、`m_pDamageServices`、`m_DamageList`、`m_nSendUpdate`；证据 `diagnostics/round-damage-visibility-20261012/demo.json` 和 `schema.json`。这些证明录像有伤害事件和字段描述，不证明本次POV的运行期DamageList非空，不将“不支持GOTV网络字段”当作已确定根因。
+
+当前client完整SHA-256仍为 `44af2aa0d2c64f90d273444cb393b8b679094f0b02136dbdb89d4ec82a560008`，image base `0x180000000`。复用同版本IDB核验原生旧消息dispatcher `0xED3F30`（analysis VA `0x180ED3F30`）检查消息+80/+92两个killtype不超过6，FindHudElement后调用未hook的helper `0xEC5800`。该helper要求netvars开关为false、GameRules非空、`0xC7B720`返回对象team+999为2/3，按消息XUID+72匹配20行，读取+84/+88/+96/+100发布四个伤害属性并派发原生Reveal事件。默认netvars路径notify `0x90F9D0` 比较+0x40更新序号并在GameRules+0x9AC非零时调用hooked reporter `0xEB8B10`；两个路径具有互斥ConVar门控。本轮保存反编译结果至 `native-evidence.json`，没有新增legacy hook，没有修改ConVar或网络字段。reporter入口+6的RIP-relative load（displacement+9、下一指令+0x0D）仍指向reference RVA `0x252C608`；对象+0x58只用于读取日志，静态PE断言核验了该关系。
+
+已证实的源码/资源缺口：当前VPK CSS具有 `.TeamCounter__Align--Bottom .prdr__root{visibility: collapse;}`，上一版有意恢复CSS会保留这一观战隐藏条件。另一个缺口是即使找不到任何 `PostRoundDamageReport` 子面板，UI preparation仍设置prepared=true并缓存快照；行/头像身份不变时，稍后创建子面板不会触发重试。缺少实机面板状态，不能断言这两个条件中的哪一个实际命中了用户测试。
+
+修正上述CSS设计：仅在本效果启用且reporter接管时，对自有原生伤害面板设置inline visibility=true，覆盖GOTV布局的隐藏规则；数值、命中数、killtype、dialog变量和Reveal动画仍由原生reporter/TS处理。关闭功能/主POV/离开回合结束期时仍使用collapse屏障阻止迟到JS；释放所有权、断开或换图时清除inline覆盖恢复原生CSS。只在所有有效头像对应子面板可取得且visibility setter成功时进入POV作用域并缓存；未就绪时快照无效，后续render pass重新尝试。既有 `mirv_pov_debug_feature round_damage 0|1` 默认1、即时生效及独立范围不变。
+
+普通Release新增状态变化日志 `[mirv_pov_round_damage]`，记录stage、tick、完整controller handle、DamageList count/update、成功准备的panel数、netvars模式、native reporter调用次数及controller override次数。stage区分hook/style不可用、主POV/hud/feature关闭、无demo、回合未结束、GameRules/HUD/POV/services缺失、schema/列表无效、面板未就绪、空DamageList、调用原生reporter和异常。空列表和“native-report-called”均不等于统计可见性验证。现有 `mirv_pov_debug_feature` 无参数查询也打印最近状态；没有增加单独effect开关或依赖诊断编译宏，稳定状态不逐帧刷日志。
+
+验证：实际生产getter/report/update/clear与BuyMenu wrapper抽取回归通过65项断言，覆盖原有autosync最大深度1、off/on/主POV/seek/序列号/异常恢复，以及模拟原生GOTV CSS collapse、启用期间强制可见、释放恢复CSS、子面板延迟后重试、不把空列表日志当显示通过。当前PE/signature/layout/schema、ConVar引用及CSS/录像字段专项核验通过；Release x64编译和CRLF-aware diff检查通过。没有启动、关闭、重启或控制游戏，未做本版实际面板验证。
+
+部署：确认CS2未运行、HLAE未加载目标DLL后，备份E7639F4E版到 `AfxHookSource2.dll.backup-20261012-180809-round-damage-visibility` 并原子替换指定HLAE DLL。构建和安装SHA-256均为 `E9BC6D9069507ECC478C56355CFA0507156CDDE51CA28E19E01CCF3CD5552EBB`，详见本轮 `installation-fix.json`。未提交或推送。
+
+### 2026-10-12 后续：GOTV 空 DamageList 的录像事件补偿
+
+本次重播日志终于提供实际失败分支：19:15:39、demo tick58363、controller `01240002` 和19:15:57、tick58591、controller `00288003` 均为 `stage=damage-list-empty records=0 update=0 panels=10 netvars=1`，native reporter/controller override计数非零。因此本份GOTV中原生面板、hook和POV替换已执行，真正缺口为被观看controller没有网络DamageList；先前的可见性修复和完整调用live reporter无法制造缺失数据。没有把正常退出日志当作新崩溃。
+
+完整离线读取 `inferno_test.dem` 共141436 packet、20,771条type207事件、1,159条player_hurt。type205为Source2 legacy GameEventList，type207为legacy GameEvent，使用descriptor中实际key名与type解码。该录像无round_start/round_end事件，含23条round_prestart、23条round_freeze_end；不能只依赖round_start/end重建边界。完整message扫描没有目标原生PostRoundDamageReport消息，故不能通过解除旧消息helper门控恢复本份录像。本轮用PBDEMS2 framing、raw Snappy、protobuf wire和UBitVar消息流实现独立只读索引；不依赖csda.exe、外部Python、游戏启动或用户生成sidecar。command13 fullpacket只读取descriptor，不重计历史伤害；当前正常packet事件tick有序性和损坏/长度/复制偏移受检查。
+
+构建身份再次核验为client SHA-256 `44af2aa0d2c64f90d273444cb393b8b679094f0b02136dbdb89d4ec82a560008`、image base `0x180000000`。复用同版本IDB补查：publisher `0xEC9000` 的 `movss [record+0x68]` 通过XMM2写float属性，+0x6C为hits，+0x75为0..6 killtype。Schema静态descriptor `0x221A380` 的字段为 `m_flDamage` (+0x64)，`0x221A3A0` 为 `m_flActualHealthRemoved` (+0x68)；name strings RVA `0x1AEEAF8/0x1C0D7E0`，字段注册helper `0x8FE8C0` 的反编译亦确认名字顺序。原生UI读取实际扣血，不是包含致死过量的原始伤害。索引使用hurt的dmg_health及剩余health，按spawn/每轮初始HP和此前所有hurt（含世界/自己伤害）裁掉致死overkill，不把总量硬限制为100；分生命累计，death提供default/headshot/blast/burn/slash/shock类型。分析VA均为base+RVA，仅本构建有效。
+
+原生reporter仍为hooked `0xEB8B10`；以下均是**未hook的native playback helper**：reporter+0x77 E8解析clear `0xEBD8E0`，+0x138解析publisher `0xEC9000`，+0x1E5解析allocator `0xC30A20`，+0x17D解析symbol interner `0x177FAA0`。RIP-relative refs +0x19A/+0x1F2/+0x256分别为UI engine槽 `0x272ABC0`、Reveal symbol `0x223C9C0`、CUIEvent vtable `0x1CB5BA0`。源码验证这些call/opcode、helper入口和+0x68/+0x6C/+0x75 load，代码目标必须在本模块text，数据/vtable必须在image范围。槽位和构造遵循原生：UI engine slot33取得avatar和TeamCounter的CPanelPtr handle，原生allocator分配32字节event，+0为final CUIEvent vtable、+8为event symbol、+0x0C为target handle、+0x18为avatar参数；slot47接受event指针的地址并接管所有权。native row slot经 `0xAC9D90` 解析为entity index=slot+1；该helper本轮另行反编译核验，无新增hook。详见 `diagnostics/round-damage-gotv-20261012/native-fallback.json` 和 `static-audit.json`。
+
+实现来源明确分开：有原生DamageList时完整执行原生live reporter；只有列表为空才由 `MirvPovDemoDamage.h` 的录像事件索引提供当前回合、当前tick、当前POV与每个avatar的given/taken数值。`MirvPovHud.cpp` 把结果放入私有120字节参数buffer，调用原生clear/publisher和Reveal事件；UI dialog变量、颜色、图标、优势class和动画仍由游戏原生TS/CSS处理。**GOTV补偿的统计数据由DLL从真实录像事件恢复，不能继续称所有数值均来自原生网络DamageList**。没有修改controller/services/vector、ConVar、游戏资源或用户配置。
+
+解析通过现有thread pool在后台处理，只持有路径/索引/共享cache，永不访问entity或Panorama；文件大小不会阻塞render线程。主线程用release/acquire状态读取完成后不可变的索引，结合ready状态、round start/end、已发生事件数、原有controller/row指纹触发重新发布；稳定帧不重复Reveal，未来tick事件不提前显示。回合是否结束仍由当前GameRules非freeze且win reason非零判断，GOTV未传round_end时index.end=-1仅是未知值。换路径、无demo和level init取消旧task并清cache；旧task持有自己的cache，不能污染新录像。相同文件重播/seek可复用不可变索引，新的level init会重建，即使路径相同。未启用主POV/hud/round_damage不发起新扫描；已读cache可用于off/on。面板未就绪会重试，新增publisher/Reveal的SEH异常尝试清理部分界面并使快照失效。
+
+控制仍为普通Release默认1的 `mirv_pov_debug_feature round_damage 0|1`，即时生效、独立于其它效果；关闭/主POV关闭/新回合/离开demo沿用自有面板collapse屏障和释放策略，重新开启不要求从回合开始播放。日志新增 `demo-fallback=1`、`demo-index-queued`、`demo-index-loading/failed/unavailable`、`demo-report-called`、`demo-no-damage`、`demo-round-unavailable`、`demo-publish-exception`，发布另打印row数和回合边界；`native-report-called`/`demo-report-called`都是调用状态，不等于已实机截图确认显示。
+
+验证：生产C++索引完整解析本份录像23个回合，406项断言通过；优化扫描单次约0.6秒，属于离线机器测量、不保证游戏运行时耗时。tick58363的slot1->10为实际扣血100、2hits、default kill；tick58355仅81、1hit、无kill；目标slot2对slot9为100、2hits、headshot。生产HUD/getter/cache/native事件控制流mock90项断言通过，包含loading->ready、空列表补偿、原生event字段和所有权模拟、稳定不重播、seek未来事件过滤、目标切换given/taken、off/on/主POV、重播cache reset、真实threadpool取消任务隔离、部分publish异常后清理和retry。当前PE signature/layout/calls/RIP refs/两个health descriptor专项断言及Release x64构建通过；独立复核指出未知frame seek可能越过EOF和事件乱序隐含假设，现分别使用ignore+gcount检查和建索引时有序性检查；不足14bit packet尾部仍按现有协议读取器处理，未把该兼容行为当严格padding验证。
+
+局限：本轮按用户要求未启动、关闭、重启或控制CS2/HLAE，未确认真实原生事件的最终屏幕效果。GOTV fallback使用事件整数HP，不能声称逐位等同live服务端float累计；非标准初始HP、同slot中途换身份、特殊逐弹/同shot多事件的native命中合并仍需模式实测。普通本份录像的扣血/目标映射已离线验证。源码和分析未提交/推送，后续部署记录见本轮 `installation-fix.json`。
+
+部署完成：再次确认CS2未运行且HLAE未加载目标DLL，于19:59:23备份旧版到 `AfxHookSource2.dll.backup-20261012-195923-round-damage-gotv` 后原子替换。安装路径为 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`，构建/安装SHA-256一致，均为 `DD020E062B65476E88742B1D59879C6332C4C37A344BF4DEA3560F559430844E`；备份旧hash为 `E9BC6D9069507ECC478C56355CFA0507156CDDE51CA28E19E01CCF3CD5552EBB`。CRLF-aware diff检查通过，未启动或重启游戏/HLAE。
+
+提交前整理：将native publisher的私有参数buffer整理为 `PovRoundDamageArgument`，用sizeof/offsetof四项编译期断言锁定120字节大小及actual health/hits/killtype偏移，保留原有运行期instruction契约验证；没有改变累计或显示规则。去除解析器未使用的include，中英文README补充默认开启、hud依赖、即时开关、seek/目标切换、退出清理和GOTV伤害事件计数的限制。整理后Release x64构建、406项解析断言、90项生产控制流断言及PE专项检查再次通过；未启动游戏，仍不能将模拟验证写成实际显示已通过。当前工作区中2026-09-22切枪音效调查属先前未提交内容，保留在工作区，本次只提交2026-10-12伤害统计记录。

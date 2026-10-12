@@ -127,6 +127,12 @@ void initSchemaSystemOffsets()
 				"client.dll", "C_CSPlayerController", "m_pActionTrackingServices")) {
 			advancedfx::Warning("SchemaSystem optional offset lookup failed: CCSPlayerController.m_pActionTrackingServices\n");
 		}
+		getOffset(&g_clientDllOffsets.CCSPlayerController.m_pDamageServices,
+			"client.dll", "CCSPlayerController", "m_pDamageServices");
+		getOffset(&g_clientDllOffsets.CCSPlayerController_DamageServices.m_nSendUpdate,
+			"client.dll", "CCSPlayerController_DamageServices", "m_nSendUpdate");
+		getOffset(&g_clientDllOffsets.CCSPlayerController_DamageServices.m_DamageList,
+			"client.dll", "CCSPlayerController_DamageServices", "m_DamageList");
 		if (!getOffset(&g_clientDllOffsets.CCSPlayerController_ActionTrackingServices.m_perRoundStats,
 			"client.dll", "CCSPlayerController_ActionTrackingServices", "m_perRoundStats")) {
 			advancedfx::Warning("SchemaSystem optional offset lookup failed: CCSPlayerController_ActionTrackingServices.m_perRoundStats\n");

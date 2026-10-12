@@ -358,7 +358,14 @@ CEntityInstance * __fastcall GetPawn(int slot) {
 }
 CEntityInstance * __fastcall GetController(int slot) {
     if(g_Depth && InClient(_ReturnAddress()) && (slot == 0 || slot == -1)) return g_Controller;
-    return g_GetController(slot);
+    void * previous = MirvPov_PushHookReturnAddress(_ReturnAddress());
+    CEntityInstance * controller = nullptr;
+    __try {
+        controller = g_GetController(slot);
+    } __finally {
+        MirvPov_PopHookReturnAddress(previous);
+    }
+    return controller;
 }
 void * ObservedLoadout(void * inventory, unsigned int team, unsigned int slot) {
     if(!g_Controller || inventory != Field<void *>(g_Controller, 0x820)) return nullptr;

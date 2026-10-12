@@ -266,6 +266,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 
     MirvPovHud.cpp
     MirvPovHud.h
+    MirvPovDemoDamage.h
 
     MirvPovKillReward.cpp
     MirvPovKillReward.h
