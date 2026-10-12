@@ -57,6 +57,7 @@ MirvPovDebugFeatureState g_MirvPovDebugFeatures[] = {
     {"buymenu", true, true},
 	{"buymenu_promo_hide", true, true, true},
 	{"buymenu_layout", true, true, true},
+	{"buymenu_input_passthrough", true, true, true},
     {"radar", true, true},
     {"voice", true, true},
     {"scoreboard", true, true},
@@ -167,6 +168,7 @@ bool MirvPovDebug_SetFeatureEnabled(const char * name, bool enabled)
         MirvPovDeathCam_Reset();
         MirvPovHud_ReapplyPanelState();
         MirvPovHud_UpdateRoundDamage();
+        MirvPovBuyMenu_ReapplyInput();
         return true;
     }
     MirvPovDebugFeatureState * feature = FindMirvPovDebugFeature(name);
@@ -179,6 +181,7 @@ bool MirvPovDebug_SetFeatureEnabled(const char * name, bool enabled)
         if(0 == _stricmp(feature->name, "death_screen")) MirvPovDeathCam_ResetPresentation();
         if(0 == _stricmp(feature->name, "buyzone")) MirvPovHud_ReapplyPanelState();
         if(0 == _stricmp(feature->name, "round_damage")) MirvPovHud_UpdateRoundDamage();
+        if(0 == _stricmp(feature->name, "buymenu_input_passthrough")) MirvPovBuyMenu_ReapplyInput();
     }
     return true;
 }

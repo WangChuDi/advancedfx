@@ -936,3 +936,45 @@ Reporter入口由唯一完整签名定位，并检查实际 services load、vect
 部署完成：再次确认CS2未运行且HLAE未加载目标DLL，于19:59:23备份旧版到 `AfxHookSource2.dll.backup-20261012-195923-round-damage-gotv` 后原子替换。安装路径为 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`，构建/安装SHA-256一致，均为 `DD020E062B65476E88742B1D59879C6332C4C37A344BF4DEA3560F559430844E`；备份旧hash为 `E9BC6D9069507ECC478C56355CFA0507156CDDE51CA28E19E01CCF3CD5552EBB`。CRLF-aware diff检查通过，未启动或重启游戏/HLAE。
 
 提交前整理：将native publisher的私有参数buffer整理为 `PovRoundDamageArgument`，用sizeof/offsetof四项编译期断言锁定120字节大小及actual health/hits/killtype偏移，保留原有运行期instruction契约验证；没有改变累计或显示规则。去除解析器未使用的include，中英文README补充默认开启、hud依赖、即时开关、seek/目标切换、退出清理和GOTV伤害事件计数的限制。整理后Release x64构建、406项解析断言、90项生产控制流断言及PE专项检查再次通过；未启动游戏，仍不能将模拟验证写成实际显示已通过。当前工作区中2026-09-22切枪音效调查属先前未提交内容，保留在工作区，本次只提交2026-10-12伤害统计记录。
+
+## 2026-10-12：暂停录像时购买菜单阻挡切人输入
+
+### 构建身份与原生行为
+
+安装 client.dll 的同步器 dry-run 完整 SHA-256 仍为 `44af2aa0d2c64f90d273444cb393b8b679094f0b02136dbdb89d4ec82a560008`，复用 `diagnostics/client-dll-analysis/44af2aa0d2c64f90/client.i64`。安装 panorama.dll 的完整 SHA-256 为 `4b3eb751f78bcbea82b146dcc5e2668d8fa19263c82dd35321441feb2be43c24`，本轮复制并建立同 hash 数据库；没有使用旧 `a607e0...` 库的地址。两模块 analysis image base 均为 `0x180000000`，下列 analysis VA = base + RVA，仅适用对应完整 hash。
+
+原生 CCSGO_BuyMenu 构造 RVA `0xD97770` 在 VA `0x180D979CE` 通过 client global `0x2793D20` 的 virtual slot23 注册 `CSGOBuyMenu`，priority1000，handler 为 menu+32。handler vtable RVA `0x1CB0A68` 的 slot0 为 RVA `0xDAAB30`，ABI `intptr_t __fastcall(void *handler, void *event)`；入口先由 handler-32 取得 menu，并检查 menu+8 UIPanel slot34 的可见性。随后只处理 event+8 为0/1的事件，读取 event+32 的 key code，在数字类快捷键、关闭键、捐赠修饰键等分支返回1表示处理。此处理条件不要求 demo tick 前进；不能通过阻止真实购买/出售让它自动停止接收输入。
+
+原生 open/close 仍为 client RVA `0xDB4FC0/0xD9E230`（已有 detour）。Open 先可见性判定，再显示、移动 TeamCounter、刷新装备等；close 隐藏并执行原生恢复。POV 的 Close 在 `g_Active && g_Wanted` 时拒绝 viewer-side 关闭，等待记录玩家关闭菜单。用户描述的暂停锁住与这组可见性/输入处理/关闭屏障相符，但本轮没有采集其实际暂停场景输入调用序列，不称为已实机证明的唯一根因。
+
+Panorama 本轮反编译和 PE vtable 核验结果如下；这些 setter/getter 是未 hook 的原生 helper，仅调用：
+
+| CUIPanel slot | RVA | 原生含义 |
+| --- | --- | --- |
+| 31 / 32 | `0x112B60 / 0x112B30` | parent / window |
+| 165 / 166 | `0x1125A0 / 0x104440` | accepts-focus getter/setter，panel+554 bit4 |
+| 178 / 179 | `0x112510 / 0x1117C0` | focus-context getter/setter，panel+554 bit2 |
+| 203 / 204 | `0x1126B0 / 0x112570` | hit-test setter/getter，panel+554 bit8 |
+| 206 / 207 | `0x112630 / 0x112560` | hit-test-children setter/getter，panel+554 bit32 |
+
+CUIPanel vtable RVA `0x4CCFF8`；slot203/206会调用原生状态失效 helper，不能仅直接覆盖字节假装完整 setter。Window slot4 返回其 input。CUIWindowInput vtable RVA `0x4D4E98`；slot19 / RVA `0x13A4B0` 是 `SetInputFocus(input, panel, bool scroll, bool context)`，该入口本轮新增 detour。其 input+32 是实际 focused panel 弱句柄，+24 是 focus context 弱句柄，反编译确认 SetInputFocus(nullptr,false,false) 清除二者并执行原生焦点标志/事件清理；slot22/RVA `0x139B90` 为 context getter。本轮读取弱句柄并经现有 UI engine slot34 解析，不保存可在卸载后悬空的 focus 指针。
+
+### POV 实现与独立控制
+
+`MirvPovBuyMenu.cpp` 新增 `KeyInput` 和 `InputFocus` detour，前者仅对正在模拟的菜单 handler 返回0，让后续输入处理器继续处理；后者仅拒绝把焦点设置到该菜单或其子树，其他界面正常透传。Open 的临时 `OpeningInputScope` 在 native FullRefresh 和 CacheMenu 前就限定焦点请求范围；ApplyInputState 必须等 CacheMenu 获得可解析的确切弱句柄后才保存/修改标志，避免把原生 Open 内部刷新当成已拥有的菜单，丢失原始状态。
+
+`ApplyInputState` 保存 root 的四个原始布尔值，关闭 root/children 的鼠标命中及 root 的 accepts-focus/focus-context；只有实际变化才调用 setter。已有焦点仅在 focused panel/context仍属于该购买菜单时通过原生 trampoline 清除，不清除控制台/demo UI的焦点，不抢夺其他overlay的焦点。按当前菜单弱句柄辨认所有权，父链遍历最多128层。检查完整 Panorama hash，并逐项验证使用的 UIPanel vtable slot，验证 input 的slot19/22再读取私有句柄；未知 Panorama 构建不安装两个输入 hook，状态报告 `input_supported=0` 并告警，保留原有购买菜单模拟。
+
+普通 Release 共享 registry 新增 `mirv_pov_debug_feature buymenu_input_passthrough <0|1>`，默认1、即时应用、需主POV和购买菜单模拟。0只恢复保存的菜单输入标志和原生输入hook透传；1重新保存/禁用并释放仍属本菜单的焦点，不关闭 promo/layout/model 等效果。`all` 也触发即时reapply。配置在主POV启停间保留。Open返回后、Refresh/FullRefresh/Hover/Think返回后以及Update每帧重新施加；Update路径不依赖tickChanged，因此暂停时同样更新。原生 close前、Reset、切人、seek、demo/level teardown和主POV关闭恢复标志并清保存状态；layout已销毁时只清弱句柄状态、不解引用旧panel。
+
+中英文 README 记录命令/default/scope/时机/清理及取舍：穿透开启时录像菜单只作展示，不能鼠标悬停或点击；关闭控制恢复交互处理。未修改购买判断、记录buy bit、游戏VPK、ConVar或其他UI的输入状态。
+
+### 验证与边界
+
+Release x64构建通过。`diagnostics/buymenu-input-20261012/test.py` 提取生产的apply/restore、弱句柄所有权、focus/key detour和opening scope，仅mock原生ABI边界，35项断言通过：Open内部刷新尚无handle不改原值，开菜单途中focus拦截，暂停重复帧，native覆盖后重施加，其他panel/handler透传，off/on/re-enable、主POV启停，关闭恢复，原值部分为false的恢复，销毁旧handle，未知build/panel拒绝，父链环路有界。`verify.py` 用实际PE独立核验完整hash、12个Panorama vtable slots、client handler vtable/入口指令以及生产集成点，通过。`native-evidence.json` 保存本轮原生伪代码，`static-audit.json` / `control-test.log` / `build.log` 保存核验结果。
+
+实现阶段的35项检查属于静态和控制流模拟核验，不能当作游戏实测。本轮没有由代理启动、关闭、重启或控制CS2/HLAE。安装后用户反馈“成功了”，确认原先暂停demo切到正在购买的玩家后无法继续切人的问题已解决；未取得逐键测试日志，不将该反馈扩大为所有快捷键、控制台/demo面板、全部开关组合或游戏模式均已实测。
+
+部署：21:12:21再次确认CS2未运行、HLAE未加载目标DLL，通过File.Replace备份并原子替换 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`。构建和安装完整SHA-256一致：`6A4D05D922D79E604E2311B5645E7A753A6800ACE9891DD24458A4CDD0E6B531`；旧版备份 `AfxHookSource2.dll.backup-20261012-211221-buymenu-input` 的hash为 `DD020E062B65476E88742B1D59879C6332C4C37A344BF4DEA3560F559430844E`。证据保存在本轮 `installation.json`，没有启动或重启游戏/HLAE。
+
+数据库保存请求返回300秒超时，磁盘已生成 `diagnostics/buymenu-input-20261012/panorama.i64`（82,536,547字节），本轮未重开验证该数据库；已完成的原生伪代码另外保存在 `native-evidence.json`，ABI核验直接读取对应hash的PE，未依赖这次保存成功。

@@ -35,6 +35,8 @@ using EventFn = void ** (__fastcall *)(void **, void *);
 using ModelFn = int (__fastcall *)(void *, void *);
 using SelectFn = char (__fastcall *)(void *, unsigned int);
 using SetModelFn = intptr_t (__fastcall *)(void *, const char *);
+using KeyInputFn = intptr_t (__fastcall *)(void *, void *);
+using InputFocusFn = intptr_t (__fastcall *)(void *, void *, bool, bool);
 uintptr_t g_Base = 0;
 bool g_Hooked = false, g_Active = false, g_Wanted = false, g_Pending = false;
 bool g_CancelledPending = false;
@@ -55,6 +57,10 @@ SellFn g_Sell;
 ModelFn g_Model;
 SelectFn g_Select;
 SetModelFn g_SetModel;
+KeyInputFn g_KeyInput;
+InputFocusFn g_InputFocus;
+bool g_InputSupported = false;
+void * g_OpeningRoot = nullptr;
 thread_local void * g_ModelPreview = nullptr;
 unsigned int g_OpenCount = 0, g_CloseCount = 0, g_LoadoutHits = 0, g_LoadoutMisses = 0;
 uint16_t g_HudWashClass = 0xFFFF;
@@ -263,6 +269,115 @@ bool DiagnosticPanoramaSupported() {
     }
     return module && supported;
 }
+
+// Input ABI is checked independently of the client build. Only the replayed
+// menu owns these changes; console/demo UI focus must always pass through.
+struct BuyInputState {
+    uint64_t root = 0xFFFFFFFF00000000ULL;
+    bool hitTest = false, hitTestChildren = false;
+    bool acceptsFocus = false, focusContext = false;
+} g_InputState;
+
+bool InputPassthrough() {
+    return g_InputSupported && g_Active && g_Wanted
+        && MIRV_POV_FEATURE_ACTIVE("buymenu_input_passthrough");
+}
+bool InputPanelSupported(void * ui) {
+    if(!ui || !g_InputSupported) return false;
+    const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(L"panorama.dll"));
+    auto table = Field<uintptr_t *>(ui, 0);
+    return table[31] == base + 0x112B60 && table[32] == base + 0x112B30
+        && table[165] == base + 0x1125A0 && table[166] == base + 0x104440
+        && table[178] == base + 0x112510 && table[179] == base + 0x1117C0
+        && table[203] == base + 0x1126B0 && table[204] == base + 0x112570
+        && table[206] == base + 0x112630 && table[207] == base + 0x112560;
+}
+bool InputFlag(void * ui, size_t slot) {
+    return reinterpret_cast<bool (__fastcall *)(void *)>(Field<void **>(ui, 0)[slot])(ui);
+}
+void SetInputFlag(void * ui, size_t slot, bool value) {
+    reinterpret_cast<void (__fastcall *)(void *, bool)>(Field<void **>(ui, 0)[slot])(ui, value);
+}
+void * InputRoot() {
+    if(g_OpeningRoot) return g_OpeningRoot;
+    return ResolveUi(g_MenuHandle);
+}
+bool WithinInputRoot(void * ui, void * root) {
+    if(!root) return false;
+    for(int depth = 0; ui && depth < 128; ++depth) {
+        if(ui == root) return true;
+        if(!InputPanelSupported(ui)) return false;
+        ui = reinterpret_cast<void * (__fastcall *)(void *)>(Field<void **>(ui, 0)[31])(ui);
+    }
+    return false;
+}
+void * MenuInput(void * root) {
+    if(!InputPanelSupported(root)) return nullptr;
+    auto window = reinterpret_cast<void * (__fastcall *)(void *)>(Field<void **>(root, 0)[32])(root);
+    if(!window) return nullptr;
+    auto input = reinterpret_cast<void * (__fastcall *)(void *)>(Field<void **>(window, 0)[4])(window);
+    if(!input) return nullptr;
+    const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(L"panorama.dll"));
+    auto table = Field<uintptr_t *>(input, 0);
+    return table[19] == base + 0x13A4B0 && table[22] == base + 0x139B90 ? input : nullptr;
+}
+void ReleaseMenuFocus(void * root) {
+    if(auto input = MenuInput(root)) {
+        // +32 is the actual focused panel's weak handle, +24 its context.
+        // Clear only focus still owned by this menu, never another overlay.
+        auto focused = ResolveUi(Field<uint64_t>(input, 32));
+        auto context = ResolveUi(Field<uint64_t>(input, 24));
+        if(WithinInputRoot(focused, root) || WithinInputRoot(context, root))
+            g_InputFocus(input, nullptr, false, false);
+    }
+}
+void RestoreInputState() {
+    if(auto root = ResolveUi(g_InputState.root)) {
+        if(InputPanelSupported(root)) {
+            SetInputFlag(root, 203, g_InputState.hitTest);
+            SetInputFlag(root, 206, g_InputState.hitTestChildren);
+            SetInputFlag(root, 166, g_InputState.acceptsFocus);
+            SetInputFlag(root, 179, g_InputState.focusContext);
+        }
+    }
+    g_InputState = BuyInputState{};
+}
+void ApplyInputState(void * menu) {
+    if(!InputPassthrough()) { RestoreInputState(); return; }
+    auto root = menu ? Field<void *>(menu, 8) : nullptr;
+    if(!InputPanelSupported(root)) return;
+    // Native Open calls FullRefresh before CacheMenu. Do not change flags until
+    // we can save and restore this exact root through its weak handle.
+    if(g_MenuHandle == 0xFFFFFFFF00000000ULL || ResolveUi(g_MenuHandle) != root) return;
+    if(g_InputState.root != g_MenuHandle) RestoreInputState();
+    if(g_InputState.root == 0xFFFFFFFF00000000ULL) {
+        g_InputState.root = g_MenuHandle;
+        g_InputState.hitTest = InputFlag(root, 204);
+        g_InputState.hitTestChildren = InputFlag(root, 207);
+        g_InputState.acceptsFocus = InputFlag(root, 165);
+        g_InputState.focusContext = InputFlag(root, 178);
+    }
+    if(InputFlag(root, 204)) SetInputFlag(root, 203, false);
+    if(InputFlag(root, 207)) SetInputFlag(root, 206, false);
+    if(InputFlag(root, 165)) SetInputFlag(root, 166, false);
+    if(InputFlag(root, 178)) SetInputFlag(root, 179, false);
+    ReleaseMenuFocus(root);
+}
+intptr_t __fastcall InputFocus(void * input, void * ui, bool scroll, bool context) {
+    if(InputPassthrough() && WithinInputRoot(ui, InputRoot())) return 0;
+    return g_InputFocus(input, ui, scroll, context);
+}
+intptr_t __fastcall KeyInput(void * handler, void * event) {
+    auto root = InputPassthrough() ? InputRoot() : nullptr;
+    if(root && Field<void *>(static_cast<unsigned char *>(handler) - 32, 8) == root) return 0;
+    return g_KeyInput(handler, event);
+}
+struct OpeningInputScope {
+    void * previous;
+    OpeningInputScope(void * panel) : previous(g_OpeningRoot) { g_OpeningRoot = Field<void *>(panel, 8); }
+    ~OpeningInputScope() { g_OpeningRoot = previous; }
+};
+
 PanelSnapshot SnapshotPanel(void * ui) {
     PanelSnapshot result;
     result.address = ui;
@@ -461,6 +576,7 @@ intptr_t __fastcall Open(void * panel) {
     if(!g_Wanted || !g_Pawn || !g_Controller) return 0;
     // The native open handler toggles an already visible menu.
     if(Visible(panel)) return 0;
+    OpeningInputScope inputScope(panel);
     auto result = g_Open(panel);
     if(Visible(panel)) {
         CacheMenu(panel);
@@ -468,6 +584,7 @@ intptr_t __fastcall Open(void * panel) {
         g_PromoSetterCalled = g_LayoutSetterCalled = false;
         CaptureBuySnapshot(panel, "open-before-style");
         ApplyBuyStyles(panel);
+        ApplyInputState(panel);
         // Opening does not initialize the preview until a real mouse event.
         // Invalidate its weapon-only cache also when switching equal loadouts.
         Field<uint64_t>(panel, 528) = UINT64_MAX - 1;
@@ -484,6 +601,7 @@ intptr_t __fastcall Close(void * panel) {
     // Native viewer-side zone/close events must not override the recorded key.
     // Reset clears wanted first and always runs the full native restoration.
     if(g_Active && g_Wanted) return 0;
+    RestoreInputState();
     RestoreWashClasses();
     RestorePromoVisibility(panel);
     RestoreLayoutOffset(panel);
@@ -500,6 +618,7 @@ intptr_t __fastcall Refresh(void * panel) {
     Scope scope;
     auto result = g_Refresh(panel);
     ApplyBuyStyles(panel);
+    ApplyInputState(panel);
     return result;
 }
 intptr_t __fastcall FullRefresh(void * panel) {
@@ -508,12 +627,14 @@ intptr_t __fastcall FullRefresh(void * panel) {
     if(g_Active) Field<uint8_t>(panel, 568) = 0;
     auto result = g_FullRefresh(panel);
     ApplyBuyStyles(panel);
+    ApplyInputState(panel);
     return result;
 }
 intptr_t __fastcall Hover(void * panel) {
     Scope scope;
     auto result = g_Hover(panel);
     ApplyBuyStyles(panel);
+    ApplyInputState(panel);
     return result;
 }
 intptr_t __fastcall Think(void * panel) {
@@ -524,6 +645,7 @@ intptr_t __fastcall Think(void * panel) {
     }
     auto result = g_Think(panel);
     ApplyBuyStyles(panel);
+    ApplyInputState(panel);
     return result;
 }
 
@@ -578,6 +700,10 @@ void MirvPovBuyMenu_Initialize(HMODULE module) {
     g_Model = reinterpret_cast<ModelFn>(g_Base + 0xDBDE70);
     g_Select = reinterpret_cast<SelectFn>(g_Base + 0xDB4860);
     g_SetModel = reinterpret_cast<SetModelFn>(g_Base + 0xE5BEA0);
+    g_InputSupported = DiagnosticPanoramaSupported();
+    g_KeyInput = reinterpret_cast<KeyInputFn>(g_Base + 0xDAAB30);
+    if(g_InputSupported) g_InputFocus = reinterpret_cast<InputFocusFn>(
+        reinterpret_cast<uintptr_t>(GetModuleHandleW(L"panorama.dll")) + 0x13A4B0);
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
     DetourAttach(&(PVOID &)g_Open, Open);
@@ -596,9 +722,14 @@ void MirvPovBuyMenu_Initialize(HMODULE module) {
     DetourAttach(&(PVOID &)g_Model, Model);
     DetourAttach(&(PVOID &)g_Select, Select);
     DetourAttach(&(PVOID &)g_SetModel, SetModel);
+    if(g_InputSupported) {
+        DetourAttach(&(PVOID &)g_KeyInput, KeyInput);
+        DetourAttach(&(PVOID &)g_InputFocus, InputFocus);
+    }
     g_Hooked = NO_ERROR == DetourTransactionCommit();
     if(g_Hooked) advancedfx::Message("[mirv_pov_buymenu] native simulation hooks installed.\n");
     else advancedfx::Warning("[mirv_pov_buymenu] detour transaction failed.\n");
+    if(!g_InputSupported) advancedfx::Warning("[mirv_pov_buymenu] unsupported panorama build; input passthrough unavailable.\n");
 }
 
 void MirvPovBuyMenu_Reset() {
@@ -606,6 +737,7 @@ void MirvPovBuyMenu_Reset() {
     // Close synchronously before releasing the native panel/target. This also
     // restores the TeamCounter parent and mouse focus before a level unload.
     if(auto panel = ResolveMenu()) Close(panel);
+    RestoreInputState();
     RestoreWashClasses();
     g_PromoHidden = false;
     g_LayoutShifted = false;
@@ -627,6 +759,11 @@ void MirvPovBuyMenu_SetEnabled(bool enabled) {
 
 bool MirvPovBuyMenu_IsEnabled() {
     return g_Enabled;
+}
+
+void MirvPovBuyMenu_ReapplyInput() {
+    if(auto panel = ResolveMenu()) ApplyInputState(panel);
+    else RestoreInputState();
 }
 
 void MirvPovBuyMenu_Update() {
@@ -665,6 +802,7 @@ void MirvPovBuyMenu_Update() {
         }
         ApplyPromoVisibility(g_Panel);
         ApplyLayoutOffset(g_Panel);
+        ApplyInputState(g_Panel); // Also runs while the demo tick is paused.
     }
     if(g_Pending && GetTickCount64() - g_PendingSince > 1000) g_Pending = false;
     if(g_Panel && tickChanged) {
@@ -681,6 +819,8 @@ void MirvPovBuyMenu_Update() {
 void MirvPovBuyMenu_PrintStatus() {
     g_Panel = ResolveMenu();
     advancedfx::Message("[mirv_pov_buymenu] enabled=%d\n", g_Enabled);
+    advancedfx::Message("[mirv_pov_buymenu] input_supported=%d input_passthrough=%d input_state_saved=%d\n",
+        g_InputSupported, InputPassthrough(), g_InputState.root != 0xFFFFFFFF00000000ULL);
     advancedfx::Message("[mirv_pov_buymenu] hooks=%d active=%d wanted=%d pending=%d visible=%d opens=%u closes=%u loadout_hits=%u loadout_misses=%u\n",
         g_Hooked, g_Active, g_Wanted, g_Pending, g_Panel && Visible(g_Panel),
         g_OpenCount, g_CloseCount, g_LoadoutHits, g_LoadoutMisses);

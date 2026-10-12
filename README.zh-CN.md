@@ -73,6 +73,9 @@ mirv_pov_debug_feature deafen 1
 | `killreward` | 击杀奖励 HUD 通知，优先原生消息，缺失时使用事件回退 | 重新开启 |
 | `buymenu_promo_hide` | 隐藏多出的 `PROMOTED Knife` 促销项；依赖购买菜单模拟 | 立即 |
 | `buymenu_layout` | 调整购买列与人物预览间距；依赖购买菜单模拟 | 立即 |
+| `buymenu_input_passthrough` | 保留录像购买菜单画面，将鼠标/键盘输入交给观战与 demo 控制；依赖购买菜单模拟 | 立即 |
+
+购买菜单输入穿透默认开启，暂停 demo 时也生效。此时不能用鼠标悬停或点击录像购买菜单；`mirv_pov_debug_feature buymenu_input_passthrough 0` 恢复菜单输入处理，`1` 重新开启穿透，配置即时应用。关闭购买菜单模拟、切人、seek、离开 demo 或关闭主 POV 时恢复菜单原先的鼠标命中与焦点标志。其他界面保留自己的焦点与输入处理。
 
 关闭 `buyzone` 会清除购物车图标，不影响其他 HUD 效果；重新开启时按当前 POV 玩家重新计算。关闭 POV 或换图会清理其 class 与缓存，再由原生 HUD 继续更新。
 

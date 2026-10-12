@@ -9,4 +9,6 @@ void MirvPovBuyMenu_Reset();
 // Disabled by default. Also requires mirv_pov and offline demo playback.
 void MirvPovBuyMenu_SetEnabled(bool enabled);
 bool MirvPovBuyMenu_IsEnabled();
+// Applies the independent input control even when the demo tick is paused.
+void MirvPovBuyMenu_ReapplyInput();
 void MirvPovBuyMenu_PrintStatus();
