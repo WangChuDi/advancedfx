@@ -61,6 +61,7 @@ All features below default to **on**, subject to the main switch and any parent 
 | `round_damage` | Shows damage dealt/received, hit counts and kill icons under the top-HUD avatars after a demo round ends; requires `hud` | Immediate |
 | `teamid` | POV-relative teammate/enemy identifiers, respecting `spec_show_xray` | Re-enable |
 | `teamhealth` | Hides enemy health bars in the top HUD and clears stale observer markers | Re-enable |
+| `hud_target_highlight` | Highlights only the current POV player in the top HUD; requires `teamhealth` | Next HUD refresh |
 | `radar` | Competitive teammate colors, red enemies, smoke-visible teammates and red C4 from the CT POV | Re-enable |
 | `soundcircle` | POV radar sound circles and footstep/source handling; also feeds some radio audio paths | Re-enable |
 | `radio` | Team radio, grenade-throw voice/text and related audio fallbacks | Re-enable |
@@ -78,6 +79,8 @@ All features below default to **on**, subject to the main switch and any parent 
 Buy-menu input passthrough defaults to on, including while playback is paused. The replayed menu cannot be hovered or clicked in this mode. Use `mirv_pov_debug_feature buymenu_input_passthrough 0` to restore its input handling and `1` to re-enable passthrough. Changing this control applies immediately; closing replay, changing targets, seeking, leaving the demo or disabling POV restores the menu's saved hit-test/focus flags. Other UI panels retain their focus and input handling.
 
 Disabling `buyzone` clears the shopping-cart icon without changing other HUD effects. Re-enabling recalculates it from the current POV player; disabling POV or changing maps clears its class and cached state before native HUD updates resume.
+
+`hud_target_highlight` defaults to on. Use `mirv_pov_debug_feature hud_target_highlight 0` to hide the POV target marker, or `1` to restore it; enemy health bars stay hidden. Changes apply on the next native HUD refresh, including cached rows after a target change or seek. Disabling POV resumes native observer markers. The preference survives POV off/on and keeps no panel or entity pointers.
 
 `round_damage` uses the game's native damage records and presentation. When GOTV has no native records, it reads the demo's damage/death events in the background and publishes the reconstructed values to the same native panels. The fallback counts damage events as hits and removes lethal overkill; special damage types may differ from live hit-count rules. Seeking and switching POV use the current round and playback tick. Disabling the effect immediately hides its panels without affecting other HUD effects; re-enabling restores the current report. Leaving the demo or changing maps clears owned UI state and cancels the old index.
 

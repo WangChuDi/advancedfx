@@ -1287,7 +1287,7 @@ static bool MirvPovHud_ResolveFlashContexts(HMODULE clientDll) {
         "48 8B F2 48 8B E9 E8 ?? ?? ?? ?? 84 C0 0F 85");
     const size_t perViewPathMatch = getAddress(
         clientDll,
-        "84 C0 74 4C 8B 85 50 02 00 00 49 8D 8D ?? ?? ?? ?? 0F 10 85 38 02 00 00");
+        "84 C0 74 4C 8B 85 38 02 00 00 49 8D 8F ?? ?? ?? ?? 0F 10 85 20 02 00 00");
     if(0 == compactPathMatch || 0 == perViewPathMatch) {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_flash] Flash render contexts were not found.\n");
         return false;

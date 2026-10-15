@@ -61,6 +61,7 @@ mirv_pov_debug_feature deafen 1
 | `round_damage` | demo 回合结束后，在顶部头像下显示造成/受到的伤害、命中数与击杀图标；依赖 `hud` | 立即 |
 | `teamid` | 按观察玩家修正队友/敌方标识，遵循 `spec_show_xray` | 重新开启 |
 | `teamhealth` | 隐藏顶部 HUD 的敌方血条，清理残留观战目标标记 | 重新开启 |
+| `hud_target_highlight` | 仅高亮顶部 HUD 中当前 POV 玩家；依赖 `teamhealth` | 下一次 HUD 刷新 |
 | `radar` | 队友竞技颜色、敌方红色、烟雾内队友可见性，以及 CT POV 的红色 C4 雷达表现 | 重新开启 |
 | `soundcircle` | POV 雷达声音圆圈、脚步等声音来源处理；还承接部分无线电声音路径 | 重新开启 |
 | `radio` | 队伍无线电、投掷物语音/文字，以及相关音频回退 | 重新开启 |
@@ -78,6 +79,8 @@ mirv_pov_debug_feature deafen 1
 购买菜单输入穿透默认开启，暂停 demo 时也生效。此时不能用鼠标悬停或点击录像购买菜单；`mirv_pov_debug_feature buymenu_input_passthrough 0` 恢复菜单输入处理，`1` 重新开启穿透，配置即时应用。关闭购买菜单模拟、切人、seek、离开 demo 或关闭主 POV 时恢复菜单原先的鼠标命中与焦点标志。其他界面保留自己的焦点与输入处理。
 
 关闭 `buyzone` 会清除购物车图标，不影响其他 HUD 效果；重新开启时按当前 POV 玩家重新计算。关闭 POV 或换图会清理其 class 与缓存，再由原生 HUD 继续更新。
+
+`hud_target_highlight` 默认开启。`mirv_pov_debug_feature hud_target_highlight 0` 关闭 POV 目标高亮，`1` 恢复；敌方血条仍保持隐藏。配置在下一次原生 HUD 刷新时应用，覆盖切人或 seek 后的缓存行；关闭主 POV 后恢复原生观战标记。配置在主 POV 启停间保留，不保存面板或实体指针。
 
 `round_damage` 优先使用游戏原生伤害记录与显示逻辑。GOTV 缺少原生记录时，在后台读取录像中的伤害/死亡事件，把恢复的数据交给同一套原生面板；该回退按伤害事件计命中数并去除致死过量伤害，特殊伤害的计数可能与 live 有差异。跳转和切换 POV 均按当前回合与播放 tick 查询。关闭后立即隐藏自有面板，不影响其他 HUD 效果；重新开启恢复当前统计。离开 demo 或换图会清理自有界面状态，并取消旧索引任务。
 

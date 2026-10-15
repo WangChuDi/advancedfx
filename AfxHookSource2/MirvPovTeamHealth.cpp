@@ -152,6 +152,31 @@ void SanitizeEnemyPlayerData(void * output)
     }
 }
 
+bool IsPovHighlightTarget(const void * playerState)
+{
+    if(!MIRV_POV_FEATURE_ACTIVE("teamhealth") || !MIRV_POV_FEATURE_ACTIVE("hud_target_highlight")
+        || !playerState || !g_GetPlayerControllerFromSlot) return false;
+    __try {
+        auto pov = GetCurrentPovPlayerController();
+        if(!pov || !pov->IsPlayerController() || (pov->GetTeam() != 2 && pov->GetTeam() != 3)) return false;
+        int slot = -1;
+        memcpy(&slot, playerState, sizeof(slot));
+        return g_GetPlayerControllerFromSlot(slot) == pov;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+void UpdatePovHighlight(const void * playerState, void * output)
+{
+    if(!MIRV_POV_FEATURE_ACTIVE("teamhealth") || !output) return;
+    __try {
+        auto & flags = reinterpret_cast<uint8_t *>(output)[kPlayerDataFlagsOffset];
+        flags = (flags & ~kPlayerDataSpectateTargetMask)
+            | (IsPovHighlightTarget(playerState) ? kPlayerDataSpectateTargetMask : 0);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+}
+
 void __fastcall New_BuildPlayerData(void * teamCounter, void * output, const void * playerState, int row)
 {
     TargetRelation previous = g_TargetRelation;
@@ -159,13 +184,13 @@ void __fastcall New_BuildPlayerData(void * teamCounter, void * output, const voi
     if(MIRV_POV_FEATURE_ACTIVE("teamhealth"))
         LogHookHitOnce("builder", 0, playerState, output);
 
-    // A live player POV never has an observer target. Build from a copy so the
-    // TeamCounter cannot propagate its observer-only target byte into bit 7 of
-    // the cached player-data flags (Avatar__SpectateTarget in Panorama).
+    // Keep the native Avatar__SpectateTarget presentation, but select only the
+    // configured POV row instead of propagating the viewer's observer target.
+    // The original input is shared with native HUD updates and stays unchanged.
     if(MIRV_POV_FEATURE_ACTIVE("teamhealth") && nullptr != playerState) {
         alignas(uint64_t) uint8_t playerStateCopy[kPlayerStateSize];
         memcpy(playerStateCopy, playerState, sizeof(playerStateCopy));
-        playerStateCopy[kPlayerStateSpectateTargetOffset] = 0;
+        playerStateCopy[kPlayerStateSpectateTargetOffset] = IsPovHighlightTarget(playerState) ? 1 : 0;
         g_OrgBuildPlayerData(teamCounter, output, playerStateCopy, row);
     } else {
         g_OrgBuildPlayerData(teamCounter, output, playerState, row);
@@ -183,7 +208,12 @@ void __fastcall New_PresentPlayerData(void * teamCounter, const void * playerSta
 
     // Sanitize cached rows immediately as well, including rows built before
     // mirv_pov was enabled or retained across a demo seek.
-    if(MIRV_POV_FEATURE_ACTIVE("teamhealth")) SanitizeEnemyPlayerData(output);
+    if(MIRV_POV_FEATURE_ACTIVE("teamhealth")) {
+        SanitizeEnemyPlayerData(output);
+        // Cached rows also follow target changes, seeks and the immediate
+        // feature control without waiting for a new native player-state build.
+        UpdatePovHighlight(playerState, output);
+    }
     g_OrgPresentPlayerData(teamCounter, playerState, output);
     // The native equipment presenter returns before publishing health for an
     // enemy in POV mode. A row previously displayed in spectator mode can thus
@@ -341,6 +371,14 @@ void MirvPovTeamHealth_Initialize(HMODULE clientDll)
 
     uint8_t * builder = reinterpret_cast<uint8_t *>(builderSequence.Start);
     uint8_t * presentation = reinterpret_cast<uint8_t *>(presentationSequence.Start);
+
+    // The native builder packs playerState+0x17 into flags bit 7 at output+8.
+    // Reject a changed layout before copying input or editing cached flags.
+    if(memcmp(builder + 0x14b, "\x0f\xb6\x4b\x17", 4)
+        || memcmp(builder + 0x1d7, "\x89\x47\x08", 3)) {
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_team_health] Spectate-target layout is invalid.\n");
+        return;
+    }
 
     // Validate the native `health` publication, including the member hash,
     // before reusing its helper and avatar-panel offset on cached rows.

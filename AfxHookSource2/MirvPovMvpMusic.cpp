@@ -70,7 +70,7 @@ constexpr char kMusicEntry[] =
     "40 55 53 57 48 8D AC 24 F0 FE FF FF 48 81 EC 10 02 00 00 "
     "48 63 DA 41 0F B7 F8 8D 43 F8 A9 FC FF FF FF";
 constexpr char kMusicDemoGate[] =
-    "E8 ?? ?? ?? ?? 80 78 72 00 0F 85 ?? ?? ?? ?? 48 89 B4 24 30 02 00 00";
+    "E8 ?? ?? ?? ?? 80 B8 82 00 00 00 00 0F 85 ?? ?? ?? ?? 48 89 B4 24 30 02 00 00";
 constexpr char kMusicSubmit[] =
     "48 8B 0D ?? ?? ?? ?? 48 8B 01 4C 8B 50 68 8B 45 34 0F BA E0 1E";
 
@@ -156,7 +156,7 @@ void ResolvePlaybackObservers(const Afx::BinUtils::MemRange & text, size_t liste
     const auto gate = FindUnique(text, kMusicDemoGate);
     const auto submit = FindUnique(text, kMusicSubmit);
     if(!calls || !music || !gate || !submit || CallTarget(calls + 37) != music
-        || gate != music + 0x60 || submit != music + 0x306) return;
+        || gate != music + 0x60 || submit != music + 0x309) return;
     const auto eligibility = CallTarget(calls + 11);
     if(eligibility + 0x68 != muteCall) return;
     const auto inventory = CallTarget(listener);
@@ -169,7 +169,7 @@ void ResolvePlaybackObservers(const Afx::BinUtils::MemRange & text, size_t liste
         || memcmp(reinterpret_cast<void *>(demo), "\x48\x8D\x05", 3)
         || *reinterpret_cast<const unsigned char *>(demo + 7) != 0xC3) return;
     g_InventorySlot = reinterpret_cast<void **>(inventory + 7 + *reinterpret_cast<int32_t *>(inventory + 3));
-    g_DemoSuppress = reinterpret_cast<const unsigned char *>(demo + 7 + *reinterpret_cast<int32_t *>(demo + 3) + 0x72);
+    g_DemoSuppress = reinterpret_cast<const unsigned char *>(demo + 7 + *reinterpret_cast<int32_t *>(demo + 3) + 0x82);
     g_SoundSystemSlot = reinterpret_cast<void **>(submit + 7 + *reinterpret_cast<int32_t *>(submit + 3));
     g_OrgEligibility = reinterpret_cast<Eligibility_t>(eligibility);
     g_OrgPlayMusic = reinterpret_cast<PlayMusic_t>(music);

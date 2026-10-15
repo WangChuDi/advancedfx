@@ -154,7 +154,7 @@ struct RecentGrenadeThrow {
     bool matchedProjectile;
 };
 
-constexpr size_t kDemoHudChatSuppressOffset = 0x72;
+constexpr size_t kDemoHudChatSuppressOffset = 0x82;
 constexpr ULONGLONG kRecentNativeWindowMs = 500;
 constexpr ULONGLONG kRecentSoundWindowMs = 1200;
 constexpr ULONGLONG kRecentProjectileWindowMs = 5000;
@@ -3275,14 +3275,16 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
     // CGameMessageDelegateHook::Dispatch at 0x1810D5040 is a generic user
     // message dispatcher; its second argument is a different wrapper and
     // must not be hooked with the RadioText message offsets above.
-    // The formatter exits when demoController[0x72] is set, so clear that
+    // The formatter exits when demoController[0x82] is set, so clear that
     // guard only for the duration of this callback and preserve all native
     // localization / player / team formatting.
     const char * radioTextHandlerPattern =
         "48 89 5C 24 ?? 55 56 57 41 54 41 55 41 56 41 57 "
         "48 8D AC 24 ?? ?? ?? ?? 48 81 EC ?? ?? ?? ?? 81 A5";
+    // Identify the getter through the native music suppress check. A bare
+    // LEA/RET signature now uniquely selects a different controller object.
     const char * getDemoControllerPattern =
-        "48 8D 05 ?? ?? ?? ?? C3 CC CC CC CC CC CC CC CC 48 85 D2";
+        "E8 ?? ?? ?? ?? 80 B8 82 00 00 00 00 0F 85 ?? ?? ?? ?? 48 89 B4 24 30 02 00 00";
 
     size_t radioTextDispatchAddress = 0;
     size_t radioTextHandlerAddress = 0;
@@ -3331,8 +3333,14 @@ void MirvPovRadio_Initialize(HMODULE clientDll)
     // Never fall back to an RVA here. The 2026-08-25 update placed executable
     // code at the previous getter RVA; calling it crashed at client+0xC925A8.
     if(demoControllerPatternFound) {
-        g_GetDemoController = reinterpret_cast<GetDemoController_t>(getDemoControllerAddress);
-    } else {
+        const auto call = reinterpret_cast<const uint8_t *>(getDemoControllerAddress);
+        const auto target = call + 5 + *reinterpret_cast<const int32_t *>(call + 1);
+        const auto address = reinterpret_cast<size_t>(target);
+        if(textRange.Start <= address && address + 8 <= textRange.End
+            && !memcmp(target, "\x48\x8d\x05", 3) && target[7] == 0xc3)
+            g_GetDemoController = reinterpret_cast<GetDemoController_t>(const_cast<uint8_t *>(target));
+    }
+    if(!g_GetDemoController) {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radio] Demo controller getter was not resolved.\n");
     }
 

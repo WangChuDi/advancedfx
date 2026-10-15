@@ -68,7 +68,7 @@ constexpr size_t kMaxRecentDeaths = 16;
 constexpr size_t kMaxRecentNativeRewards = 16;
 constexpr size_t kTextMsgParamsOffset = 0x48;
 constexpr size_t kTextMsgDestinationOffset = 0x60;
-constexpr size_t kDemoHudChatSuppressOffset = 0x72;
+constexpr size_t kDemoHudChatSuppressOffset = 0x82;
 // localize.dll's Localize_001 interface. The current CLocalize vtable uses
 // +0x78 for Find(const char *), while +0x88 is FindSafe and returns the input
 // token when no translation exists. Use Find so missing tokens remain null.
@@ -1242,19 +1242,17 @@ void MirvPovKillReward_Initialize(HMODULE clientDll)
                         g_PushHudNotice = reinterpret_cast<PushHudNotice_t>(pushNoticeTarget);
                     }
 
-                    // IDA Pro MCP, client.dll 2026-08-09 (SHA-256 EA2B721E...):
-                    //   target resolved above is sub_18110BCC0 (SayText formatter)
-                    //   the immediately preceding sibling sub_18110BBB0 is used
-                    //   by both TextMsg kill rewards and RadioText.
+                    // client 659940c1: SayText formatter has the shared native
+                    // TextMsg/RadioText formatter immediately before it.
                     //
-                    // sub_18110BBB0:
+                    // Shared formatter:
                     //   call IsPlayingDemo
                     //   jz   format_and_push
                     //   call GetDemoController
-                    //   cmp  byte ptr [rax+72h], 0
+                    //   cmp  byte ptr [rax+82h], 0
                     //   jnz  return
                     //
-                    // Patching only sub_18110BBB0's final jnz preserves the
+                    // Patching only this formatter's final jnz preserves the
                     // game's native localization, player/team/location text and
                     // exact amount without affecting unrelated demo behavior.
                     size_t guardAddress = 0;
@@ -1263,9 +1261,9 @@ void MirvPovKillReward_Initialize(HMODULE clientDll)
                         reinterpret_cast<size_t>(target));
                     if(FindUniquePattern(
                         formatterRange,
-                        "80 78 72 00 0F 85 ?? ?? ?? ??",
+                        "80 B8 82 00 00 00 00 0F 85 ?? ?? ?? ??",
                         guardAddress)) {
-                        uint8_t * patch = reinterpret_cast<uint8_t *>(guardAddress + 4);
+                        uint8_t * patch = reinterpret_cast<uint8_t *>(guardAddress + 7);
                         int32_t relative = 0;
                         memcpy(&relative, patch + 2, sizeof(relative));
                         uint8_t * jumpTarget = patch + 6 + relative;
@@ -1298,16 +1296,22 @@ void MirvPovKillReward_Initialize(HMODULE clientDll)
         const char * textMsgHandlerPattern =
             "48 89 4C 24 08 55 41 55 41 56 48 8D AC 24 90 E9 FF FF "
             "B8 70 17 00 00 E8 ?? ?? ?? ?? 48 2B E0 48 89 9C 24 68 17 00 00";
+        // Resolve the actual getter called by the native suppress check;
+        // adjacent leaf getters are no longer interchangeable in this build.
         const char * getDemoControllerPattern =
-            "48 8D 05 ?? ?? ?? ?? C3 CC CC CC CC CC CC CC CC 48 85 D2";
+            "E8 ?? ?? ?? ?? 80 B8 82 00 00 00 00 0F 85 ?? ?? ?? ?? 48 89 B4 24 30 02 00 00";
 
         size_t textMsgHandlerAddress = 0;
         size_t getDemoControllerAddress = 0;
         uint8_t * countTarget = nullptr;
         uint8_t * atTarget = nullptr;
+        uint8_t * demoControllerTarget = nullptr;
         bool resolved = !textRange.IsEmpty()
             && FindUniquePattern(textRange, textMsgHandlerPattern, textMsgHandlerAddress)
             && FindUniquePattern(textRange, getDemoControllerPattern, getDemoControllerAddress)
+            && ResolveCallTarget(reinterpret_cast<uint8_t *>(getDemoControllerAddress), textRange, demoControllerTarget)
+            && reinterpret_cast<size_t>(demoControllerTarget) + 8 <= textRange.End
+            && !memcmp(demoControllerTarget, "\x48\x8d\x05", 3) && demoControllerTarget[7] == 0xc3
             && ResolveCallTarget(
                 reinterpret_cast<uint8_t *>(textMsgHandlerAddress + 0xb5),
                 textRange,
@@ -1320,7 +1324,7 @@ void MirvPovKillReward_Initialize(HMODULE clientDll)
 
         if(resolved) {
             g_OrgTextMsgHandler = reinterpret_cast<TextMsgHandler_t>(textMsgHandlerAddress);
-            g_GetDemoController = reinterpret_cast<GetDemoController_t>(getDemoControllerAddress);
+            g_GetDemoController = reinterpret_cast<GetDemoController_t>(demoControllerTarget);
             g_RepeatedStringCount = reinterpret_cast<RepeatedStringCount_t>(countTarget);
             g_RepeatedStringAt = reinterpret_cast<RepeatedStringAt_t>(atTarget);
 

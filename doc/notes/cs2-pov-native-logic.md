@@ -978,3 +978,83 @@ Release x64构建通过。`diagnostics/buymenu-input-20261012/test.py` 提取生
 部署：21:12:21再次确认CS2未运行、HLAE未加载目标DLL，通过File.Replace备份并原子替换 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`。构建和安装完整SHA-256一致：`6A4D05D922D79E604E2311B5645E7A753A6800ACE9891DD24458A4CDD0E6B531`；旧版备份 `AfxHookSource2.dll.backup-20261012-211221-buymenu-input` 的hash为 `DD020E062B65476E88742B1D59879C6332C4C37A344BF4DEA3560F559430844E`。证据保存在本轮 `installation.json`，没有启动或重启游戏/HLAE。
 
 数据库保存请求返回300秒超时，磁盘已生成 `diagnostics/buymenu-input-20261012/panorama.i64`（82,536,547字节），本轮未重开验证该数据库；已完成的原生伪代码另外保存在 `native-evidence.json`，ABI核验直接读取对应hash的PE，未依赖这次保存成功。
+
+## 2026-10-15：游戏更新后的 POV 兼容性审计（仅诊断，未适配）
+
+### 构建身份、范围及证据
+
+本机安装文件重新计算 SHA-256 并将 client 输入复制到独立版本目录。以下模块 image base 均为 `0x180000000`；本节统一使用 RVA，analysis VA = image base + RVA，不将旧构建地址当成当前事实。
+
+| 模块 | SHA-256 |
+| --- | --- |
+| client.dll | `659940c1db362ed981d1df10637cec8c2a3d99409b77fc3b73e435e4649e36b0` |
+| panorama.dll | `b5028e9077f0176cd338e6cdac92b8d5024519e6833bd0e979a2f1062ccef412` |
+| engine2.dll | `6456df18d8f954394024c2c07da8c848df15a5ace74ce7390d78970ceb39ee21` |
+| schemasystem.dll | `d2a9b5164cb68953e77d0ef424c1263d2cc452a75e935316bc8b4c4500e63648` |
+| soundsystem.dll | `4de8a596efcca2619fa55a46bedb151b7e835a52560c37849bbfb03ade7ad36b` |
+
+client image size `0x299D000`。IDA 新基线识别106920 functions / 66381 strings，warmup确认自动分析及Hex-Rays ready；该基线不表示所有函数都已人工语义核验。独立输入位于 `diagnostics/client-dll-analysis/659940c1db362ed9/`。本轮源代码审计基于 HEAD `8ef281f476dfe5e521bf3cee4b8a95745fb864ee`；用户日志的构建标记为 `4f37e234-dirty`，未据此假定用户运行二进制与当前HEAD逐字节一致。
+
+证据位于 `diagnostics/pov-update-20261015/`：`pattern-audit.json`（85条POV源码签名）、`comparison.json`（74条新旧client唯一命中的外围函数比较、迁移候选及schema候选）、`semantic-diffs.json`、`flash-calls.json`、`contracts.json`、`remaining-contracts.json` 与 IDA `native-evidence.json`。迁移投票只是候选，不可直接用于补丁；`compare.py` 的BuyMenu候选仅提取 `g_Base`（client），Panorama地址由RTTI/vtable单独读取。IDA batch的长反编译输出存在截断，关键指令另用PE/Capstone验证。schema候选检索不能替代运行时按类限定的schema查询。
+
+### 游戏原生逻辑及已确认需要适配的接入
+
+1. **闪光画面**：compact call `0x11C96CB` 和per-view call `0x11E00ED` 均调用 predicate `0xCE2420`，返回点分别为 `0x11C96D0/0x11E00F2`。per-view现在读取 `[rbp+0x238]`、`[rbp+0x220]` 并对 `r15+0x1398` LEA，旧签名的 `rbp+0x250/+0x238` 与r13编码不再成立。`MirvPovHud.cpp:1284-1308`因此拒绝安装flash predicate detour；需迁移上下文签名并保留共同E8目标验证。该结论是画面路径，不等于服务器闪光/HE失聪阈值改变；本轮未分析server.dll或验证听感。
+2. **雷达阵营/C4显示**：原生bomb-package update迁移到 `0xEC71C0`，与旧函数同长但寄存器和部分观察/高度逻辑均变化；结合 `CCSGO_HudTeamCounter`、`PlantedBombAnimateRed` 等字符串及原生调用链核验身份。root `+0x2A0/+0x17808/+0x17810`仍在当前函数中出现，不能因此推定全部对象ABI均验证。`MirvPovRadar.cpp:665-729` 的package入口、HUD lookup、slot resolver、relation caller四个签名失配。relation所在更新函数迁移到 `0xEBE8C0`，原本 `[rsp+0x38]` 的controller改存 `[rbp-0x80]`，结果仍写 `[rbp+0xA0]`。现有安装失败关闭并回滚该组presentation patches，故CT视角C4红色/关系等修正需要适配，而非只替换一个入口签名。package updater与relation为既有detour；HUD lookup、slot和颜色resolver是仅调用的helpers。
+3. **购买菜单及暂停输入穿透**：`MirvPovBuyMenu.cpp:21-24,678-706`仍绑定client `44af...`，新hash导致所有菜单模拟hooks拒绝安装。旧open/close/refresh/full-refresh/key handler分别映射到候选 `0xDB7E90/0xDA1100/0xDBB1E0/0xDBB280/0xDADA00`，大部分菜单函数归一化相同，但候选不是已完成的适配。`m_bIsBuyMenuOpen=0x15EA`、inventory `0x820`、weapon/item services `0x12F0/0x12F8`的descriptor候选仍存在。Panorama完整hash也改变，使 `DiagnosticPanoramaSupported()` 为false，单改client hash不能恢复输入穿透；当前RTTI实测CUIPanel/input已用的16个槽位目标地址保持，但完整布局、getter/setter指令和菜单事件creator/globals仍需专项核验。不得只放宽hash或沿用旧RVA。
+4. **无线电文字、击杀奖励文字的共享demo门控**：原生HudChat formatter `0x11A5440` 在 `0x11A546E` 调用真正demo getter **`0xD36BC0`**，它返回对象RVA **`0x223F840`**；在 `0x11A5473` 检查对象 **`+0x82`**，非零则跳过本次格式化/notice。RadioText formatter `0x11A7CA0` 的 `0x11A83FA` 和TextMsg handler `0x11A8DC0` 均到该共享formatter。旧getter签名仍唯一命中 **`0xD36BD0`**，但返回的是另一个对象 **`0x223F940`**，不是原生formatter使用的对象。`MirvPovRadio.cpp:157,3081-3100,3182-3187,3284-3334` 与 `MirvPovKillReward.cpp:71,450-455,1301-1323` 会继续对误识别对象 `+0x72` 临时读写；这是比零命中更重要的静态身份错误。KillReward `:1261-1282`限定formatter前0x200范围的 `80 78 72 00 0F 85` 也不再匹配；全模块仍有一个同形命中 `0x83BA04`，与目标范围无关，不能把全局命中当作兼容。需要一起修复getter身份、字段偏移和局部补丁条件；不能仅修改常量而保留错误getter。此处是已有hook/patch内使用的helper，不新增hook。最终文字呈现、声音fallback是否掩盖缺口仍须实际demo验证。
+5. **MVP播放诊断观察器**：核心player getter `0xC7C160`、listener call `0xCEAB43+15`、mute call `0xEC89D8`的调用关系仍通过，共享getter为 `0x96A8F0`。失配的是只读observer使用的music demo gate：music `0x76CD70` 在 `+0x60`调用 `0xD36BC0`，之后检查 `+0x82`；指令增长3 bytes，submit从music `+0x306`变为 **`+0x309`**。`MirvPovMvpMusic.cpp:73,156-173`仍要求旧gate签名、`+0x306`和诊断指针`+0x72`，因此playback observers不安装。核心上下文已在调用observer前建立，不能把此失配写成MVP音乐功能整体失效。修复范围是诊断定位/字段与observer契约；保持原生静音条件，不清除music suppress。
+
+### 已通过的局部静态核验及剩余不确定性
+
+- 回合伤害reporter `0xEBD170` 的controller services `+0x830`、record size120、rows `+0xF0`/stride`0xE0`、20 rows及fallback publisher的 `+0x68/+0x6C/+0x75` loads检查通过；getter/clear/publisher/symbol/allocator分别为 `0x96A8B0/0xEC1F70/0xECD690/0x17858C0/0xC319D0`。只有reporter和controller getter是既有detour，其余为仅调用的播放helpers。用户的 `hooks-installed`、`demo-fallback=1`是初始化成功状态，`controller=FFFFFFFF records=-1`这条安装阶段快照本身不是功能失败证据；不能据此承诺实际统计已经显示。
+- 玩家语音 `0xB46960` 仍从message `+0x40/+0x6C`读取已用字段，签名和关键指令通过；差异主要为原生内部全局数组重定位。SoundCircle三处caller `0xEB25F5/0xEBF385/0xED4AB9`的前两目标同为 `0xC7B9D0`、第三为 `0xC7C160`；DoStartSoundEvent `0x3D06F0+0xEC`到 `0x3AEB40`，`+0xB8`接口load/尾部检查通过。未实际调用hash helper或验证声音输出。
+- 拾取active builder `0xEB4260` 与caller `0xEAF86A`的E8目标一致。死亡画面使用的 `m_bKilledByHeadshot`从 `0x1EC9`变成 `0x1EC5`，护甲从 `0x1ECC`变成 `0x1EC8`；当前源码通过schema动态取得，未发现需硬改这两个偏移的证据。死亡updater对应差异也为原生字段迁移。其余签名命中、归一化比较与vtable目标记录不构成所有ABI/生命周期/图像/声音的全面验证。
+- 85条签名中6条无任何模块命中（flash1、radar4、MVP observer1）；另有3条广义多命中：DeathCam只在已验证updater内部搜索、Radio emitter再按typed vtable筛选、Panorama style setter有两处call。多命中本身不新增判为故障，亦未对全部RTTI/接口/资源完成穷尽核验。
+
+### 本轮改动与验证边界
+
+仅添加本轮诊断脚本/报告、当前hash的分析库并追加此记录，保留原有未提交内容；未修改功能代码、未构建/安装测试DLL、未提交/推送，未启动/关闭/重启或控制游戏。无新增用户可见效果、feature或默认值变更。后续适配应先完成上述身份/布局核验，再做Release构建、实际加载hash和demo的off/on/re-enable、切人/seek/菜单输入及画面声音验证；本轮不宣称这些运行测试已通过。
+
+保存补记：IDA open/save的前台请求分别返回300秒超时；open之后list/warmup/survey/定向分析均成功。save后实际生成 `client.i64`（621200817 bytes，文件头 `IDA2`），同步器finalize成功，未重新打开该库验证完整性；原生反编译和PE证据另行保存。其余四个模块的输入副本与复核hash保存于本轮 `modules/` 和 `input-verification.json`。当前HLAE安装DLL重新读取SHA-256为 `6A4D05D922D79E604E2311B5645E7A753A6800ACE9891DD24458A4CDD0E6B531`，本轮未改动该文件；磁盘hash不是实际运行进程加载模块的测量。
+
+### 同日适配：用户授权修复并替换DLL
+
+安装client完整hash复核仍为本节 `659940c1db362ed981d1df10637cec8c2a3d99409b77fc3b73e435e4649e36b0`。以下均为该hash的RVA，analysis VA = `0x180000000 + RVA`。前述“仅诊断”记录保留为修复前状态，本段记录后续代码及验证。
+
+- `MirvPovHud.cpp::MirvPovHud_ResolveFlashContexts`更新per-view新栈位移和r15编码，继续验证compact/per-view的E8同到 `0xCE2420`，不改变原生闪光/HE的声音阈值。`MirvPovRadar.cpp::ResolveRadarNativeTargets`更新四条签名；relation call改为新序列 `+8`（`0xEBEC08 -> 0x8D9290`），HUD lookup `0xEC7386 -> 0xE81830`、slot `0xEC73BB -> 0xEB4690`，package updater为 `0xEC71C0`。仍保留唯一命中、范围检查和失败回滚；无新增patch或寄存器改写约定。
+- BuyMenu仍按完整client hash和schema `0x15EA`门控，image范围更新 `0x299D000`。全部detour迁移：open/close `0xDB7E90/0xDA1100`，refresh/full `0xDBB1E0/0xDBB280`，hover/think `0xDC2530/0xDA9450`，pawn/controller `0x96A8F0/0x96A8B0`，loadout/hover `0x904140/0x9040A0`，buy-bit/purchase/sell `0xC949F0/0xDAA360/0xDAA6A0`，model/select/SetModel `0xDC0D40/0xDB7730/0xE5EDF0`，KeyInput `0xDADA00`。仅调用helpers：symbol `0x17858C0`、item lookup `0x11360B0`、pawn model `0x21C8C0`、inventory manager **`0x8396F0`**、default loadout `0x83C2A0`、acquire/owned `0x8C0CE0/0x8FF0D0`。特别排除初始投票候选 `0x839730`：它不是8-byte manager getter，最终getter由原生loadout调用确认。
+- 原生EventOpenBuyMenu注册函数 `0xFE5E0`同时引用名字字符串 `0x1CB5288`、symbol `0x2241704`和creator **`0xDB2AC0`**。creator读取同一symbol、分配32-byte事件、使用UI engine slot33；它仅被Dispatch调用，不hook。UI engine global迁到 `0x2733F40`；cant-afford/cant-buy symbols迁到 `0x25C8834/0x25C8838`；promoted reference迁到 `0x252DE80`。原生刷新helper `0xDADEB0`（仅分析、不新增调用/hook）提供这些global的RIP引用身份；与旧helper差异仅为armor成员 `0x1ECC -> 0x1EC8`。源码不直接读取这两个armor偏移。
+- Panorama完整hash更新为上表 `b5028e...cef412`，16项已用vtable函数归一化相同，包括input+24/+32和panel flag访问的getter/setter。保留原有vtable目标校验、未知构建拒绝、暂停帧重应用、weak handle所有权检查、off/on/seek/切人/退出清理及真实purchase/sell隔离；不绕过兼容性门槛。
+- Radio和KillReward不再用会误识别的独立LEA/RET签名。改由唯一原生music `call -> cmp [rax+0x82] -> jnz`上下文解E8，核对getter在text内及LEA/RET入口；实际目标必须为 `0xD36BC0`，对象 `0x223F840`。已有临时门控保存/恢复改读写 `+0x82`，保留SEH/finally恢复和原生透传。KillReward限定formatter邻近范围的compare/JNZ更新为disp32编码，patch从compare `+7`开始，仍只覆盖六字节条件跳转；不使用另一个对象 `0x223F940`。
+- MVP只读观察器同步新gate、music `+0x309` submit及诊断读取 `+0x82`；仍不清除该音乐门控。核心上下文和原生音量/许可/声音提交透传保持，无新增主动补播。
+
+验证：`static-fix-audit.json`90项当前PE/源码检查通过，85条POV签名全部命中（广义多命中仍由各模块自身上下文筛选），包括flash共同target、雷达scoped helpers、完整BuyMenu地址集合、23组原生函数语义/归一化比较、事件注册身份、four globals、Panorama16槽和正确demo对象。原生armor成员差异在语义比较中显式列明，未把不同函数简单视为字节相同。普通Release `AFX_MIRV_POV_DIAGNOSTICS=OFF` x64构建通过；购买菜单生产输入控制流35项断言、MVP生产上下文28项断言及observer原参数/返回值/静音状态/异常恢复模拟通过。静态与mock检查不是实际游戏音视频验证。本次无新增效果或控制，沿用现有feature默认值、范围、即时/下次启用语义和清理行为。
+
+部署：确认CS2未运行、已开的HLAE启动器没有加载目标DLL、目标文件可独占打开，并再次核对client完整hash后，用同目录candidate及File.Replace备份并原子替换 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`。旧版备份 `AfxHookSource2.dll.backup-20261015-114810-client-update`，旧版/备份SHA-256均为 `6A4D05D922D79E604E2311B5645E7A753A6800ACE9891DD24458A4CDD0E6B531`；新构建/安装SHA-256均为 `F10B3086F5B42536951E75C79AE9C32AC94F5BB4279E2CF928294E206B94CB0F`。详细记录及受保护的部署脚本为本轮 `installation.json/install.ps1`。未启动、关闭或重启CS2/HLAE，未提交/推送；本次仅验证磁盘部署，实际加载和demo画面/音频待用户回放确认。
+
+## 2026-10-15：恢复顶部 HUD 当前 POV 目标高亮
+
+### 构建身份与原生证据
+
+用户在上述更新适配后反馈观战对象的HUD高亮消失。当前安装/分析client完整SHA-256仍为 `659940c1db362ed981d1df10637cec8c2a3d99409b77fc3b73e435e4649e36b0`，image base `0x180000000`；以下RVA的analysis VA均为base+RVA。复用该hash的输入做定向PE/Capstone验证，没有把旧build地址当成当前结论。
+
+- 原生builder **`0xEBA820`** 在 `0xEBA96B` 读取player state **`+0x17`**，取最低位后七次翻倍，与其它行状态组合，于 `0xEBA9F7`写output **`+8`**的flags；因此对应mask **`0x80`**。builder input总大小仍使用已核验的 `0x38`。它属于已有TeamHealth detour，未新增hook。
+- 原生通用avatar发布函数 `0xECC1F0` 在 `0xECC455` 引用当前字符串 **`Avatar__SpectateTarget`**（`0x1CDF620`），经symbol interner建立槽 **`0x25D77CC`**；`0xECCD53/0xECCD59/0xECCD67`读取本次解包的布尔值、同一symbol，调用panel vtable **slot160 / +0x500**设置class。此通用发布器、symbol helper和class setter均未新增hook，也未由POV直接调用。
+- 已有equipment presenter **`0xECD9A0`**的四处pawn上下文（连同builder）仍到 `0xC7C160`；builder `+0x4B`和presenter `+0x107`仍共同调用controller slot resolver **`0xACAC70`**。该resolver仅被调用，返回controller；不能拿pawn替代controller。presenter的row结构与builder输入不同，本次只读取两者共同的开头slot，绝不把presenter row+0x17当成builder状态字段写入。
+
+### 源码缺口与修复
+
+`MirvPovTeamHealth.cpp::New_BuildPlayerData`此前无条件将副本的 `playerState+0x17`清零，当前POV行也被清除。此为确定的源码缺口，且新旧builder/presenter的归一化比较相同，不是此次游戏更新的签名失配。未采集用户原失败场景的实际callback/截图，不把代码结论扩大为已实机复现的唯一原因。
+
+本次新增 `IsPovHighlightTarget`：使用当前controller和原生slot resolver做类型/队伍验证及对象身份比较，仅当前有效T/CT POV行返回true；不缓存entity或panel指针。builder仍只修改0x38-byte输入副本，把副本+0x17设为当前目标状态，完整调用原生builder，原输入和敌方血量清理保持。presenter对缓存output+8仅改mask0x80，使切人、seek及控制切换后不必等待新的player-state构建。敌方health+0x0C清零、原生health变量补发、武器字符串和其它flags均保持。初始化增加builder+0x14B读字段和+0x1D7写flags的原生指令校验，布局不符拒绝安装。
+
+新增普通Release独立控制 `mirv_pov_debug_feature hud_target_highlight 0|1`，默认1、依赖 `teamhealth`及主POV。0只去掉POV目标高亮，1恢复，不关闭敌方血量隐藏或其他HUD效果。registry配置立即更新active，显示随原生HUD刷新更新；通用class发布位于equipment回调之前，已有缓存行的修正可能在后一轮原生发布反映，不宣称命令返回时同步重绘。偏好在主POV启停间保留。关闭主POV/TeamHealth后现有hooks完整透传，原生状态重建/发布恢复原生观战标记；无独立持久面板状态或跨seek指针需要释放。中英文README同步记录命令、默认、依赖及清理语义。此前适配段“无新增效果或控制”仅描述前一轮兼容修复，本轮新增控制单独记录于此。
+
+### 验证边界
+
+证据目录 `diagnostics/pov-highlight-20261015/`。`builder.asm/presenter.asm`和 `static-audit.json`记录当前hash、唯一入口、7次翻倍/0x80映射、四处pawn calls、controller resolver和原生class的symbol/setter链；`control-test.log`41项生产函数提取模拟通过：当前/其它队友/敌方行、输入副本不改原值、武器和其他flags保留、敌方health仍隐藏、缓存行目标切换/清理、off/on/re-enable、主POV及teamhealth停用透传、无效slot/目标/异常lookup等。普通非诊断Release x64构建与 `git diff --check`通过；独立只读源码复核未发现代码问题。没有启动/关闭/重启/控制游戏，未实际截取高亮显示或验证暂停场景刷新频率；mock/native指令证据不是最终屏幕呈现验证。
+
+部署：再次确认CS2未运行、HLAE未加载目标DLL且目标可独占打开，复核安装client hash后原子替换既有HLAE路径。旧版备份为 `AfxHookSource2.dll.backup-20261015-121014-target-highlight`，备份SHA-256 `F10B3086F5B42536951E75C79AE9C32AC94F5BB4279E2CF928294E206B94CB0F`；新构建/安装SHA-256均为 `72C6BF3FAAF6B291E45BF43854EDC9F9642CDCBB868CFB26EC90107E339D44E0`，见本轮 `installation.json`。未启动/关闭/重启游戏或HLAE，未提交/推送，实际显示仍待用户回放确认。
+
+命名整理：按用户要求，注册表、调用点、中英文README及验证脚本统一使用 `hud_target_highlight`，不保留旧名称别名，效果及默认值不变。当前PE静态验证、命名一致性、Release x64构建、DLL内新名称存在/旧名称不存在和diff检查通过。确认游戏未运行后再次备份/原子替换，备份 `AfxHookSource2.dll.backup-20261015-122829-hud-target-highlight` 保存上述72C6版；新构建/安装SHA-256均为 `E91C8D0840D100288B9E24310370597A2BB9903842A923DC403272341A21A638`，见 `installation-rename.json`。未控制游戏生命周期。

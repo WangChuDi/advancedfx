@@ -669,7 +669,7 @@ bool ResolveRadarNativeTargets(HMODULE clientDll, RadarNativeTargets & targets)
 
     if(!FindUniquePattern(
         textRange,
-        "48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 70 48 8B F9 48 89 4D 50 48 8B 0D ?? ?? ?? ?? 45 33 E4",
+        "48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 70 48 8B F9 48 89 4D 50 48 8B 0D ?? ?? ?? ?? 45 33 ED",
         "radar bomb-package update",
         targets.packageUpdate)) return false;
 
@@ -682,7 +682,7 @@ bool ResolveRadarNativeTargets(HMODULE clientDll, RadarNativeTargets & targets)
     uint8_t * hudElementSequence = nullptr;
     if(!FindUniquePattern(
         packageRange,
-        "48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 85 C0 48 8D 48 E0 49 0F 44 CC 48 85 F6",
+        "48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 85 C0 48 8D 48 E0 49 0F 44 CD 48 85 DB",
         "radar HUD element lookup",
         hudElementSequence)) return false;
     if(!ResolveCallTarget(hudElementSequence + 7, textRange, targets.hudElement)) {
@@ -693,7 +693,7 @@ bool ResolveRadarNativeTargets(HMODULE clientDll, RadarNativeTargets & targets)
     uint8_t * playerSlotSequence = nullptr;
     if(!FindUniquePattern(
         packageRange,
-        "8B 97 ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B CE C7 45 ?? FF 9B 25 FF",
+        "8B 97 ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B CB C7 45 ?? FF 9B 25 FF",
         "radar player-slot resolver",
         playerSlotSequence)) return false;
     if(!ResolveCallTarget(playerSlotSequence + 6, textRange, targets.playerSlot)) {
@@ -716,11 +716,11 @@ bool ResolveRadarNativeTargets(HMODULE clientDll, RadarNativeTargets & targets)
     uint8_t * relationSequence = nullptr;
     if(!FindUniquePattern(
         textRange,
-        "8B 54 24 28 48 8B 4C 24 38 E8 ?? ?? ?? ?? 88 85 A0 00 00 00",
+        "8B 54 24 28 48 8B 4D 80 E8 ?? ?? ?? ?? 88 85 A0 00 00 00",
         "radar relation call",
         relationSequence)) return false;
 
-    uint8_t * relationCall = relationSequence + 9;
+    uint8_t * relationCall = relationSequence + 8;
     if(!ResolveCallTarget(relationCall, textRange, targets.relation)) {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] Radar relation call is invalid.\n");
         return false;
