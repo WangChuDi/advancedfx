@@ -318,7 +318,10 @@ const char * GetPlayerRadioText(int slot)
     default: return nullptr;
     }
 }
-const unsigned char kFullWidthColonUtf8[] = {0xef, 0xbc, 0x9a, 0};
+// U+FE6B SMALL COMMERCIAL AT.  The game's own radio-with-location chat format
+// joins player name and place with this character (no added spaces) and uses
+// an ASCII ": " before the message, so match that instead of "@" / U+FF1A.
+const unsigned char kSmallCommercialAtUtf8[] = {0xef, 0xb9, 0xab, 0};
 
 const char * GetLocalizedRadioText(const char * token)
 {
@@ -2214,14 +2217,14 @@ bool DispatchRadioNotice(
         snprintf(
             text,
             sizeof(text),
-            "%s %c%s%c@%s%c%s%c%s%c",
+            "%s %c%s%c%s%s%c: %c%s%c",
             teamPrefix,
             0x03,
             playerName,
             0x04,
+            reinterpret_cast<const char *>(kSmallCommercialAtUtf8),
             placeName,
             0x01,
-            reinterpret_cast<const char *>(kFullWidthColonUtf8),
             bodyColor,
             body,
             0x01);
@@ -2229,12 +2232,11 @@ bool DispatchRadioNotice(
         snprintf(
             text,
             sizeof(text),
-            "%s %c%s%c%s%c%s%c",
+            "%s %c%s%c: %c%s%c",
             teamPrefix,
             0x03,
             playerName,
             0x01,
-            reinterpret_cast<const char *>(kFullWidthColonUtf8),
             bodyColor,
             body,
             0x01);
