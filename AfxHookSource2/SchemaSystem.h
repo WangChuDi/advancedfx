@@ -100,6 +100,9 @@ struct ClientDllOffsets_t {
 		ptrdiff_t m_bPrevHelmet = 0; // bool
 		ptrdiff_t m_bInBuyZone = -1; // bool
 		ptrdiff_t m_bIsBuyMenuOpen = -1; // bool
+		ptrdiff_t m_EconGloves = -1; // C_EconItemView, optional buy-menu preview
+		ptrdiff_t m_bNeedToReApplyGloves = -1; // bool
+		ptrdiff_t m_nEconGlovesChanged = -1; // uint8
 		ptrdiff_t m_szLastPlaceName = -1; // CNetworkString(18)
 		ptrdiff_t m_bKilledByHeadshot = -1; // bool
 	} C_CSPlayerPawn;

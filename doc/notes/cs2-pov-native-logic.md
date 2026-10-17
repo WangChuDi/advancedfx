@@ -1058,3 +1058,39 @@ client image size `0x299D000`。IDA 新基线识别106920 functions / 66381 stri
 部署：再次确认CS2未运行、HLAE未加载目标DLL且目标可独占打开，复核安装client hash后原子替换既有HLAE路径。旧版备份为 `AfxHookSource2.dll.backup-20261015-121014-target-highlight`，备份SHA-256 `F10B3086F5B42536951E75C79AE9C32AC94F5BB4279E2CF928294E206B94CB0F`；新构建/安装SHA-256均为 `72C6BF3FAAF6B291E45BF43854EDC9F9642CDCBB868CFB26EC90107E339D44E0`，见本轮 `installation.json`。未启动/关闭/重启游戏或HLAE，未提交/推送，实际显示仍待用户回放确认。
 
 命名整理：按用户要求，注册表、调用点、中英文README及验证脚本统一使用 `hud_target_highlight`，不保留旧名称别名，效果及默认值不变。当前PE静态验证、命名一致性、Release x64构建、DLL内新名称存在/旧名称不存在和diff检查通过。确认游戏未运行后再次备份/原子替换，备份 `AfxHookSource2.dll.backup-20261015-122829-hud-target-highlight` 保存上述72C6版；新构建/安装SHA-256均为 `E91C8D0840D100288B9E24310370597A2BB9903842A923DC403272341A21A638`，见 `installation-rename.json`。未控制游戏生命周期。
+
+## 2026-10-16：购买菜单人物预览的录像手套（实现待实机确认）
+
+### 构建身份与游戏原生逻辑
+
+同步器重新读取本机安装client，完整SHA-256仍为 `659940c1db362ed981d1df10637cec8c2a3d99409b77fc3b73e435e4649e36b0`。复用 `diagnostics/client-dll-analysis/659940c1db362ed9/client.i64`，本轮已成功重新打开该数据库；未覆盖基线。image base为 `0x180000000`，下列为该完整hash的RVA，analysis VA=base+RVA。证据保存在 `diagnostics/buymenu-gloves-20261016/`。
+
+原生BuyMenu model函数 `0xDC0D40`（已有detour）先检查pawn/preview和武器item缓存；发生装备重建时从inventory manager `0x8396F0` 返回对象的 `+338128` 取观看者库存接口，以virtual slot8查询team的agent槽38和gloves槽41。`0xDC14E6`查询槽41，`0xDC1562`通过preview virtual slot108 / +864提交手套item ID字符串。该接口绕过现有 `ObservedLoadout` 的controller inventory服务，因此现有“人物模型已换为被观察者”不代表手套也来自被观察者；本轮没有采集原失败场景的实机调用，不把静态来源缺口描述成已复现的唯一运行时原因。
+
+`SetPlayerModel` / `0xE5EDF0`仍先于装备提交；该函数在需要换模时清空预览装备列表。单独再设置一次人物模型会影响武器等附件，不适合用来补手套。通用装备提交入口为 `0xE3DA70`，不是手套专用setter；`0x119B620`判断的是 `pet`，不能用来识别手套。上述两个函数仅分析，本轮不hook、不主动调用。
+
+原生 `CUI_Player3dPanel` 的单人物更新函数 **`0xE68560`** 支持slot `0 <= slot < preview+2288`，通过 `preview+2296`的160-byte records和record+0完整entity handle找到 `csgo_previewplayer`，record+144表示生成尚未结束。装备字符串解析得到item后，`0xE68B8D`调用 **`0x119B150`**识别 `clothing_hands`并排除默认定义；`0xE68BAC`调用 **`0x1185620`**比较初始化状态、definition和拆分item ID；不一致时 `0xE68BBF`调用 **`0x1184AD0`**的原生 `C_EconItemView`赋值，将完整物品复制到preview pawn **`+0x1770`**，随后 `0xE68BC4`写 **`+0x176D=1`**要求重新应用手套。无有效手套时 `0xE68C24`调用 **`0x119B0B0`**清空preview物品，再置相同reapply flag。实际材质/模型渲染在后续游戏更新发生，调用成功不是画面确认。
+
+原生赋值helper复制definition、item ID及动态属性（包括 `+0x208/+0x280`的属性列表），而非只按definition重新创建默认item；有自管缓冲区和属性对象，不能用memcpy替代。schema descriptors独立确认 `C_CSPlayerPawn.m_EconGloves=0x1770`、`m_bNeedToReApplyGloves=0x176D`、`m_nEconGlovesChanged=0x1D20`。definition/initialized在物品内的 `+442/+488`亦由当前原生路径确认，未沿用旧dumper常量。
+
+### POV实现、控制与清理
+
+`MirvPovBuyMenu.cpp::UpdatePreview`新增一个detour **`0xE68560`**：完整调用原生更新，再仅对当前模拟菜单的预览人物应用被观察玩家的手套。它可在BuyMenu的 `g_Depth`作用域以外被原生延后调用，因此用实时菜单weak handle及menu+520指针确认所有权，不扩大全局local-player替换范围。另在 `MirvPovBuyMenu_Update`的非tickChanged路径同步，覆盖暂停帧、同item ID但revision变化和预览实体晚到的情况。
+
+`SyncPreviewGloves`重新解析源pawn完整handle，检查preview record、生成状态、目标handle序列号、`csgo_previewplayer`类名及source!=target。只读录像pawn，将完整手套物品通过上述原生赋值helper写入专用preview pawn，标记原生reapply；不改录像pawn、controller库存、武器或购买状态。原生比较helper用于稳定帧去重，revision或源/预览实体变化强制更新；原生preview更新返回后重新复制可避免观看者装备覆盖。源无效/默认手套时清除预览中的自定义手套，防止继承观看者皮肤。仅保存handle、revision和布尔状态，不缓存跨帧item或entity指针。
+
+上述赋值/比较/清空/手套分类helpers均**未hook，仅调用**；只有单人物更新新增detour。既有完整client hash门控保持；三个新增schema字段必须同时与当前原生布局吻合才安装该detour，缺失或不符只禁用手套效果，不关闭现有购买菜单。未修改Panorama ABI门控。
+
+新增普通Release共享控制 **`mirv_pov_debug_feature buymenu_gloves 0|1`**，默认1，需主POV、`buymenu`模块、用户级 `mirv_pov_buymenu 1`和demo。0同步执行原生预览装备更新以恢复原生饰品；1在预览实体就绪时执行原生更新并应用录像手套，暂停时同样生效；生成尚未完成则随原生回调/后续Update生效，不承诺命令返回即完成材质渲染。`all`包含相同重应用。偏好在主POV启停间保留，promo、layout、input与武器等效果不随之关闭。
+
+原生close之前，`RestorePreviewGloves`按记录的preview handle调用原生更新恢复其原生装备状态；随后清空缓存。Reset、目标切换、seek、demo/level teardown、关闭菜单模拟及主POV均沿现有close/reset路径恢复；若布局已销毁则不解引用旧panel。`mirv_pov_buymenu_status`新增supported/enabled、copy/clear累计数及当前源definition/initialized/revision，用于区分“未命中预览”和“录像没有有效物品”。
+
+### 验证与边界
+
+`verify.py/static-audit.json`的22项检查通过，直接对当前hash PE核对上述四个原生调用、三个schema descriptor、手套/预览类、槽41、动态属性赋值和生产接入。`test.py`提取生产预览同步、所有权、原生更新包装和重应用函数，在原生边界使用mock；51项断言覆盖完整物品传递、源只读、武器字段保留、稳定帧去重、同ID revision变化、off/on/re-enable、主POV/module/demo门控、暂停路径、目标切换、默认/缺失手套、异步生成、错误类/失效handle/同一source-target拒绝及close恢复。该测试不执行真正的原生属性赋值或渲染，不能证明材质已显示。
+
+首次直接MSBuild遭遇继承环境的PATH/Path重复键；本轮build.py仅为子进程合并环境键，普通 `AFX_MIRV_POV_DIAGNOSTICS=OFF` Release x64构建通过。实际回放、手套皮肤/磨损、暂停显示、切人/seek与完整开关矩阵仍待实机验证。录像若没有记录有效的手套属性，无法从默认物品推导原皮肤；此时按设计保留探员默认手套。未启动、关闭或重启CS2/HLAE，未提交或推送。
+
+部署：2026-10-16 22:11:56（Asia/Shanghai）重新确认CS2未运行、已开的HLAE启动器未加载目标DLL且目标可独占打开，复核安装client完整hash后，备份并原子替换 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`。备份 `AfxHookSource2.dll.backup-20261016-221156-buymenu-gloves` 的SHA-256与旧版一致为 `E91C8D0840D100288B9E24310370597A2BB9903842A923DC403272341A21A638`；新构建/安装SHA-256一致为 `E409364686DDBBF6DD4C824AAE5010C5D71E7C97654ED193C364A2AD44A5CC08`，见本轮 `installation.json`。仅验证磁盘部署；未控制CS2/HLAE生命周期，未验证实际加载或手套渲染。独立只读源码复核未发现明显问题，不替代上述实机验证。
+
+2026-10-17提交整理：补充 `OwnsGlovePreview(nullptr)` 的拒绝条件，避免菜单已存在而preview尚未创建时切换开关读取空地址。新增空preview拒绝和此时切换开关不调用原生更新的两项断言，上述测试现为51项；Release x64、22项PE静态核验和diff检查通过。13:39:55（Asia/Shanghai）确认CS2未运行、HLAE未加载目标后备份并原子替换；新构建/安装SHA-256一致为 `CE85598B2B5810F234EEDC541C807CEE8ED7F48952DEDB3CA61F5E69640E9170`，旧E409版备份为 `AfxHookSource2.dll.backup-20261017-133955-buymenu-gloves-null-guard`，记录在 `installation-commit.json`。未控制游戏生命周期，实际回放验证边界保持。

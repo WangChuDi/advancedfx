@@ -75,8 +75,11 @@ All features below default to **on**, subject to the main switch and any parent 
 | `buymenu_promo_hide` | Hides the spurious `PROMOTED Knife` entry; requires buy-menu replay | Immediate |
 | `buymenu_layout` | Separates the purchase column from the agent preview; requires buy-menu replay | Immediate |
 | `buymenu_input_passthrough` | Keeps the replayed buy menu visible while passing mouse/keyboard input to spectator/demo controls; requires buy-menu replay | Immediate |
+| `buymenu_gloves` | Uses the observed player's recorded gloves in the buy-menu character preview; requires buy-menu replay | Immediate |
 
 Buy-menu input passthrough defaults to on, including while playback is paused. The replayed menu cannot be hovered or clicked in this mode. Use `mirv_pov_debug_feature buymenu_input_passthrough 0` to restore its input handling and `1` to re-enable passthrough. Changing this control applies immediately; closing replay, changing targets, seeking, leaving the demo or disabling POV restores the menu's saved hit-test/focus flags. Other UI panels retain their focus and input handling.
+
+Buy-menu gloves default to on. `mirv_pov_debug_feature buymenu_gloves 0` restores native preview cosmetics; `1` reapplies the observed player's full glove item, including available skin attributes. This works while paused once the preview entity is ready. Missing/default recorded gloves use the agent's default gloves. Closing replay, changing targets, seeking, leaving the demo or disabling POV restores native preview cosmetics and clears the glove cache. The preference survives POV off/on; other buy-menu effects are independent. Actual rendering still needs in-game validation.
 
 Disabling `buyzone` clears the shopping-cart icon without changing other HUD effects. Re-enabling recalculates it from the current POV player; disabling POV or changing maps clears its class and cached state before native HUD updates resume.
 

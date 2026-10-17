@@ -11,4 +11,6 @@ void MirvPovBuyMenu_SetEnabled(bool enabled);
 bool MirvPovBuyMenu_IsEnabled();
 // Applies the independent input control even when the demo tick is paused.
 void MirvPovBuyMenu_ReapplyInput();
+// Restores native gloves or reapplies the observed gloves while paused, too.
+void MirvPovBuyMenu_ReapplyGloves();
 void MirvPovBuyMenu_PrintStatus();

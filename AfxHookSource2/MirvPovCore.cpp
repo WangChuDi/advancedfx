@@ -59,6 +59,7 @@ MirvPovDebugFeatureState g_MirvPovDebugFeatures[] = {
 	{"buymenu_promo_hide", true, true, true},
 	{"buymenu_layout", true, true, true},
 	{"buymenu_input_passthrough", true, true, true},
+	{"buymenu_gloves", true, true, true},
     {"radar", true, true},
     {"voice", true, true},
     {"scoreboard", true, true},
@@ -170,6 +171,7 @@ bool MirvPovDebug_SetFeatureEnabled(const char * name, bool enabled)
         MirvPovHud_ReapplyPanelState();
         MirvPovHud_UpdateRoundDamage();
         MirvPovBuyMenu_ReapplyInput();
+        MirvPovBuyMenu_ReapplyGloves();
         return true;
     }
     MirvPovDebugFeatureState * feature = FindMirvPovDebugFeature(name);
@@ -183,6 +185,7 @@ bool MirvPovDebug_SetFeatureEnabled(const char * name, bool enabled)
         if(0 == _stricmp(feature->name, "buyzone")) MirvPovHud_ReapplyPanelState();
         if(0 == _stricmp(feature->name, "round_damage")) MirvPovHud_UpdateRoundDamage();
         if(0 == _stricmp(feature->name, "buymenu_input_passthrough")) MirvPovBuyMenu_ReapplyInput();
+        if(0 == _stricmp(feature->name, "buymenu_gloves")) MirvPovBuyMenu_ReapplyGloves();
     }
     return true;
 }

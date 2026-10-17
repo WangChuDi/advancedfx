@@ -37,6 +37,11 @@ using SelectFn = char (__fastcall *)(void *, unsigned int);
 using SetModelFn = intptr_t (__fastcall *)(void *, const char *);
 using KeyInputFn = intptr_t (__fastcall *)(void *, void *);
 using InputFocusFn = intptr_t (__fastcall *)(void *, void *, bool, bool);
+using UpdatePreviewFn = void (__fastcall *)(void *, int);
+using CopyItemFn = void * (__fastcall *)(void *, void *);
+using ItemPredicateFn = bool (__fastcall *)(void *);
+using EqualItemsFn = bool (__fastcall *)(void *, void *);
+using ClearItemFn = void (__fastcall *)(void *);
 uintptr_t g_Base = 0;
 bool g_Hooked = false, g_Active = false, g_Wanted = false, g_Pending = false;
 bool g_CancelledPending = false;
@@ -59,6 +64,18 @@ SelectFn g_Select;
 SetModelFn g_SetModel;
 KeyInputFn g_KeyInput;
 InputFocusFn g_InputFocus;
+UpdatePreviewFn g_UpdatePreview;
+CopyItemFn g_CopyItem;
+ItemPredicateFn g_IsGloves;
+EqualItemsFn g_EqualItems;
+ClearItemFn g_ClearItem;
+bool g_GlovesSupported = false;
+struct GloveState {
+    uint32_t preview = 0xFFFFFFFF, source = 0xFFFFFFFF;
+    uint8_t revision = 0;
+    bool copied = false;
+} g_GloveState;
+unsigned int g_GloveCopies = 0, g_GloveClears = 0;
 bool g_InputSupported = false;
 void * g_OpeningRoot = nullptr;
 thread_local void * g_ModelPreview = nullptr;
@@ -526,6 +543,74 @@ char __fastcall Purchase(void * panel, unsigned int slot, void * button) {
 char __fastcall Sell(void * panel, int slot) {
     return g_Active ? 1 : g_Sell(panel, slot);
 }
+
+unsigned char * PreviewRecord(void * preview, int slot) {
+    if(!preview || slot < 0 || slot >= Field<int>(preview, 2288)) return nullptr;
+    auto records = Field<unsigned char *>(preview, 2296);
+    return records ? records + 160 * slot : nullptr;
+}
+bool OwnsGlovePreview(void * preview) {
+    if(!preview || !g_Hooked || !g_GlovesSupported || !g_Enabled || !g_Active || !g_Wanted
+        || !MIRV_POV_FEATURE_ACTIVE("buymenu") || !g_pEngineToClient
+        || !g_pEngineToClient->GetDemoFile()) return false;
+    auto menu = ResolveMenu();
+    return menu && Field<void *>(menu, 520) == preview;
+}
+void SyncPreviewGloves(void * preview, int slot, bool nativeUpdated) {
+    if(!OwnsGlovePreview(preview) || !MIRV_POV_FEATURE_ACTIVE("buymenu_gloves")) return;
+    auto record = PreviewRecord(preview, slot);
+    // Native spawn completion clears +144. Never write into a pending entity,
+    // the recorded pawn, or an entity that reused the preview's old index.
+    if(!record || Field<uint8_t>(record, 144)) return;
+    const auto handle = Field<uint32_t>(record, 0);
+    if(handle == 0xFFFFFFFF) return;
+    auto target = GetEntityFromIndex(handle & 0x7FFF);
+    auto source = ResolveEntity(g_PawnHandle, true);
+    if(!target || !source || target == source
+        || static_cast<uint32_t>(target->GetHandle().ToInt()) != handle
+        || 0 != strcmp(target->GetClassName(), "csgo_previewplayer")) return;
+
+    const auto & offsets = g_clientDllOffsets.C_CSPlayerPawn;
+    auto from = reinterpret_cast<unsigned char *>(source) + offsets.m_EconGloves;
+    auto to = reinterpret_cast<unsigned char *>(target) + offsets.m_EconGloves;
+    const auto definition = Field<uint16_t>(from, 442);
+    const bool custom = Field<uint8_t>(from, 488) && definition && definition != 0xFFFF && g_IsGloves(from);
+    const auto revision = Field<uint8_t>(source, offsets.m_nEconGlovesChanged);
+    if(custom) {
+        if(nativeUpdated || !g_GloveState.copied || g_GloveState.preview != handle
+            || g_GloveState.source != g_PawnHandle || g_GloveState.revision != revision
+            || !g_EqualItems(from, to)) {
+            // Use the game's C_EconItemView assignment, including dynamic
+            // paint/seed/wear attributes. A byte copy would alias owned buffers.
+            g_CopyItem(to, from);
+            Field<uint8_t>(target, offsets.m_bNeedToReApplyGloves) = 1;
+            ++g_GloveCopies;
+        }
+    } else if(Field<uint8_t>(to, 488) || Field<uint16_t>(to, 442)) {
+        // Missing/default recorded gloves must not inherit the viewer's skin.
+        g_ClearItem(to);
+        Field<uint8_t>(target, offsets.m_bNeedToReApplyGloves) = 1;
+        ++g_GloveClears;
+    }
+    g_GloveState.preview = handle;
+    g_GloveState.source = g_PawnHandle;
+    g_GloveState.revision = revision;
+    g_GloveState.copied = custom;
+}
+void __fastcall UpdatePreview(void * preview, int slot) {
+    // This update is deferred beyond the buy-menu callback's g_Depth scope.
+    // Match the live menu's weak handle instead of extending that global scope.
+    g_UpdatePreview(preview, slot);
+    SyncPreviewGloves(preview, slot, true);
+}
+void RestorePreviewGloves(void * menu) {
+    if(!g_GlovesSupported || !menu || g_GloveState.preview == 0xFFFFFFFF) return;
+    auto preview = Field<void *>(menu, 520);
+    auto record = preview ? PreviewRecord(preview, Field<int>(preview, 2284)) : nullptr;
+    if(record && Field<uint32_t>(record, 0) == g_GloveState.preview)
+        g_UpdatePreview(preview, Field<int>(preview, 2284));
+    g_GloveState = GloveState{};
+}
 int __fastcall Model(void * panel, void * item) {
     Scope scope;
     if(!scope.entered) return g_Model(panel, item);
@@ -601,6 +686,7 @@ intptr_t __fastcall Close(void * panel) {
     // Native viewer-side zone/close events must not override the recorded key.
     // Reset clears wanted first and always runs the full native restoration.
     if(g_Active && g_Wanted) return 0;
+    if(g_Active) RestorePreviewGloves(panel);
     RestoreInputState();
     RestoreWashClasses();
     RestorePromoVisibility(panel);
@@ -700,6 +786,19 @@ void MirvPovBuyMenu_Initialize(HMODULE module) {
     g_Model = reinterpret_cast<ModelFn>(g_Base + 0xDC0D40);
     g_Select = reinterpret_cast<SelectFn>(g_Base + 0xDB7730);
     g_SetModel = reinterpret_cast<SetModelFn>(g_Base + 0xE5EDF0);
+    // Optional independently gated effect; unknown glove schema leaves the
+    // existing buy-menu simulation available with native preview cosmetics.
+    const auto & gloveOffsets = g_clientDllOffsets.C_CSPlayerPawn;
+    g_GlovesSupported = gloveOffsets.m_EconGloves == 0x1770
+        && gloveOffsets.m_bNeedToReApplyGloves == 0x176D
+        && gloveOffsets.m_nEconGlovesChanged == 0x1D20;
+    if(g_GlovesSupported) {
+        g_UpdatePreview = reinterpret_cast<UpdatePreviewFn>(g_Base + 0xE68560);
+        g_CopyItem = reinterpret_cast<CopyItemFn>(g_Base + 0x1184AD0);
+        g_EqualItems = reinterpret_cast<EqualItemsFn>(g_Base + 0x1185620);
+        g_ClearItem = reinterpret_cast<ClearItemFn>(g_Base + 0x119B0B0);
+        g_IsGloves = reinterpret_cast<ItemPredicateFn>(g_Base + 0x119B150);
+    }
     g_InputSupported = DiagnosticPanoramaSupported();
     g_KeyInput = reinterpret_cast<KeyInputFn>(g_Base + 0xDADA00);
     if(g_InputSupported) g_InputFocus = reinterpret_cast<InputFocusFn>(
@@ -722,6 +821,7 @@ void MirvPovBuyMenu_Initialize(HMODULE module) {
     DetourAttach(&(PVOID &)g_Model, Model);
     DetourAttach(&(PVOID &)g_Select, Select);
     DetourAttach(&(PVOID &)g_SetModel, SetModel);
+    if(g_GlovesSupported) DetourAttach(&(PVOID &)g_UpdatePreview, UpdatePreview);
     if(g_InputSupported) {
         DetourAttach(&(PVOID &)g_KeyInput, KeyInput);
         DetourAttach(&(PVOID &)g_InputFocus, InputFocus);
@@ -730,6 +830,7 @@ void MirvPovBuyMenu_Initialize(HMODULE module) {
     if(g_Hooked) advancedfx::Message("[mirv_pov_buymenu] native simulation hooks installed.\n");
     else advancedfx::Warning("[mirv_pov_buymenu] detour transaction failed.\n");
     if(!g_InputSupported) advancedfx::Warning("[mirv_pov_buymenu] unsupported panorama build; input passthrough unavailable.\n");
+    if(!g_GlovesSupported) advancedfx::Warning("[mirv_pov_buymenu] unsupported glove schema; observed preview gloves unavailable.\n");
 }
 
 void MirvPovBuyMenu_Reset() {
@@ -750,6 +851,7 @@ void MirvPovBuyMenu_Reset() {
     g_LastTick = -1;
     g_SampledHover = INT_MIN;
     g_SettleFrames = 0;
+    g_GloveState = GloveState{};
 }
 
 void MirvPovBuyMenu_SetEnabled(bool enabled) {
@@ -764,6 +866,18 @@ bool MirvPovBuyMenu_IsEnabled() {
 void MirvPovBuyMenu_ReapplyInput() {
     if(auto panel = ResolveMenu()) ApplyInputState(panel);
     else RestoreInputState();
+}
+
+void MirvPovBuyMenu_ReapplyGloves() {
+    g_GloveState = GloveState{};
+    auto menu = ResolveMenu();
+    auto preview = menu ? Field<void *>(menu, 520) : nullptr;
+    if(!OwnsGlovePreview(preview)) return;
+    const int slot = Field<int>(preview, 2284);
+    if(!PreviewRecord(preview, slot)) return;
+    // Off runs the original equipment update to restore native cosmetics;
+    // on runs that same update and then copies the observed player's gloves.
+    UpdatePreview(preview, slot);
 }
 
 void MirvPovBuyMenu_Update() {
@@ -814,11 +928,17 @@ void MirvPovBuyMenu_Update() {
         g_PendingSince = GetTickCount64();
         if(!Dispatch(0xDB2AC0)) g_Pending = false;
     }
+    if(auto menu = ResolveMenu()) {
+        auto preview = Field<void *>(menu, 520);
+        if(preview) SyncPreviewGloves(preview, Field<int>(preview, 2284), false);
+    }
 }
 
 void MirvPovBuyMenu_PrintStatus() {
     g_Panel = ResolveMenu();
     advancedfx::Message("[mirv_pov_buymenu] enabled=%d\n", g_Enabled);
+    advancedfx::Message("[mirv_pov_buymenu] gloves_supported=%d gloves_enabled=%d glove_copies=%u glove_clears=%u\n",
+        g_GlovesSupported, MIRV_POV_FEATURE_ACTIVE("buymenu_gloves"), g_GloveCopies, g_GloveClears);
     advancedfx::Message("[mirv_pov_buymenu] input_supported=%d input_passthrough=%d input_state_saved=%d\n",
         g_InputSupported, InputPassthrough(), g_InputState.root != 0xFFFFFFFF00000000ULL);
     advancedfx::Message("[mirv_pov_buymenu] hooks=%d active=%d wanted=%d pending=%d visible=%d opens=%u closes=%u loadout_hits=%u loadout_misses=%u\n",
@@ -839,6 +959,12 @@ void MirvPovBuyMenu_PrintStatus() {
         currentPawn ? Field<uint8_t>(currentPawn, g_clientDllOffsets.C_CSPlayerPawn.m_bIsBuyMenuOpen) != 0 : 0,
         currentPawn ? static_cast<uint32_t>(currentPawn->GetHandle().ToInt()) : 0xFFFFFFFF,
         currentController ? static_cast<uint32_t>(currentController->GetHandle().ToInt()) : 0xFFFFFFFF);
+    if(g_GlovesSupported && currentPawn) {
+        auto gloves = reinterpret_cast<unsigned char *>(currentPawn) + g_clientDllOffsets.C_CSPlayerPawn.m_EconGloves;
+        advancedfx::Message("[mirv_pov_buymenu] glove_source_definition=%u initialized=%d revision=%u preview_handle=%u\n",
+            Field<uint16_t>(gloves, 442), Field<uint8_t>(gloves, 488) != 0,
+            Field<uint8_t>(currentPawn, g_clientDllOffsets.C_CSPlayerPawn.m_nEconGlovesChanged), g_GloveState.preview);
+    }
     // Read-only scan helps locate recorded open/close transitions in a demo.
     for(int i = 1; i <= GetHighestEntityIndex(); ++i) {
         auto controller = GetEntityFromIndex(i);

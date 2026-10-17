@@ -160,6 +160,12 @@ void initSchemaSystemOffsets()
 			}
 			getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bIsBuyMenuOpen,
 				"client.dll", "C_CSPlayerPawn", "m_bIsBuyMenuOpen");
+			getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_EconGloves,
+				"client.dll", "C_CSPlayerPawn", "m_EconGloves");
+			getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bNeedToReApplyGloves,
+				"client.dll", "C_CSPlayerPawn", "m_bNeedToReApplyGloves");
+			getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_nEconGlovesChanged,
+				"client.dll", "C_CSPlayerPawn", "m_nEconGlovesChanged");
 			getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bInBuyZone,
 				"client.dll", "C_CSPlayerPawn", "m_bInBuyZone")
 				|| getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_bInBuyZone,
