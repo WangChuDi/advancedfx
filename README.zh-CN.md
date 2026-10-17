@@ -52,7 +52,7 @@ mirv_pov_debug_feature deafen 0
 mirv_pov_debug_feature deafen 1
 ```
 
-下列 feature 默认均为**开启**，但仍受总开关和上层功能控制。“立即”表示配置即时应用（UI 通常下一次更新可见）；“重新开启”表示 POV 已开启时先保存配置，需执行 `mirv_pov 0`、再执行 `mirv_pov 1`。也可先配置后开启总开关。关闭致聋不会强制截断已经播放的耳鸣尾音。
+下列 feature 除 `hud_target_highlight` 默认**关闭**外，其余默认均为**开启**，但仍受总开关和上层功能控制。“立即”表示配置即时应用（UI 通常下一次更新可见）；“重新开启”表示 POV 已开启时先保存配置，需执行 `mirv_pov 0`、再执行 `mirv_pov 1`。也可先配置后开启总开关。关闭致聋不会强制截断已经播放的耳鸣尾音。
 
 | Feature | 功能 / 作用范围 | 生效时机 |
 | --- | --- | --- |
@@ -83,7 +83,7 @@ mirv_pov_debug_feature deafen 1
 
 关闭 `buyzone` 会清除购物车图标，不影响其他 HUD 效果；重新开启时按当前 POV 玩家重新计算。关闭 POV 或换图会清理其 class 与缓存，再由原生 HUD 继续更新。
 
-`hud_target_highlight` 默认开启。`mirv_pov_debug_feature hud_target_highlight 0` 关闭 POV 目标高亮，`1` 恢复；敌方血条仍保持隐藏。配置在下一次原生 HUD 刷新时应用，覆盖切人或 seek 后的缓存行；关闭主 POV 后恢复原生观战标记。配置在主 POV 启停间保留，不保存面板或实体指针。
+`hud_target_highlight` 默认关闭。`mirv_pov_debug_feature hud_target_highlight 1` 开启 POV 目标高亮，`0` 关闭；敌方血条仍保持隐藏。配置在下一次原生 HUD 刷新时应用，覆盖切人或 seek 后的缓存行；关闭主 POV 后恢复原生观战标记。配置在主 POV 启停间保留，不保存面板或实体指针。
 
 `round_damage` 优先使用游戏原生伤害记录与显示逻辑。GOTV 缺少原生记录时，在后台读取录像中的伤害/死亡事件，把恢复的数据交给同一套原生面板；该回退按伤害事件计命中数并去除致死过量伤害，特殊伤害的计数可能与 live 有差异。跳转和切换 POV 均按当前回合与播放 tick 查询。关闭后立即隐藏自有面板，不影响其他 HUD 效果；重新开启恢复当前统计。离开 demo 或换图会清理自有界面状态，并取消旧索引任务。
 

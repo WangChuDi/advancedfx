@@ -54,7 +54,7 @@ MirvPovDebugFeatureState g_MirvPovDebugFeatures[] = {
     {"buyzone", true, true, true},
     {"round_damage", true, true, true},
     {"teamhealth", true, true},
-    {"hud_target_highlight", true, true, true},
+    {"hud_target_highlight", false, false, true},
     {"buymenu", true, true},
 	{"buymenu_promo_hide", true, true, true},
 	{"buymenu_layout", true, true, true},
