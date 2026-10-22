@@ -1094,3 +1094,29 @@ client image size `0x299D000`。IDA 新基线识别106920 functions / 66381 stri
 部署：2026-10-16 22:11:56（Asia/Shanghai）重新确认CS2未运行、已开的HLAE启动器未加载目标DLL且目标可独占打开，复核安装client完整hash后，备份并原子替换 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`。备份 `AfxHookSource2.dll.backup-20261016-221156-buymenu-gloves` 的SHA-256与旧版一致为 `E91C8D0840D100288B9E24310370597A2BB9903842A923DC403272341A21A638`；新构建/安装SHA-256一致为 `E409364686DDBBF6DD4C824AAE5010C5D71E7C97654ED193C364A2AD44A5CC08`，见本轮 `installation.json`。仅验证磁盘部署；未控制CS2/HLAE生命周期，未验证实际加载或手套渲染。独立只读源码复核未发现明显问题，不替代上述实机验证。
 
 2026-10-17提交整理：补充 `OwnsGlovePreview(nullptr)` 的拒绝条件，避免菜单已存在而preview尚未创建时切换开关读取空地址。新增空preview拒绝和此时切换开关不调用原生更新的两项断言，上述测试现为51项；Release x64、22项PE静态核验和diff检查通过。13:39:55（Asia/Shanghai）确认CS2未运行、HLAE未加载目标后备份并原子替换；新构建/安装SHA-256一致为 `CE85598B2B5810F234EEDC541C807CEE8ED7F48952DEDB3CA61F5E69640E9170`，旧E409版备份为 `AfxHookSource2.dll.backup-20261017-133955-buymenu-gloves-null-guard`，记录在 `installation-commit.json`。未控制游戏生命周期，实际回放验证边界保持。
+
+## 2026-10-23：玩家开麦语音条的地点
+
+### 当前构建和原生行为
+
+同步器重新读取安装 client.dll，SHA-256 为 `659940c1db362ed981d1df10637cec8c2a3d99409b77fc3b73e435e4649e36b0`，与 `diagnostics/ida/client/659940c1db362ed9/client.i64` 匹配并成功打开。image base `0x180000000`；以下为本 hash 的 RVA，分析 VA=base+RVA，不能沿用到其它版本。证据位于 `diagnostics/voice-location-20261023/`。
+
+原生语音条 updater **`0xED63F0` / VA `0x180ED63F0`** 根据 VoiceStatus 活动列表维护最多三条可见语音行。缓存从 HUD 对象 `+160` 开始、stride24；每行 `+0` 为零基 player slot，`+12` 为存活状态、`+16` 为队伍、`+20` 为 speaker state。原生只在 slot、存活、队伍或 speaker state 变化时重新格式化名字；地点变化本身没有参与这个比较。它在 **`0xED6B1B`** 调用 formatter **`0xEB3E80` / VA `0x180EB3E80`**，传入 controller、经过原生处理的玩家名、存活标志和队伍，再把结果交给原生行面板更新器 `0xECAB00`。后者仅分析，未新增 hook 或主动调用。
+
+formatter 首先通过仅分析的 local-pawn helper `0xC7C160` 读取真正本地 pawn 的队伍；要求发言者队伍与它一致、传入存活标志为真、发言者 pawn 有效且 `m_szLastPlaceName` 非空，才添加绿色 `@ 地点`。该版本 pawn 地点偏移 `0x15BC`，本地化为 localize virtual slot17 / +136，绿色 `#40ff40`。其余姓名颜色及竞技颜色圆点仍由同一个 formatter 生成。发言者 pawn helper **`0x9420C0` / VA `0x1809420C0`** 通过 controller `+0x6BC` handle 做序列号校验；存活 helper `0x89C910` 读取 controller `+0x934`。这些 helpers 未 hook。Demo 中真正本地 pawn 的旁观者队伍可能阻止该条件成立；这是静态确认的条件缺口，未声称实机复现了所有缺失场景。
+
+### POV 实现、开关和清理
+
+`MirvPovVoice.cpp::New_MirvPov_FormatSpeaker` 新增上述 formatter detour：仅在主 POV、玩家语音和 `voice_location` 均启用且有效 POV 为 T/CT 时，使用 POV controller 的队伍判断同队，保留原生传入的存活标志，并调用原生 serial-checked pawn helper 读取地点。地点使用 schema 字段和18-byte边界检查，通过现有本地化服务获取地图地点。空地点、缺失实体/schema/本地化时只显示名字；敌方或死亡发言者不添加地点，即使语音模式为 all/enemy。名字加上与原生相同的绿色后缀后，调用原 formatter，并只将该次 formatter 的 alive 参数设 false，以抑制真正旁观者上下文产生第二个地点；原始 row 存活字段和 skull 状态不改。原 formatter 仍负责姓名颜色/圆点及输出边界。
+
+`New_MirvPov_UpdateSpeakers` 新增 updater detour：比较三条可见行的 slot、POV handle/队伍、speaker/pawn handles 和地点 token；变化或控制状态切换时仅把缓存 speaker state `+20` 设为原生状态范围外的 `-2`，由原 updater 重新生成并发布该行。稳定帧不强制重绘；不改 active-speaker 列表、语音包、音频或实体数据。只保存 handles 和 token，不缓存跨帧实体或面板指针。主 POV/语音/地点关闭或 POV 无效后的下一次原生 updater 强制刷新一次并恢复原 formatter；随后完全透传。seek/退出仍沿现有语音清理路径移除语音行，不另外保留地点面板。
+
+普通 Release 共享 registry 新增 **`mirv_pov_debug_feature voice_location 0|1`**，默认1、immediate；配置立即生效，画面在下一次原生语音 HUD 更新可见，暂停时是否有该原生回调尚待实机确认。0只恢复原生地点格式化，不关闭语音声音、语音条、路由或无线电；1恢复 POV 地点，`all`包含此控制。偏好保留至主 POV 重新启用。中英文 README 同步记录。
+
+兼容检查独立于旧语音 hooks：formatter 与 updater 必须在 executable section 唯一命中。formatter 签名 `48 89 6C 24 ?? 48 89 74 24 ?? 48 89 7C 24 ?? 41 54 41 56 41 57 48 81 EC ?? ?? ?? ?? 49 8B F1`；updater 签名 `4C 8B DC 55 53 56 57 41 55 41 56 41 57 49 8D AB 68 F9 FF FF 48 81 EC 60 07 00 00`。安装前验证 updater `+0x5D6` 的 cache+160/stride24/三行指令、`+0x6CD` 的缓存 speaker-state 比较、`+0x72B` E8 必须到 formatter，并从 formatter `+0x60` E8 取得 text 内的 pawn helper。两个 detour 同事务安装；失败只禁用地点接管并在普通 Release 输出警告，已有语音功能继续工作。
+
+### 验证边界
+
+当前 PE 唯一签名、cache layout、call targets 检查通过。`verify.py` 提取上述生产 formatter、地点读取和 updater 包装函数，以模拟原生 HUD 编译运行，**42 项断言通过**，覆盖存活同队/敌方/死亡、缺失或超长地点、缺失实体/schema/本地化、地点移动、稳定帧去重、POV 队伍切换、地点 off/on/re-enable、主 POV/voice 开关和缓存清理。普通 Release x64 构建通过；测试不执行真正 Panorama 面板/游戏音频，实际语音条视觉、本地化语言、暂停刷新和 demo 回放开关矩阵仍待实机确认。未启动、关闭、重启或控制游戏，未提交或推送。
+
+独立只读源码复核未发现明确 ABI、缓存偏移或生命周期错误；实际 native 回调线程及 playerSlot+1 映射仍须运行确认。`git diff --check` 通过。2026-10-23 00:11:33（Asia/Shanghai）确认 CS2 未运行、HLAE 启动器未加载目标且目标可独占打开，再次核对安装 client 完整 hash 后，备份并原子替换 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`。新构建与安装 SHA-256 均为 `0540BC1B43F3A2C024FF6233558CE7C0CA9B8D2616931BAC30E2CF1825167CE2`；旧版备份 `AfxHookSource2.dll.backup-20261023-001133-voice-location` 的 SHA-256 为 `90DFC0CB4F075BFD8349CD2B0FF206DB160F7D01C64C1B343C153AF2B7788A77`，记录见本轮 `installation.json`。这是磁盘部署验证，未验证实际加载及语音条画面。

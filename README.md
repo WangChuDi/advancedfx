@@ -62,6 +62,7 @@ All features below default to **on** except `hud_target_highlight`, which defaul
 | `teamid` | POV-relative teammate/enemy identifiers, respecting `spec_show_xray` | Re-enable |
 | `teamhealth` | Hides enemy health bars in the top HUD and clears stale observer markers | Re-enable |
 | `hud_target_highlight` | Highlights only the current POV player in the top HUD; requires `teamhealth` | Next HUD refresh |
+| `voice_location` | Localized map locations beside living teammates' names in the speaking HUD; requires POV voice | Next voice HUD refresh |
 | `radar` | Competitive teammate colors, red enemies, smoke-visible teammates and red C4 from the CT POV | Re-enable |
 | `soundcircle` | POV radar sound circles and footstep/source handling; also feeds some radio audio paths | Re-enable |
 | `radio` | Team radio, grenade-throw voice/text and related audio fallbacks | Re-enable |

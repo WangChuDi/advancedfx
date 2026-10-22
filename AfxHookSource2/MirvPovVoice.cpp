@@ -6,6 +6,8 @@
 #include "Globals.h"
 #include "MirvTime.h"
 #include "MirvPovCore.h"
+#include "MirvPovKillReward.h"
+#include "SchemaSystem.h"
 
 #include "../deps/release/prop/cs2/sdk_src/public/cdll_int.h"
 #include "../deps/release/prop/cs2/sdk_src/public/icvar.h"
@@ -22,6 +24,7 @@ extern SOURCESDK::CS2::ISource2EngineToClient * g_pEngineToClient;
 #include <intrin.h>
 #include <limits.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #pragma intrinsic(_ReturnAddress)
@@ -63,6 +66,160 @@ struct MirvPovVoiceMaskCvar {
 
 static MirvPovVoiceMaskCvar g_MirvPovVoiceMaskLow = { "tv_listen_voice_indices" };
 static MirvPovVoiceMaskCvar g_MirvPovVoiceMaskHigh = { "tv_listen_voice_indices_h" };
+
+// Native VoiceStatus keeps three visible rows (24 bytes each), separately
+// from its active-speaker list. Only invalidate the cached speaker state;
+// the native updater owns and republishes all row/panel contents.
+using MirvPov_FormatSpeaker_t = __int64 (__fastcall *)(void *, char *, unsigned int,
+    CEntityInstance *, const char *, bool, unsigned int);
+using MirvPov_UpdateSpeakers_t = __int64 (__fastcall *)(void *);
+using MirvPov_GetSpeakerPawn_t = CEntityInstance * (__fastcall *)(CEntityInstance *);
+static MirvPov_FormatSpeaker_t g_OrgFormatSpeaker = nullptr;
+static MirvPov_UpdateSpeakers_t g_OrgUpdateSpeakers = nullptr;
+static MirvPov_GetSpeakerPawn_t g_GetSpeakerPawn = nullptr;
+static bool g_VoiceLocationHooked = false;
+
+struct MirvPovVoiceLocationKey {
+    int slot;
+    uint32_t povHandle;
+    uint32_t speakerHandle;
+    uint32_t pawnHandle;
+    int povTeam;
+    char place[18];
+};
+static MirvPovVoiceLocationKey g_VoiceLocationKeys[3] = {};
+static bool g_VoiceLocationWasActive = false;
+
+static CEntityInstance * MirvPov_GetVoiceLocationPov() {
+    if(!g_MirvPovVoiceEnabled || !MIRV_POV_FEATURE_ACTIVE("voice")
+        || !MIRV_POV_FEATURE_ACTIVE("voice_location")) return nullptr;
+    CEntityInstance * pov = GetCurrentPovPlayerController();
+    return pov && (pov->GetTeam() == 2 || pov->GetTeam() == 3) ? pov : nullptr;
+}
+
+static void MirvPov_CopySpeakerPlace(CEntityInstance * controller, char (&place)[18],
+    uint32_t & pawnHandle) {
+    place[0] = '\0';
+    pawnHandle = 0xFFFFFFFFu;
+    if(!controller || !g_GetSpeakerPawn
+        || g_clientDllOffsets.C_CSPlayerPawn.m_szLastPlaceName < 0) return;
+    __try {
+        CEntityInstance * pawn = g_GetSpeakerPawn(controller);
+        if(!pawn || !pawn->IsPlayerPawn()) return;
+        pawnHandle = pawn->GetHandle().ToInt();
+        const char * source = pawn->GetLastPlaceName();
+        size_t length = source ? strnlen_s(source, sizeof(place)) : 0;
+        if(length && length < sizeof(place)) memcpy(place, source, length + 1);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        place[0] = '\0';
+        pawnHandle = 0xFFFFFFFFu;
+    }
+}
+
+static __int64 __fastcall New_MirvPov_FormatSpeaker(void * hud, char * output,
+    unsigned int capacity, CEntityInstance * speaker, const char * name,
+    bool alive, unsigned int team) {
+    CEntityInstance * pov = MirvPov_GetVoiceLocationPov();
+    if(!pov) return g_OrgFormatSpeaker(hud, output, capacity, speaker, name, alive, team);
+
+    char decorated[1024];
+    const char * displayName = name;
+    if(alive && team == static_cast<unsigned int>(pov->GetTeam())) {
+        char place[18] = {};
+        uint32_t pawnHandle;
+        MirvPov_CopySpeakerPlace(speaker, place, pawnHandle);
+        if(place[0]) {
+            char token[20];
+            snprintf(token, sizeof(token), "#%s", place);
+            const char * localized = MirvPovKillReward_LocalizeToken(token);
+            if(localized && localized[0] && strcmp(localized, token)) {
+                int length = snprintf(decorated, sizeof(decorated),
+                    "%s @ <font color=\"#40ff40\">%s</font>", name ? name : "", localized);
+                if(0 < length && length < sizeof(decorated)) displayName = decorated;
+            }
+        }
+    }
+    // Suppress only the formatter's native location branch to avoid a second
+    // suffix from the real spectator context. The row's alive/skull state is
+    // separate and is never changed by this argument.
+    return g_OrgFormatSpeaker(hud, output, capacity, speaker, displayName, false, team);
+}
+
+static __int64 __fastcall New_MirvPov_UpdateSpeakers(void * hud) {
+    CEntityInstance * pov = MirvPov_GetVoiceLocationPov();
+    bool active = nullptr != pov;
+    if(active || g_VoiceLocationWasActive) {
+        for(int row = 0; row < 3; ++row) {
+            unsigned char * cache = static_cast<unsigned char *>(hud) + 160 + 24 * row;
+            MirvPovVoiceLocationKey key = {};
+            key.slot = *reinterpret_cast<int *>(cache);
+            if(active) {
+                key.povHandle = pov->GetHandle().ToInt();
+                key.povTeam = pov->GetTeam();
+                if(0 <= key.slot && key.slot < 64) {
+                    CEntityInstance * speaker = GetEntityFromIndex(key.slot + 1);
+                    if(speaker && speaker->IsPlayerController()) {
+                        key.speakerHandle = speaker->GetHandle().ToInt();
+                        MirvPov_CopySpeakerPlace(speaker, key.place, key.pawnHandle);
+                    }
+                }
+            }
+            const auto & previous = g_VoiceLocationKeys[row];
+            if(active != g_VoiceLocationWasActive
+                || key.slot != previous.slot || key.povHandle != previous.povHandle
+                || key.speakerHandle != previous.speakerHandle || key.pawnHandle != previous.pawnHandle
+                || key.povTeam != previous.povTeam
+                || 0 != memcmp(key.place, previous.place, sizeof(key.place))) {
+                // Native speaker states are 0..3; -2 forces a native refresh.
+                *reinterpret_cast<int *>(cache + 20) = -2;
+            }
+            g_VoiceLocationKeys[row] = key;
+        }
+    }
+    g_VoiceLocationWasActive = active;
+    return g_OrgUpdateSpeakers(hud);
+}
+
+static bool MirvPov_HookVoiceLocation(HMODULE clientDll) {
+    if(g_VoiceLocationHooked) return true;
+    Afx::BinUtils::ImageSectionsReader sections(clientDll);
+    sections.Next(IMAGE_SCN_MEM_EXECUTE);
+    if(sections.Eof()) return false;
+    auto text = sections.GetMemRange();
+    auto findUnique = [&](const char * pattern) -> size_t {
+        auto found = Afx::BinUtils::FindPatternString(text, pattern);
+        if(found.IsEmpty() || !Afx::BinUtils::FindPatternString(
+            Afx::BinUtils::MemRange(found.Start + 1, text.End), pattern).IsEmpty()) return 0;
+        return found.Start;
+    };
+    size_t formatter = findUnique("48 89 6C 24 ?? 48 89 74 24 ?? 48 89 7C 24 ?? 41 54 41 56 41 57 48 81 EC ?? ?? ?? ?? 49 8B F1");
+    size_t updater = findUnique("4C 8B DC 55 53 56 57 41 55 41 56 41 57 49 8D AB 68 F9 FF FF 48 81 EC 60 07 00 00");
+    if(!formatter || !updater || formatter + 0x270 > text.End || updater + 0x800 > text.End) return false;
+    // Verify the three-row cache layout, the exact formatter call and the
+    // serial-checked speaker-pawn helper before touching cached row state.
+    const unsigned char cacheLayout[] = {0x49,0x8d,0x86,0xa0,0,0,0,0x33,0xd2,0x90,
+        0x83,0x38,0xff,0x74,0x10,0xff,0xc1,0x48,0xff,0xc2,0x48,0x83,0xc0,0x18,0x83,0xf9,3,0x72,0xed};
+    const unsigned char stateCompare[] = {0x41,0x8b,0x84,0xce,0xb4,0,0,0,0x39,0x43,0x14};
+    auto callTarget = [&](size_t call) -> size_t {
+        if(*reinterpret_cast<unsigned char *>(call) != 0xe8) return 0;
+        size_t target = call + 5 + *reinterpret_cast<int32_t *>(call + 1);
+        return text.Start <= target && target < text.End ? target : 0;
+    };
+    size_t pawnGetter = callTarget(formatter + 0x60);
+    if(memcmp(reinterpret_cast<void *>(updater + 0x5d6), cacheLayout, sizeof(cacheLayout))
+        || memcmp(reinterpret_cast<void *>(updater + 0x6cd), stateCompare, sizeof(stateCompare))
+        || callTarget(updater + 0x72b) != formatter || !pawnGetter) return false;
+    g_GetSpeakerPawn = reinterpret_cast<MirvPov_GetSpeakerPawn_t>(pawnGetter);
+    g_OrgFormatSpeaker = reinterpret_cast<MirvPov_FormatSpeaker_t>(formatter);
+    g_OrgUpdateSpeakers = reinterpret_cast<MirvPov_UpdateSpeakers_t>(updater);
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+    DetourAttach(&(PVOID&)g_OrgFormatSpeaker, New_MirvPov_FormatSpeaker);
+    DetourAttach(&(PVOID&)g_OrgUpdateSpeakers, New_MirvPov_UpdateSpeakers);
+    if(NO_ERROR != DetourTransactionCommit()) return false;
+    g_VoiceLocationHooked = true;
+    return true;
+}
 
 static SOURCESDK::CS2::Cvar_s * MirvPov_GetVoiceMaskCvar(MirvPovVoiceMaskCvar & state) {
     if(!SOURCESDK::CS2::g_pCVar) return nullptr;
@@ -285,6 +442,9 @@ static bool MirvPov_EnsureVoiceHudHook(HMODULE clientDll) {
 }
 
 void MirvPov_HookVoiceHud(HMODULE clientDll) {
+    if(clientDll && !MirvPov_HookVoiceLocation(clientDll)) {
+        advancedfx::Warning("[mirv_pov_voice] speaker location hooks unavailable\n");
+    }
     if(!MirvPov_EnsureVoiceHudHook(clientDll)) {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_voice_hud] voice HUD patterns or hooks not available\n");
     }

@@ -62,6 +62,7 @@ MirvPovDebugFeatureState g_MirvPovDebugFeatures[] = {
 	{"buymenu_gloves", true, true, true},
     {"radar", true, true},
     {"voice", true, true},
+    {"voice_location", true, true, true},
     {"scoreboard", true, true},
     {"feedback", true, true},
     {"deafen", true, true, true},

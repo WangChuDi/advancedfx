@@ -62,6 +62,7 @@ mirv_pov_debug_feature deafen 1
 | `teamid` | 按观察玩家修正队友/敌方标识，遵循 `spec_show_xray` | 重新开启 |
 | `teamhealth` | 隐藏顶部 HUD 的敌方血条，清理残留观战目标标记 | 重新开启 |
 | `hud_target_highlight` | 仅高亮顶部 HUD 中当前 POV 玩家；依赖 `teamhealth` | 下一次 HUD 刷新 |
+| `voice_location` | 玩家开麦语音条显示存活队友的本地化地图地点；依赖 POV 语音 | 下一次语音 HUD 刷新 |
 | `radar` | 队友竞技颜色、敌方红色、烟雾内队友可见性，以及 CT POV 的红色 C4 雷达表现 | 重新开启 |
 | `soundcircle` | POV 雷达声音圆圈、脚步等声音来源处理；还承接部分无线电声音路径 | 重新开启 |
 | `radio` | 队伍无线电、投掷物语音/文字，以及相关音频回退 | 重新开启 |
