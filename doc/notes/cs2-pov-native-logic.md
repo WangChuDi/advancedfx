@@ -1,5 +1,24 @@
 # CS2 POV：游戏原生逻辑与修复记录
 
+## 2026-10-29：购买菜单、拾取提示与雷达 C4 新版适配
+
+- 模块身份：client `08a741030c1e569d8b854c5886a87fcafc21d0d0e2f05dfd380e8a351171501d`；Panorama `f98c04a7a3cfb1a8a40a6d6bf3bdcc376d6c9fda0d4861354a0383a3cfd9a39e`，image base 均为 `0x180000000`。以下为 RVA，analysis VA = base + RVA。canonical client IDB 已保存、finalize 成功；旧版本记录继续保留。
+- 游戏原逻辑：`EventOpenBuyMenu` 字符串 `0x1CB9F68`、注册器 `0xFE6A0`、symbol `0x22457C8` 共同确认 creator `0xDB5050`，其 UI engine slot 为 `0x2738140`。原生菜单函数和 helper 全映射见 `port-verification.json`，共 30 个入口；4 个全局量还包括 promoted item `0x2532040`、cant-afford/cant-buy symbols `0x25CCA04/0x25CCA08`，均由对应原生指令 RIP 引用迁移确认。getter `0x83AE10/0x96C000` 由多个已匹配调用者确认，未依据短字节串全局首个命中猜测。原生 hover armor 字段及 preview wearable cache 变化已与迁移函数语义比对区分。
+- POV 购买菜单：`MirvPovBuyMenu.cpp` 更新完整函数/全局/creator 集及 exact hash gates、image extent `0x29A2000`，保留 schema 和 Panorama vtable 防护。Open/Close/Refresh/Model 等仍为 hook；inventory、item/model/event creator 等仍为未 hook 的原生 helper，适配未改变原有数据隔离/调用顺序。Panorama 的 16 个依赖槽位和归一化指令不变，不迁移为臆测地址。
+- 游戏拾取原逻辑与 POV：原生 caller `0xEB271D -> 0xEB7270`，新 caller 的局部 hint 状态为 `[rbp+0x140/0x141]`。`MirvPovPickupPrompt.cpp` 改为唯一匹配新上下文并保留目标等于 active-builder 的验证。仍只 patch 两处已有调用点，继续调用原生构造 helper，安装失败回滚和清理流程不变。
+- 游戏雷达原逻辑：package updater `0xECA420` 的 `0xECA48C` 读 flags `[rdi+0x17606]`，`0xECA615` 读 carrier `[rdi+0x1760C]`，`0xECA608` 检查 panel holder `[rdi+0x2A0]`；旧 flags/carrier 为 `0x17808/0x17810`。补充字段级反汇编发现此前签名/调用关系检查未覆盖的布局变动；不能把初步雷达签名通过当作字段通过。POV 在原生更新后按既有 flags 位与阵营决定 CT 红 C4/T 颜色，`MirvPovRadar.cpp` 修正字段，并在初始化时对 flags/carrier 的原生位移作防护，不符则拒绝该 backend。
+- 控制与状态：沿用正常 Release 的 `mirv_pov_debug_feature buymenu|buymenu_gloves|buymenu_input_passthrough|pickupprompt|radar <0|1>`，没有新增效果或改默认值、作用域、关闭/恢复状态清理；控制仍受主 POV 开关约束。关闭、开启、重开和主开关交互未作本次运行验证，不能由静态构建声称通过。
+- 验证：`diagnostics/pov-update-20261029/verify_port.py` 51 项通过，`contracts.py` 18 项通过；Release x64 构建及 `git diff --check` 通过。已确认 CS2 未运行，备份后安装到 `D:/Edu/Python/CS_AutoHighlight/tools/hlae/x64/AfxHookSource2.dll`，备份后缀 `.backup-20261029-153108`；构建/安装 SHA-256 均为 `2E23A9D6E0E625F6C3A14560E1E9B84504D9E4AE026D60984F58469647369F6E`。证据含 `port-probe.json`、`port-verification.json`、`semantic-deltas.json`、`build-release.log`、`installation.json`；未启动/关闭/重启 CS2/HLAE，未进行 demo/画面验证。
+
+## 2026-10-29：新版模块兼容性审计（待适配）
+
+- 当前本机 client SHA-256：`08a741030c1e569d8b854c5886a87fcafc21d0d0e2f05dfd380e8a351171501d`，image base `0x180000000`。本节地址均为 RVA，analysis VA = base + RVA。比较基准为生产 BuyMenu 支持的 `659940c1db362ed981d1df10637cec8c2a3d99409b77fc3b73e435e4649e36b0`；差异可能早于今天，不将旧版本地址续认作新版本已验证地址。
+- 游戏原逻辑：原生拾取 HUD caller 候选函数 `0xEB2670` 在 `0xEB271D` 调用当前签名唯一定位的 active hint builder `0xEB7270`，随后使用 `[rsp+0x4C]`、`[rsp+0x40]` 和 `[rbp+0x140/0x141]`；旧 caller pattern 的栈/局部偏移和指令序列已不符。此处为静态调用证据，未重新建立完整 helper 语义/事件顺序。
+- POV 实现：`MirvPovPickupPrompt.cpp:281-289` 的 caller 签名零命中，初始化在安装两处 call patch 前返回。上述 native builder 是原生播放/构造 helper，审计未新增 hook。`MirvPovBuyMenu.cpp:766` 的旧 hash gate 拒绝新版，因此整组购买菜单模拟不可用；固定函数、全局量、Panorama 输入合同必须完成迁移后才能更新 hash gate。已定位的函数候选例：Open `0xDB7E90 -> 0xDBA420`、Close `0xDA1100 -> 0xDA35C0`、model `0xDC0D40 -> 0xDC32D0`，尚非完整适配。
+- 独立核验：136 个生产 cpp 字节串、其中 87 个 POV 字面量跨 13 个安装模块扫描，POV 仅拾取 caller 无匹配；扫描包括重复验证字面量，并不等于 87 个 hook。18 项补充静态合同通过，覆盖 flash predicate、HealthAmmo observer、Radar helper、SoundCircle getter/SOS、Voice 缓存与 formatter、MVP 调用链、DeathCam 和 Panorama setter。DeathCam 短 call pattern 虽有全局多匹配，其真实局部范围内 `0xD0F6C3 -> 0xC7CB80` 与唯一完整 selector 一致，不能误判失败；Panorama setter 的两个候选都调用 `0x1945C0`。
+- schema 候选：护甲 `0x1EC8 -> 0x1ED0`、爆头死亡标记 `0x1EC5 -> 0x1ECD`，当前实现动态枚举，不需据此硬编码新偏移。Panorama 当前 SHA-256 为 `f98c04a7a3cfb1a8a40a6d6bf3bdcc376d6c9fda0d4861354a0383a3cfd9a39e`，其余模块全 hash 见报告。
+- 证据：`diagnostics/pov-update-20261029/{README.md,audit.py,audit.json,contracts.py,contracts.json}`；canonical DLL/manifest 在 `diagnostics/ida/client/08a741030c1e569d/`。本次只审计、未修改功能源码，未验证全部固定 ABI/vtable/BuyMenu 全局量；未启动或重启 CS2/HLAE、未构建安装或播放 demo。没有新增效果/debug 控制，现有状态清理未改；静态命中不代表运行/画面验证。
+
 此文档是持续维护的逆向记录。每次调查按 **DLL 版本 → 功能** 增补，分别记录游戏原生行为、POV 实现、开关、证据及验证边界。地址只对对应哈希有效；更新游戏后必须重新定位，不能把历史地址当作新版本结论。
 
 ## 记录模板

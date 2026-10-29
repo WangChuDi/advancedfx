@@ -79,8 +79,8 @@ struct RadarNativeTargets {
 };
 
 constexpr size_t kRadarPackagePanelOffset = 0x2A0;
-constexpr size_t kRadarPackageFlagsOffset = 0x17808;
-constexpr size_t kRadarPackageCarrierHandleOffset = 0x17810;
+constexpr size_t kRadarPackageFlagsOffset = 0x17606;
+constexpr size_t kRadarPackageCarrierHandleOffset = 0x1760C;
 constexpr uint32_t kRadarEnemyColor = 0xFF0000FF;
 constexpr uint32_t kRadarUncarriedPackageColor = 0xFFFFFFFF;
 
@@ -726,6 +726,16 @@ bool ResolveRadarNativeTargets(HMODULE clientDll, RadarNativeTargets & targets)
         return false;
     }
     targets.relationReturn = relationCall + 5;
+    // The package layout can move even when every hook signature still matches.
+    // Check the native field reads before enabling our post-update color access.
+    const auto flagsRead = Afx::BinUtils::FindPatternString(packageRange,
+        "0F B6 87 ?? ?? ?? ?? 84 C0 0F 89");
+    if(flagsRead.IsEmpty()
+        || *reinterpret_cast<const int32_t *>(flagsRead.Start + 3) != kRadarPackageFlagsOffset
+        || *reinterpret_cast<const int32_t *>(playerSlotSequence + 2) != kRadarPackageCarrierHandleOffset) {
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_radar] Native package field layout changed.\n");
+        return false;
+    }
     return true;
 }
 

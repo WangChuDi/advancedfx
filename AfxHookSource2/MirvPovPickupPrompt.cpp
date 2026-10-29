@@ -280,8 +280,8 @@ void MirvPovPickupPrompt_Initialize(HMODULE clientDll)
 
     const auto activeHintBuilderCaller = FindUniquePattern(
         textRange,
-        "E8 ?? ?? ?? ?? 0F B6 44 24 50 88 85 00 01 00 00 44 38 64 24 5C 74 ?? "
-        "48 8B 05 ?? ?? ?? ?? 44 39 60 58 C6 85 01 01 00 00 01");
+        "E8 ?? ?? ?? ?? 80 7C 24 4C 00 0F B6 44 24 40 88 85 40 01 00 00 74 ?? "
+        "48 8B 05 ?? ?? ?? ?? 83 78 58 00 C6 85 41 01 00 00 01");
     if(activeHintBuilderCaller.IsEmpty()) {
         MIRV_POV_DIAGNOSTIC_WARNING(
             "[mirv_pov_pickup_prompt] Active weapon-ID hint caller is missing or ambiguous.\n");
