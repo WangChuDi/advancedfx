@@ -587,41 +587,41 @@ bool GetWeaponBaseKillReward(const char * weapon, int & reward)
     if(nullptr == weapon || '\0' == weapon[0]) return false;
     if(0 == strncmp(weapon, "weapon_", 7)) weapon += 7;
 
-    if(0 == strncmp(weapon, "knife", 5)
-        || 0 == strcmp(weapon, "bayonet")) {
+    if(nullptr != strstr(weapon, "knife")
+        || nullptr != strstr(weapon, "bayonet")) {
         reward = 1500;
         return true;
     }
 
-    if(0 == strcmp(weapon, "awp")
-        || 0 == strcmp(weapon, "cz75a")) {
+    if(nullptr != strstr(weapon, "awp")
+        || nullptr != strstr(weapon, "cz75a")) {
         reward = 100;
         return true;
     }
 
-    if(0 == strcmp(weapon, "taser")) {
+    if(nullptr != strstr(weapon, "taser")) {
         reward = 0;
         return true;
     }
 
-    if(0 == strcmp(weapon, "nova")
-        || 0 == strcmp(weapon, "mag7")
-        || 0 == strcmp(weapon, "sawedoff")) {
+    if(nullptr != strstr(weapon, "nova")
+        || nullptr != strstr(weapon, "mag7")
+        || nullptr != strstr(weapon, "sawedoff")) {
         reward = 900;
         return true;
     }
 
-    if(0 == strcmp(weapon, "xm1014")) {
+    if(nullptr != strstr(weapon, "xm1014")) {
         reward = 600;
         return true;
     }
 
-    if(0 == strcmp(weapon, "mp9")
-        || 0 == strcmp(weapon, "mac10")
-        || 0 == strcmp(weapon, "mp7")
-        || 0 == strcmp(weapon, "mp5sd")
-        || 0 == strcmp(weapon, "ump45")
-        || 0 == strcmp(weapon, "bizon")) {
+    if(nullptr != strstr(weapon, "mp9")
+        || nullptr != strstr(weapon, "mac10")
+        || nullptr != strstr(weapon, "mp7")
+        || nullptr != strstr(weapon, "mp5sd")
+        || nullptr != strstr(weapon, "ump45")
+        || nullptr != strstr(weapon, "bizon")) {
         reward = 600;
         return true;
     }
@@ -634,7 +634,7 @@ bool GetWeaponBaseKillReward(const char * weapon, int & reward)
         "incgrenade", "decoy"
     };
     for(const char * candidate : defaultAwardWeapons) {
-        if(0 == strcmp(weapon, candidate)) {
+        if(nullptr != strstr(weapon, candidate)) {
             reward = 300;
             return true;
         }

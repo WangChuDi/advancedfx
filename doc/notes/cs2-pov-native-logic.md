@@ -1139,3 +1139,22 @@ formatter 首先通过仅分析的 local-pawn helper `0xC7C160` 读取真正本�
 当前 PE 唯一签名、cache layout、call targets 检查通过。`verify.py` 提取上述生产 formatter、地点读取和 updater 包装函数，以模拟原生 HUD 编译运行，**42 项断言通过**，覆盖存活同队/敌方/死亡、缺失或超长地点、缺失实体/schema/本地化、地点移动、稳定帧去重、POV 队伍切换、地点 off/on/re-enable、主 POV/voice 开关和缓存清理。普通 Release x64 构建通过；测试不执行真正 Panorama 面板/游戏音频，实际语音条视觉、本地化语言、暂停刷新和 demo 回放开关矩阵仍待实机确认。未启动、关闭、重启或控制游戏，未提交或推送。
 
 独立只读源码复核未发现明确 ABI、缓存偏移或生命周期错误；实际 native 回调线程及 playerSlot+1 映射仍须运行确认。`git diff --check` 通过。2026-10-23 00:11:33（Asia/Shanghai）确认 CS2 未运行、HLAE 启动器未加载目标且目标可独占打开，再次核对安装 client 完整 hash 后，备份并原子替换 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`。新构建与安装 SHA-256 均为 `0540BC1B43F3A2C024FF6233558CE7C0CA9B8D2616931BAC30E2CF1825167CE2`；旧版备份 `AfxHookSource2.dll.backup-20261023-001133-voice-location` 的 SHA-256 为 `90DFC0CB4F075BFD8349CD2B0FF206DB160F7D01C64C1B343C153AF2B7788A77`，记录见本轮 `installation.json`。这是磁盘部署验证，未验证实际加载及语音条画面。
+
+# 2026-10-30: platform-prefixed weapon reward names
+
+Final implementation retains the event-driven weapon reward table and native
+TextMsg priority; the interim counter-delta implementation was withdrawn.
+Weapon matching now uses substring checks, including knife/bayonet (1500),
+AWP/CZ75 (100), and SMG/shotgun entries. Existing reward cvar factor applies.
+
+Demo evidence: D:/Downloads/6.dem, KKv120, round 6 (start tick 30316),
+knife kill tick 36186: weapon=5e_2026pass1_knife_butterfly. The prior prefix-only
+knife check failed and selected default 300. Other recorded names include
+5e_2026pass1_ak47 and 5e_2026pass1_ak47_ace. Evidence saved in
+ diagnostics/demo-reward-20261030/round6.json. No module disassembly or new
+address verification was performed. Existing addresses are not revalidated.
+
+This changes the existing killreward effect, using its existing feature control.
+Custom server weapon awards may still differ from table fallback amounts.
+Release x64 build and diff checks are performed for this revision; in-game
+playback and switch/toggle behavior require runtime verification.
