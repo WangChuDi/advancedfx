@@ -969,7 +969,14 @@ static bool MirvPovHud_ShouldShowBuyZoneIcon(CEntityInstance * povPawn) {
     __try {
         void * gameRules = *reinterpret_cast<void **>(site + 7 + *reinterpret_cast<int32_t *>(site + 3));
         if(nullptr == gameRules) return false;
-        return buyState(gameRules) && !buyTimeElapsed(gameRules) && inBuyZone(povPawn, false);
+        // Platform demos can enable buy-anywhere. The native predicate then
+        // succeeds outside the physical zone; the POV icon must still reflect
+        // this player's replicated zone membership.
+        bool zoneAvailable = false;
+        bool physicallyInZone = povPawn->GetInBuyZone(zoneAvailable);
+        return zoneAvailable && physicallyInZone
+            && buyState(gameRules) && !buyTimeElapsed(gameRules)
+            && inBuyZone(povPawn, false);
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }

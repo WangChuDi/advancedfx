@@ -1140,6 +1140,57 @@ formatter 首先通过仅分析的 local-pawn helper `0xC7C160` 读取真正本�
 
 独立只读源码复核未发现明确 ABI、缓存偏移或生命周期错误；实际 native 回调线程及 playerSlot+1 映射仍须运行确认。`git diff --check` 通过。2026-10-23 00:11:33（Asia/Shanghai）确认 CS2 未运行、HLAE 启动器未加载目标且目标可独占打开，再次核对安装 client 完整 hash 后，备份并原子替换 `D:\Edu\Python\CS_AutoHighlight\tools\hlae\x64\AfxHookSource2.dll`。新构建与安装 SHA-256 均为 `0540BC1B43F3A2C024FF6233558CE7C0CA9B8D2616931BAC30E2CF1825167CE2`；旧版备份 `AfxHookSource2.dll.backup-20261023-001133-voice-location` 的 SHA-256 为 `90DFC0CB4F075BFD8349CD2B0FF206DB160F7D01C64C1B343C153AF2B7788A77`，记录见本轮 `installation.json`。这是磁盘部署验证，未验证实际加载及语音条画面。
 
+## 2026-10-31: physical buy-zone requirement for POV shopping cart
+
+Installation/runtime follow-up: installed Release SHA-256
+A3153FD7C2FBDB6BF6BA1854882DC8360A5068DE35373D1CF1D4E193FCA20568 matches build;
+prior DLL backed up as AfxHookSource2.dll.backup-20261031-buyzone in installed
+HLAE x64 directory. CS2 stopped before replacement and restarted through HLAE.
+Loaded hook reports 518c4c2e-dirty, built 2026-10-31T03:40:23Z.
+6.dem KKv120 first-person screenshots confirm green cart at tick 30804
+(firstperson.png), no cart outside at tick 32000 after feature/main off/on
+(outside.png), and restored cart after backward seek to 30800 and feature
+off/on (return.png). Files under diagnostics/demo-reward-20261030.
+Individual intermediate off-state visuals were not captured. The session is
+left paused at 30800, buyzone and POV enabled. These are bounded visual checks,
+not exhaustive game-mode coverage. Test runner command PASS alone was not
+used as visual proof; initial free-camera screenshots were rejected as proof.
+
+Live playback verification: installed hook reports Git 7da89cd3-dirty, built
+2026-10-29T07:29:52Z. Correctly quoted playdemo followed by demo_gototick 32000
+and pause reached tick 32273. Console queries returned mp_buy_anywhere=1 and
+mp_buytime=600, despite the recorded tick-5956 changes to 0 and 20. Existing
+buyzone feature is active. Evidence: buyzone-live2.log, lines 168-169 and 212,
+under diagnostics/demo-reward-20261030. This confirms playback cvar state
+differs from recorded match state after this seek; it does not establish which
+engine restoration stage loses the updates. The added physical-zone gate
+addresses the unwanted buy-anywhere result without globally overriding cvars.
+First attempt failed to load due to unquoted Windows path; its runner PASS
+labels are not evidence of demo playback. The second scenario rejects those
+failure strings. No DLL was replaced; new gate visual behavior remains pending.
+
+Direct 6.dem parsing subsequently established: server_cvar initially records
+mp_buy_anywhere=1 and mp_buytime=600 at tick -1, then changes them to 0 and 20
+at tick 5956. Thus buy-anywhere is NOT enabled in the recorded sixth round.
+KKv120's CCSPlayerPawn.m_bInBuyZone is true at round-six start tick 30316,
+changes to false at tick 31409 and stays false through the round (before
+39375). Evidence: diagnostics/demo-reward-20261030/buyzone-evidence.json.
+This validates recorded zone data availability but does not explain why the
+running HUD stays visible. Playback cvar restoration and native HUD cache/hook
+execution remain unverified; do not equate recorded cvars with live values.
+
+Source-level correction, without new disassembly or module-address validation.
+The existing native inBuyZone helper includes buy-anywhere semantics, whereas
+the requested icon represents physical zone membership. ShouldShowBuyZoneIcon
+now additionally requires the current POV pawn's schema-backed m_bInBuyZone.
+Missing schema data hides the icon. Native buy-state, elapsed-time and zone
+predicates remain required. The existing MoneyUpdate hook still applies both
+the money__in-buy-zone class and cache; no new hook is added. Existing
+mirv_pov_debug_feature buyzone 0|1 and main POV cleanup remain unchanged.
+The exact cause of the reported 5E demo state is not runtime-confirmed.
+Release x64 build is checked; actual zone transitions, buy-anywhere, seeks,
+POV switching and off/on interaction still require playback verification.
+
 # 2026-10-30: platform-prefixed weapon reward names
 
 Final implementation retains the event-driven weapon reward table and native
