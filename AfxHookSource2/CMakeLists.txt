@@ -301,6 +301,8 @@ target_sources(${PROJECT_NAME} PRIVATE
 
     MirvPovTeamID.cpp
     MirvPovTeamID.h
+    ClientRenderScopeOverlay.cpp
+    ClientRenderScopeOverlay.h
 
     ConsoleRs.cpp
     CVarRs.cpp
