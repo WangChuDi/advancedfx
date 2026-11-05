@@ -682,6 +682,18 @@ declare namespace mirv {
 		getObserverTargetHandle(): number;
 
 		/**
+		 * @returns Handle of the parent entity (invalid handle if entity has no parent).
+		 * Since HLAE 2.193.0
+		 */
+		getParentHandle(): number;
+
+		/**
+		 * @returns Handle of the root parent entity (own handle if entity has no parent).
+		 * Since HLAE 2.193.0
+		 */
+		getRootHandle(): number;
+
+		/**
 		 * @remarks makes sense only on entities that have attachment points e.g player models (Pawns), weapons.
 		 * Attachments names could be found when inspecting models files via Source 2 Viewer.
 		 * Since HLAE 2.187.2
@@ -702,25 +714,25 @@ declare namespace mirv {
 	/**
 	 * Since HLAE 2.190.0.
 	 */
-	const events = {
-		recordStart: AdvancefxMirv.Events.RecordStart,
+	const events: {
+		recordStart: AdvancedfxMirv.Events.RecordStart;
 
-		recordEnd: AdvancedfxMirv.Events.RecordEnd,
+		recordEnd: AdvancedfxMirv.Events.RecordEnd;
 
-		gameEvent: AdvancedfxMirv.Events.GameEvent,
+		gameEvent: AdvancedfxMirv.Events.GameEvent;
 
-		cViewRenderSetupView: AdvancedfxMirv.Events.CViewRenderSetupView,
+		cViewRenderSetupView: AdvancedfxMirv.Events.CViewRenderSetupView;
 
-		clientFrameStageNotify: AdvancedfxMirv.Events.ClientFrameStageNotify,
+		clientFrameStageNotify: AdvancedfxMirv.Events.ClientFrameStageNotify;
 
 		/**
 		 * Called after an entity has been added.
 		 */
-		addEntity: AdvancedfxMirv.Events.AddEntity,
+		addEntity: AdvancedfxMirv.Events.AddEntity;
 
 		/**
 		 * Called before an entity is removed.
 		 */
-		removeEntity: AdvancedfxMirv.Events.RemoveEntity
+		removeEntity: AdvancedfxMirv.Events.RemoveEntity;
 	};
 }

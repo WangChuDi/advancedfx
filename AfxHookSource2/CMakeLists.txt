@@ -205,6 +205,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     ../shared/ImageTransformer.cpp
     ../shared/ImageTransformer.h    
     ../shared/OutVideoStreamCreators.h
+    ../shared/OutputPathTemplate.cpp
+    ../shared/OutputPathTemplate.h
     ../shared/OpenExrOutput.cpp
     ../shared/OpenExrOutput.h    
     ../shared/RawOutput.cpp
@@ -353,6 +355,12 @@ target_sources(${PROJECT_NAME} PRIVATE
 
 	SchemaSystem.cpp
 	SchemaSystem.h
+
+	SceneActionFilter.cpp
+	SceneActionFilter.h
+
+	EntMatPicker.cpp
+	EntMatPicker.h
 
 	SceneSystem.cpp
 	SceneSystem.h
