@@ -33,6 +33,7 @@ struct SceneActionFilterQuery {
 	/// <summary>Material name or nullptr if not available.</summary>
 	const std::string* MaterialName = nullptr;
 	const std::string* className = nullptr;
+	const std::string* ModelName = nullptr;
 	/// <summary>Raw entity handle number if available.</summary>
 	std::optional<uint32_t> EntityHandle;
 	std::optional<uint32_t> ParentEntityHandle;
@@ -49,6 +50,12 @@ public:
 
 	/// <summary>Finds the first matching filter. Returns false if none matched (fall through).</summary>
 	bool Match(const SceneActionFilterQuery& query, SceneActionFilterAction& outAction) const;
+
+	/// <summary>Finds the decision for a whole pass, only ViewName and ViewPass of the query are used.
+	/// Only scope=pass filters can decide a pass. Returns false if no scope=pass filter matches or if
+	/// a filter that is not scope=pass and could match objects of the pass comes first (fall through
+	/// to Match per object).</summary>
+	bool MatchPass(const SceneActionFilterQuery& query, SceneActionFilterAction& outAction) const;
 
 	/// <summary>Total order, for CStreamSettings::CompareRenderPass.</summary>
 	int Compare(const CSceneActionFilterList& other) const;
@@ -70,13 +77,17 @@ private:
 		uint32_t ParentHandle = 0;
 		uint32_t RootHandle = 0;
 		// Wildcard masks (\* = wildcard, \\ = \), empty = don't care.
+		std::string ModelName;
 		std::string className;
 		std::string MaterialName;
 		std::string ViewName;
 		std::string ViewPass;
+		// scope=pass: Blocks the whole pass if it decides it, can't be combined with handle or name.
+		bool ScopePass = false;
 		SceneActionFilterAction Action = SceneActionFilterAction::Draw;
 
 		bool Matches(const SceneActionFilterQuery& query) const;
+		bool MatchesView(const SceneActionFilterQuery& query) const;
 		int Compare(const Entry& other) const;
 	};
 
@@ -103,6 +114,7 @@ public:
 	void Clear();
 
 	bool Match(const SceneActionFilterQuery& query, SceneActionFilterAction& outAction) const;
+	bool MatchPass(const SceneActionFilterQuery& query, SceneActionFilterAction& outAction) const;
 
 private:
 	mutable std::shared_mutex m_Mutex;
