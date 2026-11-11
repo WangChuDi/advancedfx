@@ -1209,3 +1209,63 @@ This changes the existing killreward effect, using its existing feature control.
 Custom server weapon awards may still differ from table fallback amounts.
 Release x64 build and diff checks are performed for this revision; in-game
 playback and switch/toggle behavior require runtime verification.
+
+## 2026-11-11 installed-build static compatibility audit
+
+Installed client SHA-256: `9279421852772522121be2f13409dd37436e8c809ff48898c8c3d41b09e77844`, preferred image base `0x180000000`; previous saved baseline `d618bbf8e6afb36baa09b3a282035996a88300458c55d2aa5cb81f0495c0ec54`. Versioned DLL/manifest prepared under `diagnostics/ida/client/9279421852772522`; no IDB finalized.
+
+Evidence: `diagnostics/pov-update-20261111/audit.json` and `README.md`. Scanned 137 literals in 13 modules (88 POV literals), compared 55 schema names: no extracted schema-offset differences. Two active unmatched signatures: `AfxHookSource2/MirvPovMvpMusic.cpp:64,67`, listener/playback call contexts. Former containing function RVA `0xCECAB0` has heuristic candidate `0xCECC30` (VA `0x180CECC30`), with changed size/code; candidate is not a verified hook or helper address. Five other unmatched literals are commented-out code. Nonunique signatures still need scoped call-chain checks.
+
+Native behavior: no new native conditions, thresholds, event order, state layout, vtable slots or MVP semantics established in this file-only pass. POV implementation: buy-menu adapter explicitly accepts client hash `08a741030c1e569d8b854c5886a87fcafc21d0d0e2f05dfd380e8a351171501d`, so installed build fails initialization gate at `MirvPovBuyMenu.cpp:764-769`. A full port must distinguish hooked entries from unhooked playback/UI helpers and verify globals, interior call sites, signatures/ABI and panorama slots; changing hash alone is invalid. The report's numeric buy-menu mappings use the latest saved baseline rather than the adapter's older hash, so are hints only. Production offsets/signatures unchanged; no Release build, runtime or demo validation performed. Static scan is not proof of overall compatibility.
+
+
+## 2026-11-11 adaptation implementation
+
+Target client SHA-256 9279421852772522121be2f13409dd37436e8c809ff48898c8c3d41b09e77844, image base 0x180000000. IDA baseline saved/finalized at diagnostics/ida/client/9279421852772522/client.i64. Adapter mappings below use its actual whitelist baseline 08a741030c1e569d8b854c5886a87fcafc21d0d0e2f05dfd380e8a351171501d.
+
+Native versus POV: MVP round listener changes saved return-value register (48 8B F0 -> 4C 8B F0); eligibility branch distance changes 74 22 -> 74 23. New listener call context RVA 0xCECCC1, playback context 0xCED42B. Getter and eligibility/music/demo/submission call relationships verified. Two POV signatures updated; existing caller-return guards retained. The encompassing function RVA 0xCECC30 is not hooked. No new event-order, predicate or threshold change is asserted.
+
+Buy-menu hooked entries and unhooked inventory/model/item/event helpers migrated in AfxHookSource2/MirvPovBuyMenu.cpp. Verified RVA mappings (analysis VA = image base + RVA):
+
+- 0x21c9c0 -> 0x21ca00
+- 0x83d9c0 -> 0x83db40
+- 0x900800 -> 0x900980
+- 0x9057d0 -> 0x905950
+- 0x905870 -> 0x9059f0
+- 0x96c040 -> 0x96c1c0
+- 0xc96a00 -> 0xc96b80
+- 0xda35c0 -> 0xda3790
+- 0xdab910 -> 0xdabae0
+- 0xdac820 -> 0xdac9f0
+- 0xdacb60 -> 0xdacd30
+- 0xdaff90 -> 0xdb0160
+- 0xdb9cc0 -> 0xdb9e90
+- 0xdba420 -> 0xdba5f0
+- 0xdbd770 -> 0xdbd940
+- 0xdbd810 -> 0xdbd9e0
+- 0xdc32d0 -> 0xdc34a0
+- 0xdc4ac0 -> 0xdc4c90
+- 0xe61320 -> 0xe61a60
+- 0xe6aa90 -> 0xe6b1d0
+- 0x113a070 -> 0x113a9c0
+- 0x1188a90 -> 0x11893e0
+- 0x11895e0 -> 0x1189f30
+- 0x119f070 -> 0x119fa80
+- 0x119f110 -> 0x119fb20
+- 0x17898b0 -> 0x178a2c0
+- 0xdb0440 -> 0xdb0610
+- 0x83ae10 -> 0x83af90
+- 0x2738140 -> 0x27391e0
+- 0x96c000 -> 0x96c180
+- 0x8c2400 -> 0x8c2580
+- 0x2532040 -> 0x2533060
+- 0x25cca04 -> 0x25cda84
+- 0x25cca08 -> 0x25cda88
+- 0xdb5050 -> 0xdb5220
+
+Four globals verified via corresponding RIP-relative references in equivalent callers (port.json). Item-system getter (8 bytes), controller getter (0x33 bytes) and EventOpenBuyMenu creator (199 bytes) compare normalized-equivalent. Ownership helper differs only in jump-table relocation 0x8C34C0 -> 0x8C3640 through the last return. Panorama hash c9d86e0e59ec0c0976306e3eea9ea9f9a9c89130475e1acc771cd96a206fb2f7 whitelisted after 16 RTTI-resolved slot functions compare equivalent with archived Panorama and match production slot guards. Slot numbers unchanged. Client image extent 0x29A3000. Four buy-menu/glove schema expectations verified.
+
+Validation: Release x64 build passed; 27 static assertions passed (verification.json). Updated scan: all 88 POV signature literals have matches, 55 schema offset sets unchanged. Nonunique signatures retain scoped runtime checks. Existing mvp_music, buymenu and buymenu_gloves feature controls retained; no new effects. Runtime result recorded after regression. This static verification does not prove native playback or visual correctness.
+
+
+Runtime boundary: user requested no game testing; all further game testing stopped and the test-created CS2 process was terminated. Early initialization logs showed MVP ready=1/playback_observers=1 and buy-menu hooks=1/gloves_supported=1/input_supported=1, but demo attempts did not establish successful playback (first runner summary was insufficient; later attempt detected Error loading). No actual MVP audio or buy-menu visual regression acceptance. Release DLL staged in build/staging-release/x64; installed application DLL not replaced.

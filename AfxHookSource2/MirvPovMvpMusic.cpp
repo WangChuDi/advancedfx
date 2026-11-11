@@ -62,9 +62,9 @@ constexpr char kMutePredicateCall[] =
     "84 C0 75 ?? 48 8B 0D ?? ?? ?? ?? 48 8B 5C 24 40";
 constexpr char kListenerCalls[] =
     "E8 ?? ?? ?? ?? 48 8B D8 48 89 85 08 05 00 00 E8 ?? ?? ?? ?? "
-    "48 8D 4C 24 78 48 8B F0 E8 ?? ?? ?? ?? 49 8B 14 24 49 8B CC";
+    "48 8D 4C 24 78 4C 8B F0 E8 ?? ?? ?? ?? 49 8B 14 24 49 8B CC";
 constexpr char kMvpPlaybackCalls[] =
-    "49 8B CC 66 41 89 9D 48 01 00 00 E8 ?? ?? ?? ?? 84 C0 74 22 "
+    "49 8B CC 66 41 89 9D 48 01 00 00 E8 ?? ?? ?? ?? 84 C0 74 23 "
     "0F 57 DB 48 8D 4C 24 78 44 0F B7 C3 BA 0B 00 00 00 E8 ?? ?? ?? ??";
 constexpr char kMusicEntry[] =
     "40 55 53 57 48 8D AC 24 F0 FE FF FF 48 81 EC 10 02 00 00 "
