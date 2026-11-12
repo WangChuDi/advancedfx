@@ -30,7 +30,7 @@ unsigned char * (__fastcall * g_OrgHltvParse)(
     __int64 parseContext) = nullptr;
 bool g_HltvHooked = false;
 
-void (__fastcall * g_OrgUserCommandsHandler)(void * This, void * msg) = nullptr;
+__int64 (__fastcall * g_OrgUserCommandsHandler)(void * This, void * msg) = nullptr;
 bool g_UserCommandsHooked = false;
 
 bool ReadVarInt(
@@ -224,10 +224,11 @@ unsigned char * __fastcall NewHltvParse(
     return result;
 }
 
-void __fastcall NewUserCommandsHandler(void * This, void * msg)
+__int64 __fastcall NewUserCommandsHandler(void * This, void * msg)
 {
-    g_OrgUserCommandsHandler(This, msg);
+    const auto result = g_OrgUserCommandsHandler(This, msg);
     ParseUserCommandsMessage(msg);
+    return result;
 }
 
 void HookHltvParser(HMODULE clientDll)
@@ -254,7 +255,7 @@ void HookHltvParser(HMODULE clientDll)
 void HookUserCommands(HMODULE clientDll)
 {
     if(g_UserCommandsHooked || nullptr == clientDll) return;
-    size_t address = getAddress(clientDll, "40 53 41 54 41 55 48 81 EC 80 00 00 00 4C 8B EA 4C 8B E1 49 8B CD 33 D2 33 DB E8 ?? ?? ?? ?? 49 63 45 48");
+    size_t address = getAddress(clientDll, "40 53 41 54 41 55 48 81 EC A0 00 00 00 4C 8B EA 4C 8B E1 49 8B CD 33 D2 33 DB E8 ?? ?? ?? ?? 49 63 45 48");
     if(0 == address) {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_scoreboard] UserCommands handler pattern not found.\n");
         return;

@@ -19,8 +19,8 @@ namespace {
 // This adapter is intentionally tied to the IDA-analyzed build. Never apply
 // these RVAs/ABI layouts to an unknown client DLL.
 constexpr unsigned char kClientHash[] = {
-    0x92,0x79,0x42,0x18,0x52,0x77,0x25,0x22,0x12,0x1b,0xe2,0xf1,0x34,0x09,0xdd,0x37,
-    0x43,0x6e,0x8c,0x80,0x9f,0xf4,0x88,0x98,0xc8,0xc3,0xd4,0x1b,0x09,0xe7,0x78,0x44
+    0x99,0xa6,0x72,0x0b,0x29,0xd8,0xb4,0x77,0xd5,0x5f,0x0a,0x2d,0x7f,0xd4,0x33,0x3b,
+    0x5d,0xf1,0x3f,0x35,0x4b,0xa7,0x23,0x80,0x4e,0x99,0x6b,0xea,0xd1,0x23,0x1a,0xa8
 };
 template<class T> T & Field(void * p, size_t offset) {
     return *reinterpret_cast<T *>(static_cast<unsigned char *>(p) + offset);
@@ -113,7 +113,7 @@ void * FindPanelByClass(void * panel, const char * className, int depth = 0) {
 // Native Panorama weak handles keep restoration safe across layout teardown.
 void * ResolveUi(uint64_t handle) {
     if(!g_Base || handle == 0xFFFFFFFF00000000ULL) return nullptr;
-    auto engine = *reinterpret_cast<void **>(g_Base + 0x27391E0);
+    auto engine = *reinterpret_cast<void **>(g_Base + 0x27226C0);
     return engine ? reinterpret_cast<void * (__fastcall *)(void *, uint64_t *)>(
         Field<void **>(engine, 0)[34])(engine, &handle) : nullptr;
 }
@@ -170,8 +170,8 @@ void ApplyBuyStyles(void * menu) {
     // Spectator HUD color selectors have greater specificity than the native
     // buywheel-cant-buy selector. Exclude only disabled item content from that
     // tint; let buymenu.css provide its original icon/name/price colors.
-    const auto cantBuy = *reinterpret_cast<uint16_t *>(g_Base + 0x25CDA88);
-    const auto cantAfford = *reinterpret_cast<uint16_t *>(g_Base + 0x25CDA84);
+    const auto cantBuy = *reinterpret_cast<uint16_t *>(g_Base + 0x25B6EB0);
+    const auto cantAfford = *reinterpret_cast<uint16_t *>(g_Base + 0x25B6EAC);
     for(int group = 0; group < 5; ++group) {
         int count = Field<int>(menu, 128 + 56 * group);
         auto records = Field<unsigned char *>(menu, 136 + 56 * group);
@@ -221,7 +221,7 @@ struct Scope {
 };
 bool InClient(void * address) {
     const auto rva = reinterpret_cast<uintptr_t>(address) - g_Base;
-    return rva < 0x29A3000;
+    return rva < 0x298A000;
 }
 bool Visible(void * menu) {
     if(!menu) return false;
@@ -231,7 +231,7 @@ bool Visible(void * menu) {
 }
 void * ResolveMenu() {
     if(!g_Base || g_MenuHandle == 0xFFFFFFFF00000000ULL) return nullptr;
-    void * engine = *reinterpret_cast<void **>(g_Base + 0x27391E0);
+    void * engine = *reinterpret_cast<void **>(g_Base + 0x27226C0);
     if(!engine) return nullptr;
     auto panel = reinterpret_cast<void * (__fastcall *)(void *, uint64_t *)>(
         Field<void **>(engine, 0)[34])(engine, &g_MenuHandle);
@@ -239,7 +239,7 @@ void * ResolveMenu() {
     return reinterpret_cast<void * (__fastcall *)(void *)>(Field<void **>(panel, 0)[8])(panel);
 }
 void CacheMenu(void * menu) {
-    void * engine = *reinterpret_cast<void **>(g_Base + 0x27391E0);
+    void * engine = *reinterpret_cast<void **>(g_Base + 0x27226C0);
     auto panel = reinterpret_cast<void * (__fastcall *)(void *)>(Field<void **>(menu, 0)[0])(menu);
     uint64_t handle = 0xFFFFFFFF00000000ULL;
     g_MenuHandle = *reinterpret_cast<uint64_t * (__fastcall *)(void *, uint64_t *, void *)>(
@@ -278,8 +278,8 @@ bool DiagnosticPanoramaSupported() {
     auto module = GetModuleHandleW(L"panorama.dll");
     if(module && module != checked) {
         constexpr unsigned char expected[] = {
-            0xc9,0xd8,0x6e,0x0e,0x59,0xec,0x0c,0x09,0x76,0x30,0x6e,0x3e,0xea,0x9e,0xa9,0xf9,
-            0xa9,0xc8,0x91,0x30,0x47,0x5e,0x1a,0xcc,0x77,0x1c,0xd9,0x6a,0x20,0x6f,0xb2,0xf7
+            0x8b,0x10,0xf2,0xb1,0xf9,0x15,0x0e,0xcf,0xaf,0x9f,0xfa,0x21,0xc0,0x7c,0xc0,0x1a,
+            0xba,0xef,0x23,0xea,0x89,0xcb,0x74,0xde,0x62,0x7e,0x87,0xda,0x7d,0x75,0x69,0x3c
         };
         supported = MatchesBuild(module, expected);
         checked = module;
@@ -421,7 +421,7 @@ void CaptureBuySnapshot(void * menu, const char * phase) {
     s.time = GetTickCount64();
     s.tick = g_LastTick;
     s.hovered = Field<int>(menu, 664);
-    auto promoted = *reinterpret_cast<void **>(g_Base + 0x2533060);
+    auto promoted = *reinterpret_cast<void **>(g_Base + 0x251C2D0);
     if(promoted) s.promoEnabled = Field<uint8_t>(promoted, 88);
     s.promoSlot = Field<int>(menu, 640);
     s.item = Field<void *>(menu, 648);
@@ -468,7 +468,7 @@ void PrintBuySnapshots() {
     }
 }
 bool Dispatch(size_t creator) {
-    void * engine = *reinterpret_cast<void **>(g_Base + 0x27391E0);
+    void * engine = *reinterpret_cast<void **>(g_Base + 0x27226C0);
     if(!engine) return false;
     void * event = nullptr;
     reinterpret_cast<EventFn>(g_Base + creator)(&event, nullptr);
@@ -505,13 +505,13 @@ void * ObservedLoadout(void * inventory, unsigned int team, unsigned int slot) {
     // the observed player's chosen weapon definitions, not the viewer's loadout.
     const int count = Field<int>(inventory, 0x88);
     auto records = Field<unsigned char *>(inventory, 0x90);
-    auto manager = reinterpret_cast<void * (__fastcall *)()>(g_Base + 0x83AF90)();
+    auto manager = reinterpret_cast<void * (__fastcall *)()>(g_Base + 0x834F70)();
     if(records && count > 0 && count <= 256) {
         for(int i = 0; i < count; ++i) {
             auto record = records + i * 56;
             if(Field<uint16_t>(record, 48) == team && Field<uint16_t>(record, 50) == slot) {
                 auto item = reinterpret_cast<void * (__fastcall *)(void *, unsigned int, int, int)>(
-                    g_Base + 0x113A9C0)(manager, Field<uint16_t>(record, 52), 0, 0);
+                    g_Base + 0x11314E0)(manager, Field<uint16_t>(record, 52), 0, 0);
                 if(item) { ++g_LoadoutHits; return item; }
             }
         }
@@ -520,7 +520,7 @@ void * ObservedLoadout(void * inventory, unsigned int team, unsigned int slot) {
     // definition table, exactly as the native loadout traversal does. The
     // direct team/slot lookup does not read the local equipped-item interface.
     {
-        auto item = reinterpret_cast<LoadoutFn>(g_Base + 0x83DB40)(manager, team, slot);
+        auto item = reinterpret_cast<LoadoutFn>(g_Base + 0x837B20)(manager, team, slot);
         if(item) { ++g_LoadoutHits; return item; }
     }
     if(slot <= 57) ++g_LoadoutMisses; // Ignore native hover/special-slot sentinels.
@@ -626,7 +626,7 @@ intptr_t __fastcall SetModel(void * preview, const char * model) {
         // Native weapon selection is reusable, but its agent lookup uses the
         // viewer's equipped inventory. Bind the recorded pawn's model instead.
         model = nullptr;
-        reinterpret_cast<void * (__fastcall *)(void *, const char **)>(g_Base + 0x21CA00)(g_Pawn, &model);
+        reinterpret_cast<void * (__fastcall *)(void *, const char **)>(g_Base + 0x21C7E0)(g_Pawn, &model);
         if(!model || !*model) model = g_Pawn->GetTeam() == 3
             ? "agents/models/ctm_sas/ctm_sas.vmdl" : "agents/models/tm_phoenix/tm_phoenix.vmdl";
         // Native preview setup stores the viewer's agent item ID in this slot.
@@ -768,39 +768,39 @@ void MirvPovBuyMenu_Initialize(HMODULE module) {
         return;
     }
     g_Base = reinterpret_cast<uintptr_t>(module);
-    reinterpret_cast<void (__fastcall *)(uint16_t *, const char *)>(g_Base + 0x178A2C0)(
+    reinterpret_cast<void (__fastcall *)(uint16_t *, const char *)>(g_Base + 0x177E770)(
         &g_HudWashClass, "hud-colorize-wash");
-    g_Open = reinterpret_cast<PanelFn>(g_Base + 0xDBA5F0);
-    g_Close = reinterpret_cast<PanelFn>(g_Base + 0xDA3790);
-    g_Refresh = reinterpret_cast<PanelFn>(g_Base + 0xDBD940);
-    g_FullRefresh = reinterpret_cast<PanelFn>(g_Base + 0xDBD9E0);
-    g_Hover = reinterpret_cast<PanelFn>(g_Base + 0xDC4C90);
-    g_Think = reinterpret_cast<PanelFn>(g_Base + 0xDABAE0);
-    g_GetPawn = reinterpret_cast<GetterFn>(g_Base + 0x96C1C0);
-    g_GetController = reinterpret_cast<GetterFn>(g_Base + 0x96C180);
-    g_Loadout = reinterpret_cast<LoadoutFn>(g_Base + 0x9059F0);
-    g_LoadoutHover = reinterpret_cast<LoadoutFn>(g_Base + 0x905950);
-    g_Write = reinterpret_cast<WriteFn>(g_Base + 0xC96B80);
-    g_Purchase = reinterpret_cast<PurchaseFn>(g_Base + 0xDAC9F0);
-    g_Sell = reinterpret_cast<SellFn>(g_Base + 0xDACD30);
-    g_Model = reinterpret_cast<ModelFn>(g_Base + 0xDC34A0);
-    g_Select = reinterpret_cast<SelectFn>(g_Base + 0xDB9E90);
-    g_SetModel = reinterpret_cast<SetModelFn>(g_Base + 0xE61A60);
+    g_Open = reinterpret_cast<PanelFn>(g_Base + 0xDB0190);
+    g_Close = reinterpret_cast<PanelFn>(g_Base + 0xD99330);
+    g_Refresh = reinterpret_cast<PanelFn>(g_Base + 0xDB34E0);
+    g_FullRefresh = reinterpret_cast<PanelFn>(g_Base + 0xDB3580);
+    g_Hover = reinterpret_cast<PanelFn>(g_Base + 0xDBA830);
+    g_Think = reinterpret_cast<PanelFn>(g_Base + 0xDA1680);
+    g_GetPawn = reinterpret_cast<GetterFn>(g_Base + 0x965D20);
+    g_GetController = reinterpret_cast<GetterFn>(g_Base + 0x965CE0);
+    g_Loadout = reinterpret_cast<LoadoutFn>(g_Base + 0x8FF9D0);
+    g_LoadoutHover = reinterpret_cast<LoadoutFn>(g_Base + 0x8FF930);
+    g_Write = reinterpret_cast<WriteFn>(g_Base + 0xC8B090);
+    g_Purchase = reinterpret_cast<PurchaseFn>(g_Base + 0xDA2590);
+    g_Sell = reinterpret_cast<SellFn>(g_Base + 0xDA28D0);
+    g_Model = reinterpret_cast<ModelFn>(g_Base + 0xDB9040);
+    g_Select = reinterpret_cast<SelectFn>(g_Base + 0xDAFA30);
+    g_SetModel = reinterpret_cast<SetModelFn>(g_Base + 0xE57DC0);
     // Optional independently gated effect; unknown glove schema leaves the
     // existing buy-menu simulation available with native preview cosmetics.
     const auto & gloveOffsets = g_clientDllOffsets.C_CSPlayerPawn;
-    g_GlovesSupported = gloveOffsets.m_EconGloves == 0x1770
-        && gloveOffsets.m_bNeedToReApplyGloves == 0x176D
-        && gloveOffsets.m_nEconGlovesChanged == 0x1D20;
+    g_GlovesSupported = gloveOffsets.m_EconGloves == 0x17A0
+        && gloveOffsets.m_bNeedToReApplyGloves == 0x179D
+        && gloveOffsets.m_nEconGlovesChanged == 0x1D50;
     if(g_GlovesSupported) {
-        g_UpdatePreview = reinterpret_cast<UpdatePreviewFn>(g_Base + 0xE6B1D0);
-        g_CopyItem = reinterpret_cast<CopyItemFn>(g_Base + 0x11893E0);
-        g_EqualItems = reinterpret_cast<EqualItemsFn>(g_Base + 0x1189F30);
-        g_ClearItem = reinterpret_cast<ClearItemFn>(g_Base + 0x119FA80);
-        g_IsGloves = reinterpret_cast<ItemPredicateFn>(g_Base + 0x119FB20);
+        g_UpdatePreview = reinterpret_cast<UpdatePreviewFn>(g_Base + 0xE61530);
+        g_CopyItem = reinterpret_cast<CopyItemFn>(g_Base + 0x117FF00);
+        g_EqualItems = reinterpret_cast<EqualItemsFn>(g_Base + 0x1180A50);
+        g_ClearItem = reinterpret_cast<ClearItemFn>(g_Base + 0x11965A0);
+        g_IsGloves = reinterpret_cast<ItemPredicateFn>(g_Base + 0x1196640);
     }
     g_InputSupported = DiagnosticPanoramaSupported();
-    g_KeyInput = reinterpret_cast<KeyInputFn>(g_Base + 0xDB0160);
+    g_KeyInput = reinterpret_cast<KeyInputFn>(g_Base + 0xDA5D00);
     if(g_InputSupported) g_InputFocus = reinterpret_cast<InputFocusFn>(
         reinterpret_cast<uintptr_t>(GetModuleHandleW(L"panorama.dll")) + 0x13A4B0);
     DetourTransactionBegin();
@@ -926,7 +926,7 @@ void MirvPovBuyMenu_Update() {
     } else if(!g_Panel && !g_Pending) {
         g_Pending = true;
         g_PendingSince = GetTickCount64();
-        if(!Dispatch(0xDB5220)) g_Pending = false;
+        if(!Dispatch(0xDAADC0)) g_Pending = false;
     }
     if(auto menu = ResolveMenu()) {
         auto preview = Field<void *>(menu, 520);
@@ -1001,8 +1001,8 @@ void MirvPovBuyMenu_PrintStatus() {
                     continue;
                 }
                 const int result = reinterpret_cast<int (__fastcall *)(void *, void *, int, int *)>(
-                    g_Base + 0x8C2580)(Field<void *>(g_Pawn, 0x12F8), item, 1, nullptr);
-                auto owned = reinterpret_cast<void * (__fastcall *)(void *, void *)>(g_Base + 0x900980)(
+                    g_Base + 0x8BC560)(Field<void *>(g_Pawn, 0x12F8), item, 1, nullptr);
+                auto owned = reinterpret_cast<void * (__fastcall *)(void *, void *)>(g_Base + 0x8FA960)(
                     Field<void *>(g_Pawn, 0x12F0), item);
                 advancedfx::Message("[mirv_pov_buymenu] slot=%d definition=%u price=%d acquire=%d owned_weapon=%d\n",
                     Field<int>(record, 64), Field<uint16_t>(item, 442), Field<int>(record, 80), result, owned != nullptr);
