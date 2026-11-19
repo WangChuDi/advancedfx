@@ -19,8 +19,8 @@ namespace {
 // This adapter is intentionally tied to the analyzed build. Never apply
 // these RVAs/ABI layouts to an unknown client DLL.
 constexpr unsigned char kClientHash[] = {
-    0x30,0x74,0xf3,0x35,0xc1,0xda,0x39,0x0b,0xcc,0x34,0x45,0xf8,0x75,0x97,0xb8,0x75,
-    0x70,0x16,0xaa,0x3c,0x72,0x48,0x52,0xa6,0xaf,0xa0,0x39,0x3d,0xf0,0x00,0x50,0xc6
+    0x9e,0x0f,0xd6,0xaa,0x19,0xa8,0xcb,0x49,0x1c,0x45,0xae,0x5e,0x9c,0xe3,0xd1,0x37,
+    0x16,0x89,0x2a,0x42,0xc5,0x78,0xe0,0xc4,0x91,0x1c,0xf9,0xc3,0xff,0xaa,0x67,0xee
 };
 template<class T> T & Field(void * p, size_t offset) {
     return *reinterpret_cast<T *>(static_cast<unsigned char *>(p) + offset);
@@ -278,8 +278,8 @@ bool DiagnosticPanoramaSupported() {
     auto module = GetModuleHandleW(L"panorama.dll");
     if(module && module != checked) {
         constexpr unsigned char expected[] = {
-            0x8b,0x10,0xf2,0xb1,0xf9,0x15,0x0e,0xcf,0xaf,0x9f,0xfa,0x21,0xc0,0x7c,0xc0,0x1a,
-            0xba,0xef,0x23,0xea,0x89,0xcb,0x74,0xde,0x62,0x7e,0x87,0xda,0x7d,0x75,0x69,0x3c
+            0xa5,0x92,0x87,0x68,0xb6,0x81,0xb3,0x0d,0xfd,0x4c,0xb9,0x49,0xcb,0xbe,0x29,0x36,
+            0x88,0x46,0x97,0x9c,0xf0,0x8c,0x2e,0x44,0x49,0x23,0x84,0xa3,0xc4,0x73,0x90,0xe7
         };
         supported = MatchesBuild(module, expected);
         checked = module;
@@ -511,7 +511,7 @@ void * ObservedLoadout(void * inventory, unsigned int team, unsigned int slot) {
             auto record = records + i * 56;
             if(Field<uint16_t>(record, 48) == team && Field<uint16_t>(record, 50) == slot) {
                 auto item = reinterpret_cast<void * (__fastcall *)(void *, unsigned int, int, int)>(
-                    g_Base + 0x1132BF0)(manager, Field<uint16_t>(record, 52), 0, 0);
+                    g_Base + 0x1132C40)(manager, Field<uint16_t>(record, 52), 0, 0);
                 if(item) { ++g_LoadoutHits; return item; }
             }
         }
@@ -768,7 +768,7 @@ void MirvPovBuyMenu_Initialize(HMODULE module) {
         return;
     }
     g_Base = reinterpret_cast<uintptr_t>(module);
-    reinterpret_cast<void (__fastcall *)(uint16_t *, const char *)>(g_Base + 0x17814F0)(
+    reinterpret_cast<void (__fastcall *)(uint16_t *, const char *)>(g_Base + 0x1781670)(
         &g_HudWashClass, "hud-colorize-wash");
     g_Open = reinterpret_cast<PanelFn>(g_Base + 0xDB1790);
     g_Close = reinterpret_cast<PanelFn>(g_Base + 0xD9A920);
@@ -794,10 +794,10 @@ void MirvPovBuyMenu_Initialize(HMODULE module) {
         && gloveOffsets.m_nEconGlovesChanged == 0x1D50;
     if(g_GlovesSupported) {
         g_UpdatePreview = reinterpret_cast<UpdatePreviewFn>(g_Base + 0xE62AF0);
-        g_CopyItem = reinterpret_cast<CopyItemFn>(g_Base + 0x1181610);
-        g_EqualItems = reinterpret_cast<EqualItemsFn>(g_Base + 0x1182160);
-        g_ClearItem = reinterpret_cast<ClearItemFn>(g_Base + 0x1197CB0);
-        g_IsGloves = reinterpret_cast<ItemPredicateFn>(g_Base + 0x1197D50);
+        g_CopyItem = reinterpret_cast<CopyItemFn>(g_Base + 0x1181660);
+        g_EqualItems = reinterpret_cast<EqualItemsFn>(g_Base + 0x11821B0);
+        g_ClearItem = reinterpret_cast<ClearItemFn>(g_Base + 0x1197D00);
+        g_IsGloves = reinterpret_cast<ItemPredicateFn>(g_Base + 0x1197DA0);
     }
     g_InputSupported = DiagnosticPanoramaSupported();
     g_KeyInput = reinterpret_cast<KeyInputFn>(g_Base + 0xDA72F0);
