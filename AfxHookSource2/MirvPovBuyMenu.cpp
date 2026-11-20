@@ -19,8 +19,8 @@ namespace {
 // This adapter is intentionally tied to the analyzed build. Never apply
 // these RVAs/ABI layouts to an unknown client DLL.
 constexpr unsigned char kClientHash[] = {
-    0x9e,0x0f,0xd6,0xaa,0x19,0xa8,0xcb,0x49,0x1c,0x45,0xae,0x5e,0x9c,0xe3,0xd1,0x37,
-    0x16,0x89,0x2a,0x42,0xc5,0x78,0xe0,0xc4,0x91,0x1c,0xf9,0xc3,0xff,0xaa,0x67,0xee
+    0x07,0x10,0x33,0x41,0xbc,0x9e,0x0a,0xe2,0xc5,0x96,0xb2,0x92,0x90,0x75,0xc5,0x09,
+    0x4c,0xb3,0x97,0xd7,0xe3,0x70,0xea,0x00,0x98,0x6c,0x72,0x0e,0xd7,0x24,0x14,0xe1
 };
 template<class T> T & Field(void * p, size_t offset) {
     return *reinterpret_cast<T *>(static_cast<unsigned char *>(p) + offset);
@@ -113,7 +113,7 @@ void * FindPanelByClass(void * panel, const char * className, int depth = 0) {
 // Native Panorama weak handles keep restoration safe across layout teardown.
 void * ResolveUi(uint64_t handle) {
     if(!g_Base || handle == 0xFFFFFFFF00000000ULL) return nullptr;
-    auto engine = *reinterpret_cast<void **>(g_Base + 0x2725D40);
+    auto engine = *reinterpret_cast<void **>(g_Base + 0x2726C60);
     return engine ? reinterpret_cast<void * (__fastcall *)(void *, uint64_t *)>(
         Field<void **>(engine, 0)[34])(engine, &handle) : nullptr;
 }
@@ -170,8 +170,8 @@ void ApplyBuyStyles(void * menu) {
     // Spectator HUD color selectors have greater specificity than the native
     // buywheel-cant-buy selector. Exclude only disabled item content from that
     // tint; let buymenu.css provide its original icon/name/price colors.
-    const auto cantBuy = *reinterpret_cast<uint16_t *>(g_Base + 0x25BA450);
-    const auto cantAfford = *reinterpret_cast<uint16_t *>(g_Base + 0x25BA44C);
+    const auto cantBuy = *reinterpret_cast<uint16_t *>(g_Base + 0x25BA9D0);
+    const auto cantAfford = *reinterpret_cast<uint16_t *>(g_Base + 0x25BA9CC);
     for(int group = 0; group < 5; ++group) {
         int count = Field<int>(menu, 128 + 56 * group);
         auto records = Field<unsigned char *>(menu, 136 + 56 * group);
@@ -221,7 +221,7 @@ struct Scope {
 };
 bool InClient(void * address) {
     const auto rva = reinterpret_cast<uintptr_t>(address) - g_Base;
-    return rva < 0x298D000;
+    return rva < 0x298E000;
 }
 bool Visible(void * menu) {
     if(!menu) return false;
@@ -231,7 +231,7 @@ bool Visible(void * menu) {
 }
 void * ResolveMenu() {
     if(!g_Base || g_MenuHandle == 0xFFFFFFFF00000000ULL) return nullptr;
-    void * engine = *reinterpret_cast<void **>(g_Base + 0x2725D40);
+    void * engine = *reinterpret_cast<void **>(g_Base + 0x2726C60);
     if(!engine) return nullptr;
     auto panel = reinterpret_cast<void * (__fastcall *)(void *, uint64_t *)>(
         Field<void **>(engine, 0)[34])(engine, &g_MenuHandle);
@@ -239,7 +239,7 @@ void * ResolveMenu() {
     return reinterpret_cast<void * (__fastcall *)(void *)>(Field<void **>(panel, 0)[8])(panel);
 }
 void CacheMenu(void * menu) {
-    void * engine = *reinterpret_cast<void **>(g_Base + 0x2725D40);
+    void * engine = *reinterpret_cast<void **>(g_Base + 0x2726C60);
     auto panel = reinterpret_cast<void * (__fastcall *)(void *)>(Field<void **>(menu, 0)[0])(menu);
     uint64_t handle = 0xFFFFFFFF00000000ULL;
     g_MenuHandle = *reinterpret_cast<uint64_t * (__fastcall *)(void *, uint64_t *, void *)>(
@@ -421,7 +421,7 @@ void CaptureBuySnapshot(void * menu, const char * phase) {
     s.time = GetTickCount64();
     s.tick = g_LastTick;
     s.hovered = Field<int>(menu, 664);
-    auto promoted = *reinterpret_cast<void **>(g_Base + 0x251F9C0);
+    auto promoted = *reinterpret_cast<void **>(g_Base + 0x251FF40);
     if(promoted) s.promoEnabled = Field<uint8_t>(promoted, 88);
     s.promoSlot = Field<int>(menu, 640);
     s.item = Field<void *>(menu, 648);
@@ -468,7 +468,7 @@ void PrintBuySnapshots() {
     }
 }
 bool Dispatch(size_t creator) {
-    void * engine = *reinterpret_cast<void **>(g_Base + 0x2725D40);
+    void * engine = *reinterpret_cast<void **>(g_Base + 0x2726C60);
     if(!engine) return false;
     void * event = nullptr;
     reinterpret_cast<EventFn>(g_Base + creator)(&event, nullptr);
@@ -511,7 +511,7 @@ void * ObservedLoadout(void * inventory, unsigned int team, unsigned int slot) {
             auto record = records + i * 56;
             if(Field<uint16_t>(record, 48) == team && Field<uint16_t>(record, 50) == slot) {
                 auto item = reinterpret_cast<void * (__fastcall *)(void *, unsigned int, int, int)>(
-                    g_Base + 0x1132C40)(manager, Field<uint16_t>(record, 52), 0, 0);
+                    g_Base + 0x1132CA0)(manager, Field<uint16_t>(record, 52), 0, 0);
                 if(item) { ++g_LoadoutHits; return item; }
             }
         }
@@ -768,24 +768,24 @@ void MirvPovBuyMenu_Initialize(HMODULE module) {
         return;
     }
     g_Base = reinterpret_cast<uintptr_t>(module);
-    reinterpret_cast<void (__fastcall *)(uint16_t *, const char *)>(g_Base + 0x1781670)(
+    reinterpret_cast<void (__fastcall *)(uint16_t *, const char *)>(g_Base + 0x17816D0)(
         &g_HudWashClass, "hud-colorize-wash");
-    g_Open = reinterpret_cast<PanelFn>(g_Base + 0xDB1790);
-    g_Close = reinterpret_cast<PanelFn>(g_Base + 0xD9A920);
-    g_Refresh = reinterpret_cast<PanelFn>(g_Base + 0xDB4AE0);
-    g_FullRefresh = reinterpret_cast<PanelFn>(g_Base + 0xDB4B80);
-    g_Hover = reinterpret_cast<PanelFn>(g_Base + 0xDBBE30);
-    g_Think = reinterpret_cast<PanelFn>(g_Base + 0xDA2C70);
-    g_GetPawn = reinterpret_cast<GetterFn>(g_Base + 0x9667B0);
-    g_GetController = reinterpret_cast<GetterFn>(g_Base + 0x966770);
-    g_Loadout = reinterpret_cast<LoadoutFn>(g_Base + 0x900460);
-    g_LoadoutHover = reinterpret_cast<LoadoutFn>(g_Base + 0x9003C0);
-    g_Write = reinterpret_cast<WriteFn>(g_Base + 0xC8BBA0);
-    g_Purchase = reinterpret_cast<PurchaseFn>(g_Base + 0xDA3B80);
-    g_Sell = reinterpret_cast<SellFn>(g_Base + 0xDA3EC0);
-    g_Model = reinterpret_cast<ModelFn>(g_Base + 0xDBA640);
-    g_Select = reinterpret_cast<SelectFn>(g_Base + 0xDB1030);
-    g_SetModel = reinterpret_cast<SetModelFn>(g_Base + 0xE59380);
+    g_Open = reinterpret_cast<PanelFn>(g_Base + 0xDB17F0);
+    g_Close = reinterpret_cast<PanelFn>(g_Base + 0xD9A9D0);
+    g_Refresh = reinterpret_cast<PanelFn>(g_Base + 0xDB4B40);
+    g_FullRefresh = reinterpret_cast<PanelFn>(g_Base + 0xDB4BE0);
+    g_Hover = reinterpret_cast<PanelFn>(g_Base + 0xDBBE90);
+    g_Think = reinterpret_cast<PanelFn>(g_Base + 0xDA2D20);
+    g_GetPawn = reinterpret_cast<GetterFn>(g_Base + 0x9667C0);
+    g_GetController = reinterpret_cast<GetterFn>(g_Base + 0x966780);
+    g_Loadout = reinterpret_cast<LoadoutFn>(g_Base + 0x900470);
+    g_LoadoutHover = reinterpret_cast<LoadoutFn>(g_Base + 0x9003D0);
+    g_Write = reinterpret_cast<WriteFn>(g_Base + 0xC8BC10);
+    g_Purchase = reinterpret_cast<PurchaseFn>(g_Base + 0xDA3BE0);
+    g_Sell = reinterpret_cast<SellFn>(g_Base + 0xDA3F20);
+    g_Model = reinterpret_cast<ModelFn>(g_Base + 0xDBA6A0);
+    g_Select = reinterpret_cast<SelectFn>(g_Base + 0xDB1090);
+    g_SetModel = reinterpret_cast<SetModelFn>(g_Base + 0xE593E0);
     // Optional independently gated effect; unknown glove schema leaves the
     // existing buy-menu simulation available with native preview cosmetics.
     const auto & gloveOffsets = g_clientDllOffsets.C_CSPlayerPawn;
@@ -793,14 +793,14 @@ void MirvPovBuyMenu_Initialize(HMODULE module) {
         && gloveOffsets.m_bNeedToReApplyGloves == 0x179D
         && gloveOffsets.m_nEconGlovesChanged == 0x1D50;
     if(g_GlovesSupported) {
-        g_UpdatePreview = reinterpret_cast<UpdatePreviewFn>(g_Base + 0xE62AF0);
-        g_CopyItem = reinterpret_cast<CopyItemFn>(g_Base + 0x1181660);
-        g_EqualItems = reinterpret_cast<EqualItemsFn>(g_Base + 0x11821B0);
-        g_ClearItem = reinterpret_cast<ClearItemFn>(g_Base + 0x1197D00);
-        g_IsGloves = reinterpret_cast<ItemPredicateFn>(g_Base + 0x1197DA0);
+        g_UpdatePreview = reinterpret_cast<UpdatePreviewFn>(g_Base + 0xE62B50);
+        g_CopyItem = reinterpret_cast<CopyItemFn>(g_Base + 0x11816C0);
+        g_EqualItems = reinterpret_cast<EqualItemsFn>(g_Base + 0x1182210);
+        g_ClearItem = reinterpret_cast<ClearItemFn>(g_Base + 0x1197D60);
+        g_IsGloves = reinterpret_cast<ItemPredicateFn>(g_Base + 0x1197E00);
     }
     g_InputSupported = DiagnosticPanoramaSupported();
-    g_KeyInput = reinterpret_cast<KeyInputFn>(g_Base + 0xDA72F0);
+    g_KeyInput = reinterpret_cast<KeyInputFn>(g_Base + 0xDA7350);
     if(g_InputSupported) g_InputFocus = reinterpret_cast<InputFocusFn>(
         reinterpret_cast<uintptr_t>(GetModuleHandleW(L"panorama.dll")) + 0x13A4B0);
     DetourTransactionBegin();
@@ -1002,7 +1002,7 @@ void MirvPovBuyMenu_PrintStatus() {
                 }
                 const int result = reinterpret_cast<int (__fastcall *)(void *, void *, int, int *)>(
                     g_Base + 0x8BCFF0)(Field<void *>(g_Pawn, 0x12F8), item, 1, nullptr);
-                auto owned = reinterpret_cast<void * (__fastcall *)(void *, void *)>(g_Base + 0x8FB3F0)(
+                auto owned = reinterpret_cast<void * (__fastcall *)(void *, void *)>(g_Base + 0x8FB400)(
                     Field<void *>(g_Pawn, 0x12F0), item);
                 advancedfx::Message("[mirv_pov_buymenu] slot=%d definition=%u price=%d acquire=%d owned_weapon=%d\n",
                     Field<int>(record, 64), Field<uint16_t>(item, 442), Field<int>(record, 80), result, owned != nullptr);

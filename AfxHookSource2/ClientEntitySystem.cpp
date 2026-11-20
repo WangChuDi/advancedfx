@@ -588,7 +588,7 @@ CON_COMMAND(mirv_listentities, "List entities.")
 
 			entries.emplace_back(
 				MirvEntityEntry {
-					i, ent->GetHandle().ToInt(), 
+					i, static_cast<unsigned int>(ent->GetHandle().ToInt()),
 					debugName ? debugName : "", className ? className : "", clientClassName ? clientClassName : "",
 					SOURCESDK::Vector {render_origin[0], render_origin[1], render_origin[2]},
 					SOURCESDK::QAngle {render_angles[0], render_angles[1], render_angles[2]} 

@@ -193,7 +193,7 @@ static bool MirvPov_HookVoiceLocation(HMODULE clientDll) {
         return found.Start;
     };
     size_t formatter = findUnique("48 89 6C 24 ?? 48 89 74 24 ?? 48 89 7C 24 ?? 41 54 41 56 41 57 48 81 EC ?? ?? ?? ?? 49 8B F1");
-    size_t updater = findUnique("4C 8B DC 55 53 56 57 41 55 41 56 41 57 49 8D AB 68 F9 FF FF 48 81 EC 60 07 00 00");
+    size_t updater = findUnique("4C 8B DC 55 53 56 57 41 55 41 56 41 57 49 8D AB 08 F8 FF FF 48 81 EC C0 08 00 00");
     if(!formatter || !updater || formatter + 0x270 > text.End || updater + 0x800 > text.End) return false;
     // Verify the three-row cache layout, the exact formatter call and the
     // serial-checked speaker-pawn helper before touching cached row state.

@@ -1294,8 +1294,8 @@ void MirvPovKillReward_Initialize(HMODULE clientDll)
         // Its repeated-param count / item calls moved to +0xb5/+0xcc.
         // The older broad prologue now matches an unrelated function.
         const char * textMsgHandlerPattern =
-            "48 89 4C 24 08 55 41 55 41 56 48 8D AC 24 90 E9 FF FF "
-            "B8 70 17 00 00 E8 ?? ?? ?? ?? 48 2B E0 48 89 9C 24 68 17 00 00";
+            "48 89 4C 24 08 55 41 55 41 56 48 8D AC 24 30 E8 FF FF "
+            "B8 D0 18 00 00 E8 ?? ?? ?? ?? 48 2B E0 48 89 9C 24 C8 18 00 00";
         // Resolve the actual getter called by the native suppress check;
         // adjacent leaf getters are no longer interchangeable in this build.
         const char * getDemoControllerPattern =
