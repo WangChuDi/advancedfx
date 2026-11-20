@@ -24,7 +24,7 @@ void AfxHookSource2Rs_Engine_OnClientFrameStageNotify(int event_id, bool is_befo
 void AfxHookSourceRs_Engine_Load(const char * szFilePath);
 
 extern bool g_b_on_add_entity;
-void AfxHookSource2Rs_Engine_OnAddEntity(void * pEntityRef, int handle);
+void AfxHookSource2Rs_Engine_OnAddEntity(void * pEntityRef, unsigned int handle);
 
 extern bool g_b_on_remove_entity;
-void AfxHookSource2Rs_Engine_OnRemoveEntity(void * pEntityRef, int handle);
+void AfxHookSource2Rs_Engine_OnRemoveEntity(void * pEntityRef, unsigned int handle);
