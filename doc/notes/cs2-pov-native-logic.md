@@ -1,5 +1,13 @@
 # CS2 POV：游戏原生逻辑与修复记录
 
+## 2026-11-23：修复 POV 自动打开购买菜单时的崩溃
+
+- **发布说明**：修复 POV 自动打开购买菜单时的崩溃（CS2 `1.42.0.0`，Steam Build `26798866`）。
+- **构建**：`client.dll` SHA-256 `07103341bc9e0ae2c596b2929075c5094cb397d7e370ea00986c720ed72414e1`，image base `0x180000000`，CodeView `419b8bb8-78e2-4868-8a21-181abc984349/61`。以下均为 RVA，analysis VA = base + RVA。
+- **原生行为**：`EventOpenBuyMenu` 注册器 `0xFE3B0` 引用名字 `0x1CAD0D8`、事件 symbol `0x2236614`，并通过 `0xFE3E4` 的 `48 8D 05 rel32` 注册 creator `0xDAC410`（VA `0x180DAC410`）。creator 写入同一 symbol，使用 UI engine global `0x2726C60` 的 vtable `+0x108` 解析 panel 弱引用。注册器和 creator 都不是 detour，creator 仅由 POV 调用以构造原生事件。
+- **POV 行为**：当主 POV 和购买菜单模拟开启、目标存活且录像记录菜单打开、本机面板尚未建立时，`MirvPovBuyMenu_Update` 派发打开事件。旧目标 `0xDAADC0` 落在另一函数内，从指令中间执行，三份转储均在 `0xDAADC2` 读 `0x108` 崩溃。现改用真实入口 `0xDAC410`；保留原 hash/schema 门槛，安装前额外检查注册器 LEA 目标和 Windows unwind 函数入口一致，不符则只拒绝购买菜单模拟。`mirv_pov_buymenu 0|1`（默认关闭）、现有独立 feature 开关及 seek/切人/关闭时的清理不变。
+- **验证**：三份转储、旧 hook 的调用点和同版游戏 PE 一致；用户已复现旧版崩溃。Release x64 构建和静态入口检查通过。安装修复后，本机 `inferno_test.dem` 日志确认 `d875231e-dirty` 加载、购买菜单自动打开并关闭，随后正常退出；原始 `5.dem` 同位置和开关矩阵未复测。
+
 ## 2026-11-23：HudMoney 更新 hook 与击杀奖励
 
 - 验证基准为本机 Steam build `26798866`，`client.dll` SHA-256 `07103341bc9e0ae2c596b2929075c5094cb397d7e370ea00986c720ed72414e1`，image base `0x180000000`。以下均为该版 RVA，analysis VA = base + RVA。日志中的 HLAE Git 为 `ffc4d7ae`；日志未记录对方机器的 client 哈希。

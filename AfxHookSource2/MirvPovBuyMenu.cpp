@@ -22,6 +22,8 @@ constexpr unsigned char kClientHash[] = {
     0x07,0x10,0x33,0x41,0xbc,0x9e,0x0a,0xe2,0xc5,0x96,0xb2,0x92,0x90,0x75,0xc5,0x09,
     0x4c,0xb3,0x97,0xd7,0xe3,0x70,0xea,0x00,0x98,0x6c,0x72,0x0e,0xd7,0x24,0x14,0xe1
 };
+constexpr uintptr_t kOpenEventCreatorRva = 0xDAC410;
+constexpr uintptr_t kOpenEventCreatorReferenceRva = 0xFE3E4;
 template<class T> T & Field(void * p, size_t offset) {
     return *reinterpret_cast<T *>(static_cast<unsigned char *>(p) + offset);
 }
@@ -467,11 +469,11 @@ void PrintBuySnapshots() {
         }
     }
 }
-bool Dispatch(size_t creator) {
+bool DispatchOpenEvent() {
     void * engine = *reinterpret_cast<void **>(g_Base + 0x2726C60);
     if(!engine) return false;
     void * event = nullptr;
-    reinterpret_cast<EventFn>(g_Base + creator)(&event, nullptr);
+    reinterpret_cast<EventFn>(g_Base + kOpenEventCreatorRva)(&event, nullptr);
     if(!event) return false;
     reinterpret_cast<void (__fastcall *)(void *, void **)>(Field<void **>(engine, 0)[47])(engine, &event);
     return true;
@@ -759,6 +761,19 @@ bool MatchesBuild(HMODULE module, const unsigned char * expected) {
     CloseHandle(file);
     return ok;
 }
+
+bool ValidateOpenEventCreator(uintptr_t base) {
+    const auto * reference = reinterpret_cast<const uint8_t *>(base + kOpenEventCreatorReferenceRva);
+    const uint8_t lea[] = {0x48, 0x8D, 0x05};
+    if(0 != memcmp(reference, lea, sizeof(lea))) return false;
+    int32_t displacement = 0;
+    memcpy(&displacement, reference + sizeof(lea), sizeof(displacement));
+    const auto nextRva = static_cast<int64_t>(kOpenEventCreatorReferenceRva + sizeof(lea) + sizeof(displacement));
+    if(nextRva + displacement != static_cast<int64_t>(kOpenEventCreatorRva)) return false;
+    DWORD64 imageBase = 0;
+    const auto function = RtlLookupFunctionEntry(base + kOpenEventCreatorRva, &imageBase, nullptr);
+    return function && imageBase == base && function->BeginAddress == kOpenEventCreatorRva;
+}
 }
 
 void MirvPovBuyMenu_Initialize(HMODULE module) {
@@ -767,7 +782,12 @@ void MirvPovBuyMenu_Initialize(HMODULE module) {
         advancedfx::Warning("[mirv_pov_buymenu] unsupported client build/schema; simulation unavailable.\n");
         return;
     }
-    g_Base = reinterpret_cast<uintptr_t>(module);
+    const auto base = reinterpret_cast<uintptr_t>(module);
+    if(!ValidateOpenEventCreator(base)) {
+        advancedfx::Warning("[mirv_pov_buymenu] EventOpenBuyMenu creator validation failed; simulation unavailable.\n");
+        return;
+    }
+    g_Base = base;
     reinterpret_cast<void (__fastcall *)(uint16_t *, const char *)>(g_Base + 0x17816D0)(
         &g_HudWashClass, "hud-colorize-wash");
     g_Open = reinterpret_cast<PanelFn>(g_Base + 0xDB17F0);
@@ -926,7 +946,7 @@ void MirvPovBuyMenu_Update() {
     } else if(!g_Panel && !g_Pending) {
         g_Pending = true;
         g_PendingSince = GetTickCount64();
-        if(!Dispatch(0xDAADC0)) g_Pending = false;
+        if(!DispatchOpenEvent()) g_Pending = false;
     }
     if(auto menu = ResolveMenu()) {
         auto preview = Field<void *>(menu, 520);
