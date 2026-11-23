@@ -1,7 +1,12 @@
 #pragma once
 
 #include <Windows.h>
+#include <stdint.h>
 
+using MirvPovMoneyUpdate_t = void (__fastcall *)(void *);
+
+uintptr_t MirvPovHud_FindMoneyUpdate(HMODULE clientDll);
+bool MirvPovHud_EnsureMoneyUpdateHook(HMODULE clientDll);
 void MirvPovHud_ApplyPatches(HMODULE clientDll);
 void MirvPovHud_RemovePatches();
 void MirvPovHud_OnPanoramaDllLoaded(HMODULE panoramaDll);

@@ -2,9 +2,12 @@
 
 #include <Windows.h>
 
+#include "MirvPovHud.h"
+
 namespace SOURCESDK { namespace CS2 { class IGameEvent; } }
 
 void MirvPovKillReward_Initialize(HMODULE clientDll);
+void MirvPovKillReward_UpdateMoneyPanel(void * panel, MirvPovMoneyUpdate_t update);
 void MirvPovKillReward_HandleGameEvent(SOURCESDK::CS2::IGameEvent * event);
 void MirvPovKillReward_OnMoneyUpdate(
     int oldAccount,

@@ -1,5 +1,12 @@
 # CS2 POV：游戏原生逻辑与修复记录
 
+## 2026-11-23：HudMoney 更新 hook 与击杀奖励
+
+- 验证基准为本机 Steam build `26798866`，`client.dll` SHA-256 `07103341bc9e0ae2c596b2929075c5094cb397d7e370ea00986c720ed72414e1`，image base `0x180000000`。以下均为该版 RVA，analysis VA = base + RVA。日志中的 HLAE Git 为 `ffc4d7ae`；日志未记录对方机器的 client 哈希。
+- **游戏原生**：`CCSGOMoneyPanel` 更新 `0xEC7550` 内的 `0xEC757E`、`0xEC7590` 都调用 HUD pawn getter `0xC72780`；原生先读取并更新面板余额及控制器缓存（`+0x20/+0x24`），再从 `0xEC77DD` 检查允许购买、时间未到和处于可购买区域，分别调用 `0x754D80`、`0x764810`、`0x8D5120`。购买图标只在结果与 `+0x28` 缓存不同时触发原生 class 更新并写回缓存。这三个 predicate 仍为未 hook 的原生 helper。
+- **故障与 POV 实现**：`MirvPov_Enable` 先安装 HUD 的 detour，再初始化 killreward。两组原入口签名在未修改的 `.text` 中都唯一命中 `0xEC7550`，但前者安装后覆盖后者要匹配的 prologue。`MirvPovHud.cpp` 现在唯一定位并在安装前缓存入口，只装一个 updater detour；`MirvPovKillReward.cpp` 用同一入口检查两个 `E8` 的目标相同，再单独 hook getter。共享回调在原生更新前后采样余额，原生更新只调用一次，返回后 HUD 再同步当前面板购买区 class/cache。买区仍独立校验原生购买链、unwind 边界、RTTI 和缓存指令；两个功能的开关、禁用时的透传和既有清理不变。
+- **证据**：对真实 PE 验证入口唯一、两个 getter call、购买链同属该函数及 `+0x28` 比较/存储字节；在副本中用五字节跳转覆盖入口后，原签名不再命中，内部 getter call 和购买链仍可定位。未据此宣称已在游戏复验录像或 HUD 效果。
+
 ## 2026-10-29：购买菜单、拾取提示与雷达 C4 新版适配
 
 - 模块身份：client `08a741030c1e569d8b854c5886a87fcafc21d0d0e2f05dfd380e8a351171501d`；Panorama `f98c04a7a3cfb1a8a40a6d6bf3bdcc376d6c9fda0d4861354a0383a3cfd9a39e`，image base 均为 `0x180000000`。以下为 RVA，analysis VA = base + RVA。canonical client IDB 已保存、finalize 成功；旧版本记录继续保留。

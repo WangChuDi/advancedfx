@@ -116,10 +116,8 @@ bool ResolveCallTarget(
     uint8_t *& target);
 
 using GetHudMoneyPawn_t = CEntityInstance * (__fastcall *)();
-using MoneyPanelUpdate_t = void (__fastcall *)(void * This);
 
 GetHudMoneyPawn_t g_MoneyOrgGetHudMoneyPawn = nullptr;
-MoneyPanelUpdate_t g_MoneyOrgPanelUpdate = nullptr;
 void * g_MoneyPanelReturnAddresses[2] = {};
 bool g_MoneyHooked = false;
 thread_local bool g_InMoneyPanelUpdate = false;
@@ -155,7 +153,7 @@ CEntityInstance * __fastcall New_GetHudMoneyPawn()
     return nativePawn;
 }
 
-void __fastcall New_MoneyPanelUpdate(void * This)
+void ObserveMoneyPanelUpdate(void * This, MirvPovMoneyUpdate_t update)
 {
     int oldAccount = -1;
     int newAccount = -1;
@@ -171,7 +169,7 @@ void __fastcall New_MoneyPanelUpdate(void * This)
     bool previousInUpdate = g_InMoneyPanelUpdate;
     g_InMoneyPanelUpdate = true;
     __try {
-        g_MoneyOrgPanelUpdate(This);
+        update(This);
     } __finally {
         g_InMoneyPanelUpdate = previousInUpdate;
     }
@@ -284,58 +282,50 @@ void InitializeMoneyHook(HMODULE clientDll)
         return;
     }
 
-    // CCSGOMoneyPanel resolves the active pawn twice before reading the
-    // controller's account service. Redirect those pawn lookups to the POV
-    // pawn so the native account cache and money animation remain intact.
-    const char * moneyPanelUpdatePattern =
-        "40 56 57 48 83 EC 48 48 8B 35 ?? ?? ?? ?? 48 8B F9 "
-        "48 89 74 24 70 48 85 F6 0F 84 ?? ?? ?? ?? 48 89 6C 24 40 "
-        "4C 89 74 24 28 48 89 5C 24 60 E8 ?? ?? ?? ?? 45 33 F6 "
-        "BD FF 7F 00 00";
-    auto updateSequence = Afx::BinUtils::FindPatternString(textRange, moneyPanelUpdatePattern);
-    if(updateSequence.IsEmpty()) {
-        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] CSGOMoneyPanel update function was not found.\n");
-        return;
-    }
-    auto updateRemaining = Afx::BinUtils::MemRange(updateSequence.Start + 1, textRange.End);
-    if(!Afx::BinUtils::FindPatternString(updateRemaining, moneyPanelUpdatePattern).IsEmpty()) {
-        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] CSGOMoneyPanel update pattern is not unique.\n");
+    const auto entry = MirvPovHud_FindMoneyUpdate(clientDll);
+    if(entry < textRange.Start || entry >= textRange.End || textRange.End - entry < 0x45) {
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] No unique CSGOMoneyPanel update function was found.\n");
         return;
     }
 
-    uint8_t * update = reinterpret_cast<uint8_t *>(updateSequence.Start);
+    uint8_t * update = reinterpret_cast<uint8_t *>(entry);
     uint8_t * callSites[] = { update + 0x2e, update + 0x40 };
     uint8_t * getterTarget = nullptr;
     for(size_t i = 0; i < _countof(callSites); ++i) {
         uint8_t * target = nullptr;
         if(!ResolveCallTarget(callSites[i], textRange, target)
             || (nullptr != getterTarget && getterTarget != target)) {
-            memset(g_MoneyPanelReturnAddresses, 0, sizeof(g_MoneyPanelReturnAddresses));
             MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] HUD-pawn call set is invalid.\n");
             return;
         }
         getterTarget = target;
-        g_MoneyPanelReturnAddresses[i] = callSites[i] + 5;
     }
 
+    if(!MirvPovHud_EnsureMoneyUpdateHook(clientDll)) {
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] Shared CSGOMoneyPanel update detour failed.\n");
+        return;
+    }
+    if(NO_ERROR != DetourTransactionBegin()) return;
     g_MoneyOrgGetHudMoneyPawn = reinterpret_cast<GetHudMoneyPawn_t>(getterTarget);
-    g_MoneyOrgPanelUpdate = reinterpret_cast<MoneyPanelUpdate_t>(update);
-
-    DetourTransactionBegin();
-    DetourUpdateThread(GetCurrentThread());
-    DetourAttach(&(PVOID &)g_MoneyOrgGetHudMoneyPawn, New_GetHudMoneyPawn);
-    DetourAttach(&(PVOID &)g_MoneyOrgPanelUpdate, New_MoneyPanelUpdate);
+    if(NO_ERROR != DetourUpdateThread(GetCurrentThread())
+        || NO_ERROR != DetourAttach(&(PVOID &)g_MoneyOrgGetHudMoneyPawn, New_GetHudMoneyPawn)) {
+        DetourTransactionAbort();
+        g_MoneyOrgGetHudMoneyPawn = nullptr;
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] HUD-pawn detour failed.\n");
+        return;
+    }
     if(NO_ERROR != DetourTransactionCommit()) {
         g_MoneyOrgGetHudMoneyPawn = nullptr;
-        g_MoneyOrgPanelUpdate = nullptr;
-        memset(g_MoneyPanelReturnAddresses, 0, sizeof(g_MoneyPanelReturnAddresses));
-        MirvPovKillReward_SetMoneyHookAvailable(false);
-        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] HUD-pawn / account observer detour failed.\n");
+        MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_killreward] HUD-pawn detour failed.\n");
         return;
     }
 
+    for(size_t i = 0; i < _countof(callSites); ++i) {
+        g_MoneyPanelReturnAddresses[i] = callSites[i] + 5;
+    }
     g_MoneyHooked = true;
     MirvPovKillReward_SetMoneyHookAvailable(true);
+    MIRV_POV_DIAGNOSTIC_MESSAGE("[mirv_pov_killreward] HUD-pawn / account observer hooks installed.\n");
 }
 
 void ClearPending(const char * reason);
@@ -1153,6 +1143,12 @@ bool UpdateHudChatDemoBypass(bool enabled)
 }
 
 } // namespace
+
+void MirvPovKillReward_UpdateMoneyPanel(void * panel, MirvPovMoneyUpdate_t update)
+{
+    if(g_MoneyHooked) ObserveMoneyPanelUpdate(panel, update);
+    else update(panel);
+}
 
 bool MirvPovKillReward_PushHudChatText(
     const char * text,

@@ -6,6 +6,7 @@
 #include "ClientEntitySystem.h"
 #include "MirvPanorama.h"
 #include "MirvPovCore.h"
+#include "MirvPovKillReward.h"
 #include "Globals.h"
 #include "SchemaSystem.h"
 #include "../deps/release/prop/cs2/sdk_src/public/cdll_int.h"
@@ -929,8 +930,7 @@ static void MirvPovHud_SetSpectatorHotKeyLabelsVisible(bool visible) {
 }
 
 using MirvPovHud_BuyStatePredicate_t = bool (__fastcall *)(void *);
-using MirvPovHud_MoneyUpdate_t = void (__fastcall *)(void *);
-static MirvPovHud_MoneyUpdate_t g_OrgMoneyUpdate = nullptr;
+static MirvPovMoneyUpdate_t g_OrgMoneyUpdate = nullptr;
 static void * g_MoneyPanelClientVtable = nullptr;
 static bool g_MoneyUpdateHooked = false;
 
@@ -1026,8 +1026,8 @@ static void MirvPovHud_RefreshBuyZoneIcon(bool clear = false) {
 }
 
 static void __fastcall New_MoneyUpdate(void * client) {
-    g_OrgMoneyUpdate(client);
-    if(!MIRV_POV_FEATURE_ACTIVE("hud")) return;
+    MirvPovKillReward_UpdateMoneyPanel(client, g_OrgMoneyUpdate);
+    if(!g_MoneyPanelClientVtable || !MIRV_POV_FEATURE_ACTIVE("hud")) return;
     __try {
         auto panel = *reinterpret_cast<unsigned char **>(static_cast<unsigned char *>(client) + 8);
         if(panel && panel == MirvPovHud_GetMoneyPanel()) {
@@ -1039,11 +1039,46 @@ static void __fastcall New_MoneyUpdate(void * client) {
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 }
 
+uintptr_t MirvPovHud_FindMoneyUpdate(HMODULE clientDll) {
+    if(!clientDll) return 0;
+    static const auto entry = [](HMODULE module) -> uintptr_t {
+        Afx::BinUtils::ImageSectionsReader sections(module);
+        sections.Next(IMAGE_SCN_MEM_EXECUTE);
+        if(sections.Eof()) return 0;
+        const auto text = sections.GetMemRange();
+        const char * pattern =
+            "40 56 57 48 83 EC 48 48 8B 35 ?? ?? ?? ?? 48 8B F9 "
+            "48 89 74 24 70 48 85 F6 0F 84 ?? ?? ?? ?? 48 89 6C 24 40 "
+            "4C 89 74 24 28 48 89 5C 24 60 E8 ?? ?? ?? ?? 45 33 F6 "
+            "BD FF 7F 00 00";
+        const auto match = Afx::BinUtils::FindPatternString(text, pattern);
+        if(match.IsEmpty() || !Afx::BinUtils::FindPatternString(
+            Afx::BinUtils::MemRange(match.Start + 1, text.End), pattern).IsEmpty()) return 0;
+        return match.Start;
+    }(clientDll);
+    return entry;
+}
+
+bool MirvPovHud_EnsureMoneyUpdateHook(HMODULE clientDll) {
+    if(g_MoneyUpdateHooked) return true;
+    const auto entry = MirvPovHud_FindMoneyUpdate(clientDll);
+    if(!entry || NO_ERROR != DetourTransactionBegin()) return false;
+    g_OrgMoneyUpdate = reinterpret_cast<MirvPovMoneyUpdate_t>(entry);
+    if(NO_ERROR != DetourUpdateThread(GetCurrentThread())
+        || NO_ERROR != DetourAttach(&(PVOID &)g_OrgMoneyUpdate, New_MoneyUpdate)) {
+        DetourTransactionAbort();
+        g_OrgMoneyUpdate = nullptr;
+        return false;
+    }
+    g_MoneyUpdateHooked = NO_ERROR == DetourTransactionCommit();
+    if(!g_MoneyUpdateHooked) g_OrgMoneyUpdate = nullptr;
+    return g_MoneyUpdateHooked;
+}
+
 static void MirvPovHud_InstallMoneyUpdateHook(HMODULE clientDll) {
-    if(g_MoneyUpdateHooked) return;
+    if(g_MoneyPanelClientVtable) return;
     const auto site = MirvPovHud_GetBuyZoneCallSite();
-    const auto entry = getAddress(clientDll,
-        "40 56 57 48 83 EC 48 48 8B 35 ?? ?? ?? ?? 48 8B F9 48 89 74 24 70 48 85 F6 0F 84 ?? ?? ?? ?? 48 89 6C 24 40 4C 89 74 24");
+    const auto entry = MirvPovHud_FindMoneyUpdate(clientDll);
     DWORD64 imageBase = 0;
     auto function = site ? RtlLookupFunctionEntry(site, &imageBase, nullptr) : nullptr;
     bool entryMatches = false;
@@ -1080,15 +1115,7 @@ static void MirvPovHud_InstallMoneyUpdateHook(HMODULE clientDll) {
         MIRV_POV_DIAGNOSTIC_WARNING("[mirv_pov_hud] HudMoney update/cache validation failed.\n");
         return;
     }
-    g_OrgMoneyUpdate = reinterpret_cast<MirvPovHud_MoneyUpdate_t>(entry);
-    if(NO_ERROR != DetourTransactionBegin()) return;
-    if(NO_ERROR != DetourUpdateThread(GetCurrentThread())
-        || NO_ERROR != DetourAttach(&(PVOID &)g_OrgMoneyUpdate, New_MoneyUpdate)) {
-        DetourTransactionAbort();
-        return;
-    }
-    g_MoneyUpdateHooked = NO_ERROR == DetourTransactionCommit();
-    if(g_MoneyUpdateHooked) g_MoneyPanelClientVtable = panelVtable;
+    if(MirvPovHud_EnsureMoneyUpdateHook(clientDll)) g_MoneyPanelClientVtable = panelVtable;
 }
 
 static void MirvPovHud_ResetPanelState() {
