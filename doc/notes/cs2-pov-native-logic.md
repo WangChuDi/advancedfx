@@ -1,5 +1,12 @@
 # CS2 POV：游戏原生逻辑与修复记录
 
+## 2026-11-24：恢复 CS2 1.42.0.1 的 POV 购买菜单
+
+- **构建**：本机 Steam Build `26879581`，`StateFlags=4`，目标 Build ID 与已安装一致。`client.dll` SHA-256 `afe9cf1ffd9770831bedb0e6fc51e3f217b77358b8b537539ba1a1cd38502493`，image base `0x180000000`，image size `0x2996000`；`panorama.dll` SHA-256 `5b88e7873c1d860b6bfe06e949557142ac40b0a3c4ffdf990d591d7daa50bef6`。以下地址为 RVA，分析 VA 为模块首选基址加 RVA。
+- **原生行为**：`EventOpenBuyMenu` 注册器在 `0xFFFB4` 通过 `48 8D 05 rel32` 引用 creator `0xDB3410`；该入口的归一化指令与上一版修复后目标 `0xDAC410` 一致。creator 使用 UI engine global `0x272DC60` 的 `+0x108` 槽解析弱引用。creator 仅供 POV 派发事件，不是 detour；菜单的 Open/Close handler 则分别是 `0xDB6B80/0xD9FD60`。Refresh/FullRefresh 为 `0xDB9ED0/0xDB9F70`，Hover/Think 为 `0xDC1220/0xDA80B0`，Purchase/Sell 为 `0xDA8F70/0xDA92B0`。客户模块的输入入口是 `0xDAC6E0`；Panorama `CUIWindowInput` 的 19/22 号槽分别指向 `0x13A610/0x139CF0`，`CUIPanel` 的焦点和快照槽仍处于原索引。
+- **POV 实现**：`AfxHookSource2/MirvPovBuyMenu.cpp` 迁移两个模块的精确哈希、原生 hook 与辅助调用、促销状态 `0x2526F40` 以及不可购买/价格相关 class symbol `0x25C19D0/0x25C19CC`。载入目标装备调用 inventory manager `0x839930`、item definition lookup `0x11381E0` 与默认装备查找 `0x83C4E0`，不读取观看者的装备。预览沿用录制对象的 agent 和手套，手套 copy/equal/clear/is-gloves helper 为 `0x1186C60/0x11877B0/0x119D300/0x119D3A0`。Schema `m_bIsBuyMenuOpen/m_EconGloves/m_bNeedToReApplyGloves/m_nEconGlovesChanged` 仍是 `0x15EA/0x17A0/0x179D/0x1D50`。保留上一版的 creator 注册引用及 unwind 入口双校验，哈希或入口不符则拒绝安装该购买菜单适配。目标存活、录像菜单为打开且本机尚无菜单时才自动派发；开关、切人及 seek 清理策略不变，无新增效果。
+- **验证边界**：静态核对了 87 个 POV 字面签名的模块命中情况，以及 MVP 六条调用关系、语音地点更新的缓存指令与调用、击杀奖励 TextMsg 的重复参数调用。HudMoney `0xECCA30` 的两处 getter 调用仍指向同一入口 `0xC77410`，购买区三段判定及 `+0x28` 缓存比较和写回未变。购买菜单迁移依据为 PE 函数边界、归一化反汇编、原生调用关系、schema 与 Panorama RTTI。Release x64 `AfxHookSource2` 构建和 `git diff --check` 通过。此次未运行 CS2/HLAE、未安装 DLL，也未播放录像；上述静态检查不代表其他效果已通过实机回归。
+
 ## 2026-11-23：修复 POV 自动打开购买菜单时的崩溃
 
 - **发布说明**：修复 POV 自动打开购买菜单时的崩溃（CS2 `1.42.0.0`，Steam Build `26798866`）。
